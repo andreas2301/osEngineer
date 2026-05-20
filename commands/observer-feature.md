@@ -1,6 +1,6 @@
-# /observer:feature
+# /osEngineer:feature
 
-**Syntax:** `/observer:feature <ticket-id>`  
+**Syntax:** `/osEngineer:feature <ticket-id>`  
 **Role:** Developer agent (+ Planner + Reviewer + Judge)  
 **Output:** PR with atomic commits.
 
@@ -8,7 +8,7 @@
 
 ## Description
 
-Execute a feature from an existing `PHASE_PLAN.md`. Similar to `/observer:fix` but with full mandatory team for cross-cutting changes.
+Execute a feature from an existing `PHASE_PLAN.md`. Similar to `/osEngineer:fix` but with full mandatory team for cross-cutting changes.
 
 ## Steps
 
@@ -23,5 +23,5 @@ Execute a feature from an existing `PHASE_PLAN.md`. Similar to `/observer:fix` b
 ## Example
 
 ```
-/observer:feature OSP-124
+/osEngineer:feature OSP-124
 ```

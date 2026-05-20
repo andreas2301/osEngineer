@@ -1,6 +1,6 @@
-# GSD Phase Lifecycle Protocol
+# osEngineer Phase Lifecycle Protocol
 
-Adapted from [get-shit-done](https://github.com/gsd-build/get-shit-done). Integrated into osEngineer for cross-repo, multi-session engineering.
+Phase lifecycle adapted from [get-shit-done] (GSD)(https://github.com/gsd-build/get-shit-done). Integrated into osEngineer for cross-repo, multi-session engineering.
 
 ---
 

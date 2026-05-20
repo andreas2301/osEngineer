@@ -1,6 +1,6 @@
-# /observer:investigate
+# /osEngineer:investigate
 
-**Syntax:** `/observer:investigate <symptom>`  
+**Syntax:** `/osEngineer:investigate <symptom>`  
 **Role:** Researcher agent  
 **Output:** `RESEARCH.md` (or appended to existing).
 
@@ -23,7 +23,7 @@ Investigate a symptom, error, or unknown behavior. Uses graph queries, logs, and
 ## Example
 
 ```
-/observer:investigate "duplicate metrics collector registration attempted"
+/osEngineer:investigate "duplicate metrics collector registration attempted"
 ```
 
 Output:
@@ -31,5 +31,5 @@ Output:
 Hypothesis: promauto registers on DefaultRegisterer at init-time.
 Test creates custom registry and tries to re-register → duplicate error.
 Fix: Test should verify via Gather() or testutil, not re-register.
-Recommended: /observer:plan "Fix strategist metrics test pattern"
+Recommended: /osEngineer:plan "Fix strategist metrics test pattern"
 ```

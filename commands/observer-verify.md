@@ -1,6 +1,6 @@
-# /observer:verify
+# /osEngineer:verify
 
-**Syntax:** `/observer:verify <phase-id>`  
+**Syntax:** `/osEngineer:verify <phase-id>`  
 **Role:** Developer agent (self-verify) + Reviewer spot-check  
 **Output:** `VERIFICATION.md`
 
@@ -18,10 +18,10 @@ Run the verification protocol for a completed phase. Validates that acceptance c
 4. Run e2e tracer bullet (if defined in plan).
 5. Check metrics (token cost, wall-clock time, coverage).
 6. Write `VERIFICATION.md`.
-7. If any criterion fails, mark phase as `partial` and recommend `/observer:fix`.
+7. If any criterion fails, mark phase as `partial` and recommend `/osEngineer:fix`.
 
 ## Example
 
 ```
-/observer:verify phase-033
+/osEngineer:verify phase-033
 ```

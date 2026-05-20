@@ -26,10 +26,10 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 
 ## Quick Start
 
-1. **Discovery:** Run `/observer:investigate <symptom>` to understand the current state.
-2. **Plan:** Run `/observer:plan <goal>` to generate a `PHASE_PLAN.md`.
-3. **Execute:** Run `/observer:fix <ticket>` or `/observer:feature <ticket>` to execute a planned phase.
-4. **Verify:** Run `/observer:verify <phase>` to validate deliverables.
+1. **Discovery:** Run `/osEngineer:investigate <symptom>` to understand the current state.
+2. **Plan:** Run `/osEngineer:plan <goal>` to generate a `PHASE_PLAN.md`.
+3. **Execute:** Run `/osEngineer:fix <ticket>` or `/osEngineer:feature <ticket>` to execute a planned phase.
+4. **Verify:** Run `/osEngineer:verify <phase>` to validate deliverables.
 
 ---
 
@@ -45,7 +45,7 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 - `agents/tech-writer.md` — docs & contract authoring
 - `agents/researcher.md` — discovery & graph query agent
 - `agents/planner.md` — phase planning agent
-- `planning/PROTOCOL.md` — GSD phase lifecycle
+- `planning/PROTOCOL.md` — osEngineer phase lifecycle
 - `discovery/repo-discovery.md` — auto-discover project repos
 - `trust/circuit-breakers.md` — token budget & abort rules
 - `trust/hitl-gates.md` — human-in-the-loop protocol

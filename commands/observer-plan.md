@@ -1,6 +1,6 @@
-# /observer:plan
+# /osEngineer:plan
 
-**Syntax:** `/observer:plan <goal-description>`  
+**Syntax:** `/osEngineer:plan <goal-description>`  
 **Role:** Planner agent (+ Researcher for context)  
 **Output:** `PHASE_PLAN.md` in `planning/active/phase-XXX/`
 
@@ -8,7 +8,7 @@
 
 ## Description
 
-Generate a `PHASE_PLAN.md` for a given goal. This is the planning phase of GSD.
+Generate a `PHASE_PLAN.md` for a given goal. This is the planning phase of osEngineer.
 
 ## Steps
 
@@ -21,7 +21,7 @@ Generate a `PHASE_PLAN.md` for a given goal. This is the planning phase of GSD.
 ## Example
 
 ```
-/observer:plan "Implement ADR-033 retry-with-backoff for fleet executor"
+/osEngineer:plan "Implement ADR-033 retry-with-backoff for fleet executor"
 ```
 
 ## Constraints

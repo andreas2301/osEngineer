@@ -1,6 +1,6 @@
-# /observer:fix
+# /osEngineer:fix
 
-**Syntax:** `/observer:fix <ticket-id>`  
+**Syntax:** `/osEngineer:fix <ticket-id>`  
 **Role:** Developer agent (+ Reviewer + Red-Team-Local)  
 **Output:** PR with atomic commits.
 
@@ -31,5 +31,5 @@ Execute a fix from an existing `PHASE_PLAN.md`. Dispatches the developer agent t
 ## Example
 
 ```
-/observer:fix OSP-123
+/osEngineer:fix OSP-123
 ```

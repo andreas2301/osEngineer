@@ -1,6 +1,6 @@
-# /observer:init
+# /osEngineer:init
 
-**Syntax:** `/observer:init <project-root>`  
+**Syntax:** `/osEngineer:init <project-root>`  
 **Role:** Researcher agent  
 **Output:** `RESEARCH.md` in `planning/active/`
 
@@ -22,7 +22,7 @@ Initialize osEngineer on a new project. Discovers repos, ADRs, graphs, and build
 ## Example
 
 ```
-/observer:init /opt/sovereign-shield
+/osEngineer:init /opt/sovereign-shield
 ```
 
 Output:

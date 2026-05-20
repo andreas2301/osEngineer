@@ -19,7 +19,7 @@ When osEngineer starts a new session:
 
 If NO previous session data exists:
 
-1. Run `/observer:init` on the project.
+1. Run `/osEngineer:init` on the project.
 2. Build `RESEARCH.md` from scratch.
 3. Ask human: "What phase should I work on?"
 

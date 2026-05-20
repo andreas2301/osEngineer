@@ -20,7 +20,7 @@ osEngineer implements all 7 layers required for platform-quality engineering.
 osEngineer/
 ├── SKILL.md              # Manifest & entry point
 ├── AGENTS.md             # Agent catalog
-├── planning/             # GSD phase lifecycle + templates
+├── planning/             # osEngineer phase lifecycle + templates
 ├── agents/               # Role-based agent definitions
 │   ├── developer.md      [MANDATORY]
 │   ├── reviewer.md       [MANDATORY]
@@ -33,7 +33,7 @@ osEngineer/
 │   ├── dba.md            [OPTIONAL — compacted]
 │   ├── qa.md             [OPTIONAL — compacted]
 │   └── ui-ux-designer.md [OPTIONAL — compacted]
-├── commands/             # Slash commands (/observer:*)
+├── commands/             # Slash commands (/osEngineer:*)
 ├── discovery/            # Project discovery, graphify, context7
 ├── specs/                # Spec-driven development templates
 ├── memory/               # Cross-session persistence protocol
@@ -74,7 +74,7 @@ osEngineer/
 ├── README.md             # This file
 ├── AGENTS.md             # Agent catalog
 ├── install.sh            # Installation script
-├── planning/             # GSD phase lifecycle + templates
+├── planning/             # osEngineer phase lifecycle + templates
 │   ├── README.md
 │   ├── INDEX.md
 │   └── TEMPLATES/        # PHASE_PLAN, RESEARCH, VERIFICATION, RETROSPECTIVE
@@ -92,7 +92,7 @@ osEngineer/
 │   ├── dba.md            [OPTIONAL — compacted]
 │   ├── qa.md             [OPTIONAL — compacted]
 │   └── ui-ux-designer.md [OPTIONAL — compacted]
-├── commands/             # Slash commands (/observer:*)
+├── commands/             # Slash commands (/osEngineer:*)
 │   ├── README.md
 │   ├── INDEX.md
 │   ├── observer-init.md

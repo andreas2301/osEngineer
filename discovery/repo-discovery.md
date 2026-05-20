@@ -1,7 +1,7 @@
 # Repo Discovery Protocol
 
 **Agent:** Researcher  
-**Trigger:** `/observer:init` or first run on new project  
+**Trigger:** `/osEngineer:init` or first run on new project  
 **Output:** `RESEARCH.md` with repo topology
 
 ---
