@@ -1,0 +1,8 @@
+# planning/ INDEX
+
+- [PROTOCOL.md](PROTOCOL.md) — GSD phase lifecycle protocol
+- [TEMPLATES/](TEMPLATES/)
+  - [PHASE_PLAN.md](TEMPLATES/PHASE_PLAN.md) — Task breakdown template
+  - [RESEARCH.md](TEMPLATES/RESEARCH.md) — Research findings template
+  - [VERIFICATION.md](TEMPLATES/VERIFICATION.md) — Verification template
+  - [RETROSPECTIVE.md](TEMPLATES/RETROSPECTIVE.md) — Retrospective template

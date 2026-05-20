@@ -42,6 +42,104 @@ osEngineer/
 └── integrations/         # Optional MCP integrations (compacted)
 ```
 
+## Installation
+
+```bash
+# Install on a specific project
+./install.sh /path/to/project
+
+# Install on all workbench repos
+./install.sh --workbench
+
+# Install global git hooks
+./install.sh --global
+
+# Install everywhere (workbench + global + /opt/sovereign-shield)
+./install.sh --all
+```
+
+The install script is idempotent. It:
+- Configures `git safe.directory` for all discovered repos
+- Symlinks git hooks (graphify rebuild, schema lint)
+- Creates `planning/active/` and `planning/completed/` directories
+- Copies planning templates if missing
+
+## Directory Structure
+
+Every directory has a `README.md` (human-readable overview) and `INDEX.md` (bot-navigable file list):
+
+```
+osEngineer/
+├── SKILL.md              # Skill manifest & entry point
+├── README.md             # This file
+├── AGENTS.md             # Agent catalog
+├── install.sh            # Installation script
+├── planning/             # GSD phase lifecycle + templates
+│   ├── README.md
+│   ├── INDEX.md
+│   └── TEMPLATES/        # PHASE_PLAN, RESEARCH, VERIFICATION, RETROSPECTIVE
+├── agents/               # Role-based agent definitions
+│   ├── README.md
+│   ├── INDEX.md
+│   ├── developer.md      [MANDATORY]
+│   ├── reviewer.md       [MANDATORY]
+│   ├── judge.md          [MANDATORY]
+│   ├── red-team-local.md [MANDATORY]
+│   ├── red-team-architect.md [MANDATORY]
+│   ├── tech-writer.md    [MANDATORY]
+│   ├── researcher.md     [MANDATORY]
+│   ├── planner.md        [MANDATORY]
+│   ├── dba.md            [OPTIONAL — compacted]
+│   ├── qa.md             [OPTIONAL — compacted]
+│   └── ui-ux-designer.md [OPTIONAL — compacted]
+├── commands/             # Slash commands (/observer:*)
+│   ├── README.md
+│   ├── INDEX.md
+│   ├── observer-init.md
+│   ├── observer-plan.md
+│   ├── observer-fix.md
+│   ├── observer-feature.md
+│   ├── observer-investigate.md
+│   └── observer-verify.md
+├── discovery/            # Project discovery, graphify, context7
+│   ├── README.md
+│   ├── INDEX.md
+│   ├── repo-discovery.md
+│   ├── graphify-integration.md
+│   ├── context7-integration.md
+│   ├── adr-catalog-protocol.md
+│   └── sovereign-shield-repo-map.yml
+├── specs/                # Spec-driven development
+│   ├── README.md
+│   ├── INDEX.md
+│   ├── PROTOCOL.md
+│   ├── TEMPLATES/
+│   └── SCHEMAS/
+├── memory/               # Cross-session persistence
+│   ├── README.md
+│   ├── INDEX.md
+│   ├── PROTOCOL.md
+│   ├── retrospectives/
+│   └── patterns/
+├── trust/                # Circuit breakers, HITL gates
+│   ├── README.md
+│   ├── INDEX.md
+│   ├── circuit-breakers.md
+│   └── hitl-gates.md
+├── hooks/                # Automation hooks
+│   ├── README.md
+│   ├── INDEX.md
+│   ├── post-commit-graphify.sh
+│   └── pre-commit-schema-lint.sh
+└── integrations/         # Optional MCP integrations (compacted)
+    ├── README.md
+    ├── INDEX.md
+    ├── confluence-mcp.md
+    ├── vault-mcp.md
+    ├── playwright-mcp.md
+    └── openspace-mcp.md
+```
+
 ## Usage
 
 ### 1. Initialize on a project

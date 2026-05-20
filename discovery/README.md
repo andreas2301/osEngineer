@@ -1,0 +1,13 @@
+# discovery/
+
+Discovery and research layer. Converts unknown codebases into structured knowledge.
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `repo-discovery.md` | Auto-discover repos, classify them, build repo map |
+| `graphify-integration.md` | Query and maintain graphify knowledge graphs |
+| `context7-integration.md` | Use Context7 MCP for code documentation |
+| `adr-catalog-protocol.md` | Read and write ADR catalogs |
+| `sovereign-shield-repo-map.yml` | Sovereign Shield specific: 28-repo topology |
