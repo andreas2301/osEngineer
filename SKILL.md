@@ -32,6 +32,7 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 4. **Execute:** Run `/osEngineer:fix <ticket>` or `/osEngineer:feature <ticket>` to execute a planned phase.
 5. **Verify:** Run `/osEngineer:verify <phase>` to validate deliverables.
 6. **Evolve:** Run `/osEngineer:evolve` to improve the skill itself (HITL, auto-nudge at 5 phases).
+7. **Explain:** Run `/osEngineer:explain [topic]` to learn how osEngineer works, what artifacts it creates, and which commands are available.
 
 ---
 

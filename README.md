@@ -36,7 +36,7 @@ osEngineer implements all 7 layers required for platform-quality engineering.
 
 ```bash
 # Clone the skill
-git clone https://github.com/DishbrainLC/osEngineer.git
+git clone https://github.com/andreas2301/osEngineer.git
 cd osEngineer
 
 # Install on a specific project
@@ -50,6 +50,17 @@ cd osEngineer
 ```
 
 The install script is idempotent. It configures `git safe.directory`, symlinks hooks, creates planning directories, and wires zeroclaw repo settings.
+
+To remove osEngineer wiring from a project:
+
+```bash
+./uninstall.sh /path/to/your/project
+./uninstall.sh --workbench
+./uninstall.sh --global
+./uninstall.sh --all
+```
+
+The uninstall script asks before deleting planning directories that may contain your work.
 
 ## Usage
 
@@ -98,6 +109,17 @@ Runs verification protocol: tests, e2e tracer bullets, cost recalibration.
 ```
 
 Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto-nudges you with 3 improvement options. You select one, skip, or propose your own. Accepted proposals are appended to `memory/patterns/`.
+
+### Explain (built-in help)
+
+```
+/osEngineer:explain
+/osEngineer:explain artifacts
+/osEngineer:explain commands
+/osEngineer:explain lifecycle
+```
+
+Explains how osEngineer works, what artifacts it creates, which commands are available, and how the skill lifecycle flows. Use this anytime you need a refresher.
 
 ## Architecture
 
