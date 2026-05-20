@@ -1,244 +1,409 @@
 #!/usr/bin/env bash
-# install.sh — Install osEngineer skill and wire into target project(s).
+# install.sh — Install osEngineer wiring into a target repo or workbench.
 #
 # Usage:
-#   ./install.sh /path/to/project              # Install on a project
-#   ./install.sh --workbench                   # Install on workbench repos
-#   ./install.sh --global                      # Install global git hooks
-#   ./install.sh --all                         # All of the above
+#   ./install.sh <repo-path>            Initialise a single repo
+#   ./install.sh --workbench <path>     Initialise every .git repo under <path>
+#   ./install.sh --workbench            Same, defaults workbench to parent of this skill
+#   ./install.sh --all                  --workbench plus /opt/sovereign-shield if present
+#   ./install.sh --global               Install osEngineer git hooks as global hooks
 #
-# This script is idempotent. Re-running is safe.
+# Idempotent. Re-run safely after pulling an osEngineer update.
+#
+# What gets installed per repo:
+#   1. .osengineer/state.yml            phase=idle, current_team=null, budget_used=0
+#   2. .osengineer/evolution-counter.yml
+#   3. .osengineer/handoffs/.gitkeep
+#   4. .osengineer/bypass-log.jsonl (touched empty)
+#   5. .git/hooks/{commit-msg,pre-commit,post-commit} ← copies of osEngineer-* scripts
+#   6. .claude/agents/*.md              ← copies of mandatory agent role files
+#   7. .claude/settings.json            ← merged (never overwritten); 6 Claude hooks wired
+#   8. AGENTS.md (root)                 ← template dropped if absent (with osEngineer frontmatter)
+#   9. CLAUDE.md (root)                 ← osEngineer section appended if absent
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_PROJECT=""
-MODE=""
+HOOKS_DIR="$SCRIPT_DIR/hooks"
+AGENTS_DIR="$SCRIPT_DIR/agents"
+VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "0.0.0-dev")"
 
-# Parse args
+# Mandatory agents — copied into every initialised repo's .claude/agents/
+MANDATORY_AGENTS=(
+  developer.md reviewer.md judge.md
+  red-team-local.md red-team-architect.md
+  tech-writer.md researcher.md planner.md
+  live-system-operator.md metrics-onboarding.md
+  topology-validator.md cert-monitor.md
+  health-verifier.md scope-manager.md
+)
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+log() { printf '[osEngineer] %s\n' "$*"; }
+warn() { printf '[osEngineer] WARNING: %s\n' "$*" >&2; }
+fail() { printf '[osEngineer] ERROR: %s\n' "$*" >&2; exit 1; }
+
+ensure_git() {
+  command -v git >/dev/null 2>&1 || fail "git not found in PATH"
+}
+
+ensure_node() {
+  command -v node >/dev/null 2>&1 || fail "node not found in PATH (required for osEngineer Claude hooks)"
+}
+
+# ── Core: per-repo init ────────────────────────────────────────────────────
+
+init_repo() {
+  local repo="$1"
+  local repo_name
+  repo_name="$(basename "$repo")"
+
+  [ -d "$repo" ] || { warn "$repo does not exist — skipping"; return 0; }
+  [ -d "$repo/.git" ] || { warn "$repo is not a git repo — skipping"; return 0; }
+
+  log "── initialising $repo_name ──"
+
+  # 1. .osengineer/ subdirs and files
+  mkdir -p "$repo/.osengineer/handoffs"
+  if [ ! -f "$repo/.osengineer/state.yml" ]; then
+    cat > "$repo/.osengineer/state.yml" <<YAML
+# osEngineer state — managed by bin/osengineer; safe to inspect, editing by hand discouraged.
+phase: idle
+current_team: null
+budget_used: 0
+osengineer_version: $VERSION
+YAML
+    log "  + .osengineer/state.yml"
+  fi
+  if [ ! -f "$repo/.osengineer/evolution-counter.yml" ]; then
+    cat > "$repo/.osengineer/evolution-counter.yml" <<YAML
+# Incremented by osEngineer-post-commit hook. Auto-nudge fires at >= 5.
+phases_since_last_evolution: 0
+total_evolutions_accepted: 0
+YAML
+    log "  + .osengineer/evolution-counter.yml"
+  fi
+  touch "$repo/.osengineer/handoffs/.gitkeep"
+  touch "$repo/.osengineer/bypass-log.jsonl"
+
+  # 2. Git hooks — copy (not symlink) for portability across OSes
+  local ghooks="$repo/.git/hooks"
+  if [ -d "$ghooks" ]; then
+    install_git_hook "$HOOKS_DIR/osEngineer-validate-commit.sh" "$ghooks/commit-msg"
+    install_git_hook "$HOOKS_DIR/osEngineer-pre-commit.sh"      "$ghooks/pre-commit"
+    install_git_hook "$HOOKS_DIR/osEngineer-post-commit.sh"     "$ghooks/post-commit"
+    log "  + git hooks: commit-msg, pre-commit, post-commit"
+  else
+    warn "$repo/.git/hooks does not exist — git hooks not installed"
+  fi
+
+  # 3. Agent files
+  mkdir -p "$repo/.claude/agents"
+  local copied=0
+  for agent in "${MANDATORY_AGENTS[@]}"; do
+    if [ -f "$AGENTS_DIR/$agent" ]; then
+      cp "$AGENTS_DIR/$agent" "$repo/.claude/agents/$agent"
+      copied=$((copied + 1))
+    fi
+  done
+  log "  + $copied agent files → .claude/agents/"
+
+  # 4. .claude/settings.json — merge (never overwrite)
+  install_claude_settings "$repo"
+
+  # 5. git safe.directory (idempotent)
+  git config --global --add safe.directory "$repo" 2>/dev/null || true
+
+  # 6. AGENTS.md template at root if absent
+  if [ ! -f "$repo/AGENTS.md" ]; then
+    cat > "$repo/AGENTS.md" <<MD
+---
+scope: repo
+schema_version: 1
+architect: true
+osengineer_version: $VERSION
+teams: []  # populated in P3 — run \`osengineer init\` after P3 lands to auto-detect
+phase_state_file: ./.osengineer/state.yml
+---
+
+# $repo_name — osEngineer repo manifest
+
+This file is the architect/orchestrator for $repo_name. The frontmatter is
+machine-parseable by osEngineer hooks; the prose below is for humans.
+
+## Teams
+
+(Auto-detection of folder→team mapping ships in osEngineer P3. Until then,
+this manifest acts as a placeholder declaring osEngineer initialisation only.)
+
+## How osEngineer works in this repo
+
+- **Phase state** lives in \`.osengineer/state.yml\`.
+- **Cross-team handoffs** live in \`.osengineer/handoffs/HO-*.md\`.
+- **Conventional Commits** are enforced by the \`commit-msg\` git hook.
+- **Destructive bash** (rm -rf, force-push, etc.) is blocked without an
+  active 4-part plan in \`.osengineer/current-plan.md\`.
+- **Override any rule** with \`OSE_BYPASS=1\` — logged to \`.osengineer/bypass-log.jsonl\`.
+
+Run \`osengineer explain hooks\` for the full enforcement layer summary.
+MD
+    log "  + AGENTS.md (repo template)"
+  fi
+
+  # 7. CLAUDE.md osEngineer section
+  if [ ! -f "$repo/CLAUDE.md" ]; then
+    cat > "$repo/CLAUDE.md" <<MD
+# $repo_name
+
+## osEngineer
+
+This repo is initialised with osEngineer. See \`AGENTS.md\` for the team layout
+and \`.osengineer/state.yml\` for current phase state. Run \`osengineer explain\`
+for the concept overview.
+
+## graphify
+
+If \`graphify-out/\` exists, read \`graphify-out/GRAPH_REPORT.md\` for god nodes
+and community structure before grepping raw files. The \`osEngineer-post-commit\`
+hook auto-rebuilds graphify (AST-only) on default-branch commits.
+MD
+    log "  + CLAUDE.md"
+  elif ! grep -q '## osEngineer' "$repo/CLAUDE.md"; then
+    cat >> "$repo/CLAUDE.md" <<MD
+
+## osEngineer
+
+This repo is initialised with osEngineer. See \`AGENTS.md\` for team layout and
+\`.osengineer/state.yml\` for current phase state. Run \`osengineer explain\`.
+MD
+    log "  + osEngineer section appended to CLAUDE.md"
+  fi
+}
+
+install_git_hook() {
+  local src="$1"
+  local dst="$2"
+  [ -f "$src" ] || { warn "missing hook source $src"; return 0; }
+
+  if [ -f "$dst" ] && ! head -3 "$dst" 2>/dev/null | grep -q 'osEngineer'; then
+    # Preserve existing non-osEngineer hook by chaining
+    mv "$dst" "$dst.pre-osengineer"
+    cat > "$dst" <<EOF
+#!/usr/bin/env bash
+# osEngineer hook dispatcher — runs osEngineer-* then the pre-existing hook.
+"$dst.pre-osengineer" "\$@" || exit \$?
+EOF
+    cat "$src" >> "$dst"
+  else
+    cp "$src" "$dst"
+  fi
+  chmod +x "$dst"
+}
+
+install_claude_settings() {
+  local repo="$1"
+  local cfg="$repo/.claude/settings.json"
+  mkdir -p "$(dirname "$cfg")"
+
+  # Inline Node script merges osEngineer hook entries without overwriting user config.
+  OSE_HOOKS_DIR="$HOOKS_DIR" OSE_VERSION="$VERSION" OSE_SETTINGS_PATH="$cfg" node <<'NODE'
+const fs = require('fs');
+const path = require('path');
+
+const hooksDir = process.env.OSE_HOOKS_DIR;
+const settingsPath = process.env.OSE_SETTINGS_PATH;
+const version = process.env.OSE_VERSION;
+
+function cmd(file) {
+  return `node "${path.join(hooksDir, file)}"`;
+}
+
+const oseEntries = {
+  UserPromptSubmit: [{
+    hooks: [{ type: 'command', command: cmd('osEngineer-prompt-guard.js'), description: 'osEngineer phase state injection' }],
+  }],
+  PreToolUse: [
+    {
+      matcher: 'Write|Edit|NotebookEdit',
+      hooks: [
+        { type: 'command', command: cmd('osEngineer-pre-edit-guard.js'), description: 'osEngineer phase-gate & owns_paths' },
+        { type: 'command', command: cmd('osEngineer-read-guard.js'), description: 'osEngineer read-before-edit advisory' },
+      ],
+    },
+    {
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: cmd('osEngineer-pre-bash-guard.js'), description: 'osEngineer destructive-bash guard' }],
+    },
+  ],
+  PostToolUse: [{
+    hooks: [{ type: 'command', command: cmd('osEngineer-post-tool.js'), description: 'osEngineer context monitor + budget tracker' }],
+  }],
+  SessionStart: [{
+    hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'osEngineer-session-start.js')}"`, description: 'osEngineer banner' }],
+  }],
+};
+
+let existing = {};
+if (fs.existsSync(settingsPath)) {
+  try { existing = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); }
+  catch (e) { console.error('osEngineer: settings.json malformed, leaving as-is'); process.exit(0); }
+}
+
+existing.hooks = existing.hooks || {};
+
+function isOseEntry(entry) {
+  if (!entry || !Array.isArray(entry.hooks)) return false;
+  return entry.hooks.some(h => typeof h?.command === 'string' && h.command.includes('osEngineer-'));
+}
+
+for (const [event, oseList] of Object.entries(oseEntries)) {
+  const existingList = (existing.hooks[event] || []).filter(e => !isOseEntry(e));
+  existing.hooks[event] = [...existingList, ...oseList];
+}
+
+existing.statusLine = existing.statusLine || {
+  type: 'command',
+  command: `node "${path.join(hooksDir, 'osEngineer-statusline.js')}"`,
+  padding: 0,
+};
+if (existing.statusLine?.command?.includes('osEngineer-statusline')) {
+  // Already osEngineer's; refresh path in case of skill move
+  existing.statusLine.command = `node "${path.join(hooksDir, 'osEngineer-statusline.js')}"`;
+}
+
+existing.env = existing.env || {};
+existing.env.OSENGINEER_HOME = path.resolve(hooksDir, '..');
+existing.env.OSENGINEER_VERSION = version;
+
+fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n');
+console.log('  + .claude/settings.json merged');
+NODE
+}
+
+# ── Workbench mode ─────────────────────────────────────────────────────────
+
+init_workbench() {
+  local root="${1:-$(dirname "$SCRIPT_DIR")}"
+  [ -d "$root" ] || fail "workbench root $root does not exist"
+
+  log "workbench root: $root"
+
+  # META detection
+  local meta_repo=""
+  for candidate in "$root"/*; do
+    [ -d "$candidate/.git" ] || continue
+    local readme="$candidate/README.md"
+    if [ -f "$readme" ] && grep -qiE 'source of truth' "$readme" 2>/dev/null; then
+      meta_repo="$candidate"
+      log "META repo detected: $(basename "$candidate")"
+      break
+    fi
+    if [ -d "$candidate/plans" ] && [ -d "$candidate/teams" ]; then
+      meta_repo="$candidate"
+      log "META repo detected (by /plans+/teams): $(basename "$candidate")"
+      break
+    fi
+  done
+
+  # Workbench-level AGENTS.md
+  if [ ! -f "$root/AGENTS.md" ]; then
+    local meta_block=""
+    [ -n "$meta_repo" ] && meta_block="meta_ref:
+  path: ./$(basename "$meta_repo")
+  role: codified-source-of-truth"
+    cat > "$root/AGENTS.md" <<YAML
+---
+scope: workbench
+schema_version: 1
+osengineer_version: $VERSION
+$meta_block
+cross_repo_handoffs_dir: ./.osengineer/handoffs/
+---
+
+# Workbench — $(basename "$root")
+
+osEngineer-initialised workbench. See \`.osengineer/\` for cross-repo state and
+\`./<repo>/AGENTS.md\` for each repo's team manifest.
+YAML
+    log "+ workbench AGENTS.md"
+  fi
+  mkdir -p "$root/.osengineer/handoffs"
+  touch "$root/.osengineer/handoffs/.gitkeep"
+
+  # Iterate repos
+  for repo in "$root"/*; do
+    [ -d "$repo/.git" ] || continue
+    init_repo "$repo"
+  done
+
+  log "workbench init complete"
+}
+
+# ── Global mode ────────────────────────────────────────────────────────────
+
+init_global_hooks() {
+  log "installing global git hooks"
+
+  local gdir
+  gdir="$(git config --global core.hooksPath 2>/dev/null || true)"
+  if [ -z "$gdir" ]; then
+    gdir="$HOME/.git-hooks"
+    git config --global core.hooksPath "$gdir"
+    log "set global hooks path: $gdir"
+  fi
+  mkdir -p "$gdir"
+
+  cp "$HOOKS_DIR/osEngineer-validate-commit.sh" "$gdir/commit-msg"
+  cp "$HOOKS_DIR/osEngineer-pre-commit.sh"      "$gdir/pre-commit"
+  cp "$HOOKS_DIR/osEngineer-post-commit.sh"     "$gdir/post-commit"
+  chmod +x "$gdir/commit-msg" "$gdir/pre-commit" "$gdir/post-commit"
+
+  log "global hooks installed to $gdir"
+}
+
+# ── Dispatch ───────────────────────────────────────────────────────────────
+
+ensure_git
+ensure_node
+
 if [ $# -eq 0 ]; then
-  echo "Usage: $0 <project-root> | --workbench | --global | --all"
+  cat <<USAGE
+osEngineer installer — version $VERSION
+
+Usage:
+  $0 <repo-path>                Initialise a single repo
+  $0 --workbench [<path>]       Initialise every .git repo under <path>
+  $0 --all                      --workbench plus /opt/sovereign-shield if present
+  $0 --global                   Install osEngineer git hooks as global hooks
+
+USAGE
   exit 1
 fi
 
-if [ "$1" = "--all" ]; then
-  MODE="all"
-elif [ "$1" = "--workbench" ]; then
-  MODE="workbench"
-elif [ "$1" = "--global" ]; then
-  MODE="global"
-else
-  TARGET_PROJECT="$1"
-  MODE="project"
-fi
-
-# Ensure gh is authenticated
-if ! gh auth status &>/dev/null; then
-  echo "[install] WARNING: gh CLI not authenticated. Git operations may fail."
-  echo "[install] Run: gh auth login"
-fi
-
-# Ensure git is available
-if ! command -v git &>/dev/null; then
-  echo "[install] ERROR: git is required but not installed."
-  exit 1
-fi
-
-# ── Project install ──────────────────────────────────────────────
-install_on_project() {
-  local project_root="$1"
-
-  if [ ! -d "$project_root" ]; then
-    echo "[install] ERROR: $project_root does not exist"
-    return 1
-  fi
-
-  echo "[install] Installing osEngineer on $project_root"
-
-  # 1. Discover repos and add safe.directory
-  echo "[install] Configuring git safe.directory..."
-  for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
-    local repo_name
-    repo_name=$(basename "$repo")
-    git config --global --add safe.directory "$repo" 2>/dev/null || true
-    echo "[install]   + $repo_name"
-  done
-
-  # 2. Install hooks on repos that have .git/hooks
-  echo "[install] Installing git hooks..."
-  for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
-    local hooks_dir="$repo/.git/hooks"
-    if [ -d "$hooks_dir" ]; then
-      # Post-commit graphify hook
-      if [ -f "$SCRIPT_DIR/hooks/post-commit-graphify.sh" ]; then
-        ln -sf "$SCRIPT_DIR/hooks/post-commit-graphify.sh" "$hooks_dir/post-commit-graphify" 2>/dev/null || true
-        echo "[install]   + graphify hook → $(basename "$repo")"
-      fi
-      # Pre-commit schema lint hook
-      if [ -f "$SCRIPT_DIR/hooks/pre-commit-schema-lint.sh" ]; then
-        ln -sf "$SCRIPT_DIR/hooks/pre-commit-schema-lint.sh" "$hooks_dir/pre-commit-schema-lint" 2>/dev/null || true
-        echo "[install]   + schema lint hook → $(basename "$repo")"
-      fi
-    fi
-  done
-
-  # 3. Create planning directory structure if missing
-  if [ ! -d "$project_root/planning" ]; then
-    echo "[install] Creating planning directories..."
-    mkdir -p "$project_root/planning/active"
-    mkdir -p "$project_root/planning/completed"
-    echo "[install]   + planning/active/"
-    echo "[install]   + planning/completed/"
-  fi
-
-  # 4. Copy templates if missing
-  if [ ! -f "$project_root/planning/TEMPLATES/PHASE_PLAN.md" ]; then
-    echo "[install] Copying planning templates..."
-    cp -r "$SCRIPT_DIR/planning/TEMPLATES" "$project_root/planning/" 2>/dev/null || true
-    echo "[install]   + planning/TEMPLATES/"
-  fi
-
-  # 5. Wire zeroclaw repo config (.claude/settings.json)
-  echo "[install] Wiring zeroclaw config..."
-  for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
-    local claude_dir="$repo/.claude"
-    mkdir -p "$claude_dir"
-    if [ ! -f "$claude_dir/settings.json" ]; then
-      cat > "$claude_dir/settings.json" <<'JSON'
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Glob|Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f graphify-out/graph.json ] && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: Knowledge graph exists. Read graphify-out/GRAPH_REPORT.md for god nodes and community structure before searching raw files.\"}}' || true"
-          }
-        ]
-      }
-    ]
-  }
-}
-JSON
-      echo "[install]   + .claude/settings.json → $(basename "$repo")"
-    fi
-  done
-
-  # 6. Check for graphify and suggest build
-  if [ ! -d "$project_root/graphify-out" ]; then
-    local first_repo
-    first_repo=$(find "$project_root" -maxdepth 2 -type d -name ".git" | head -1 | sed 's|/.git$||')
-    if [ -n "$first_repo" ]; then
-      echo "[install] NOTE: No graphify-out/ found. Suggest running:"
-      echo "  cd $first_repo && graphify build"
-    fi
-  fi
-
-  echo "[install] Done for $project_root"
-}
-
-# ── Workbench install ────────────────────────────────────────────
-install_on_workbench() {
-  local workbench="/home/engineer/.zeroclaw/workspace/workbench"
-
-  if [ ! -d "$workbench" ]; then
-    echo "[install] ERROR: Workbench not found at $workbench"
-    return 1
-  fi
-
-  echo "[install] Installing on all workbench repos..."
-
-  for repo in "$workbench"/*; do
-    if [ -d "$repo/.git" ]; then
-      local repo_name
-      repo_name=$(basename "$repo")
-      echo "[install] --- $repo_name ---"
-
-      # Safe directory
-      git config --global --add safe.directory "$repo" 2>/dev/null || true
-
-      # Hooks
-      local hooks_dir="$repo/.git/hooks"
-      ln -sf "$SCRIPT_DIR/hooks/post-commit-graphify.sh" "$hooks_dir/post-commit-graphify" 2>/dev/null || true
-      ln -sf "$SCRIPT_DIR/hooks/pre-commit-schema-lint.sh" "$hooks_dir/pre-commit-schema-lint" 2>/dev/null || true
-
-      # Planning dirs
-      mkdir -p "$repo/planning/active" "$repo/planning/completed" 2>/dev/null || true
-
-      # Zeroclaw config wiring (.claude/settings.json)
-      local claude_dir="$repo/.claude"
-      mkdir -p "$claude_dir"
-      if [ ! -f "$claude_dir/settings.json" ]; then
-        cat > "$claude_dir/settings.json" <<'JSON'
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Glob|Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f graphify-out/graph.json ] && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: Knowledge graph exists. Read graphify-out/GRAPH_REPORT.md for god nodes and community structure before searching raw files.\"}}' || true"
-          }
-        ]
-      }
-    ]
-  }
-}
-JSON
-        echo "[install]   + .claude/settings.json → $repo_name"
-      fi
-    fi
-  done
-
-  echo "[install] Workbench install complete"
-}
-
-# ── Global git hooks ─────────────────────────────────────────────
-install_global_hooks() {
-  echo "[install] Installing global git hooks..."
-
-  local global_hooks_dir
-  global_hooks_dir="$(git config --global core.hooksPath 2>/dev/null || echo "")"
-
-  if [ -z "$global_hooks_dir" ]; then
-    global_hooks_dir="$HOME/.git-hooks"
-    git config --global core.hooksPath "$global_hooks_dir"
-    echo "[install] Set global hooks path: $global_hooks_dir"
-  fi
-
-  mkdir -p "$global_hooks_dir"
-
-  ln -sf "$SCRIPT_DIR/hooks/post-commit-graphify.sh" "$global_hooks_dir/post-commit-graphify" 2>/dev/null || true
-  ln -sf "$SCRIPT_DIR/hooks/pre-commit-schema-lint.sh" "$global_hooks_dir/pre-commit-schema-lint" 2>/dev/null || true
-
-  echo "[install] Global hooks installed"
-}
-
-# ── Main dispatch ────────────────────────────────────────────────
-case "$MODE" in
-  project)
-    install_on_project "$TARGET_PROJECT"
+case "$1" in
+  --workbench)
+    init_workbench "${2:-}"
     ;;
-  workbench)
-    install_on_workbench
+  --global)
+    init_global_hooks
     ;;
-  global)
-    install_global_hooks
-    ;;
-  all)
-    install_on_workbench
-    install_global_hooks
+  --all)
+    init_workbench
+    init_global_hooks
     if [ -d "/opt/sovereign-shield" ]; then
-      install_on_project "/opt/sovereign-shield"
+      init_repo "/opt/sovereign-shield"
     fi
-    echo "[install] All modes complete"
+    ;;
+  -h|--help)
+    cat <<USAGE
+osEngineer installer — version $VERSION
+Usage: $0 <repo-path> | --workbench [<path>] | --all | --global
+USAGE
     ;;
   *)
-    echo "Usage: $0 <project-root> | --workbench | --global | --all"
-    exit 1
+    init_repo "$1"
     ;;
 esac
 
-echo "[install] osEngineer installation complete"
+log "osEngineer install complete (version $VERSION)"

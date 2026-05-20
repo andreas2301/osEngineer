@@ -1,0 +1,205 @@
+#!/usr/bin/env node
+// osengineer — the osEngineer skill CLI.
+//
+// Subcommands:
+//   init <path>          Initialise a repo or workbench with osEngineer wiring
+//   state                Show current phase/team/budget for cwd
+//   state set <k> <v>    Update a state.yml field
+//   version              Print the osEngineer version
+//   explain [topic]      Print a short explanation of osEngineer concepts
+//
+// Wiring details (hooks, agents, AGENTS.md, .osengineer/state.yml) are owned
+// by install.sh. This CLI deals with runtime state and post-install ops.
+//
+// Built fresh for osEngineer 0.2.0 — does NOT port get-shit-done's bin/gsd-sdk.js
+// shim (which delegates to a compiled sdk/dist/cli.js that we do not adopt).
+// The enforcement hooks ARE ported; see ADR-001 for the merge protocol.
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { execSync, spawnSync } = require('child_process');
+
+const SCRIPT_DIR = path.resolve(__dirname, '..');
+const VERSION_FILE = path.join(SCRIPT_DIR, 'VERSION');
+const VERSION = fs.existsSync(VERSION_FILE)
+  ? fs.readFileSync(VERSION_FILE, 'utf8').trim()
+  : '0.0.0-dev';
+
+// ── State helpers ──────────────────────────────────────────────────────────
+
+function findRepoRoot(cwd) {
+  let current = cwd;
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(current, '.git'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
+function readStateMap(repoRoot) {
+  const p = path.join(repoRoot, '.osengineer', 'state.yml');
+  if (!fs.existsSync(p)) return null;
+  const raw = fs.readFileSync(p, 'utf8');
+  const state = {};
+  for (const line of raw.split('\n')) {
+    const m = line.match(/^(\w+):\s*(.*)$/);
+    if (!m) continue;
+    state[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
+  }
+  return state;
+}
+
+function writeStateField(repoRoot, key, value) {
+  const p = path.join(repoRoot, '.osengineer', 'state.yml');
+  if (!fs.existsSync(p)) {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, `${key}: ${value}\n`);
+    return;
+  }
+  const lines = fs.readFileSync(p, 'utf8').split('\n');
+  let found = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (new RegExp('^' + key + ':').test(lines[i])) {
+      lines[i] = `${key}: ${value}`;
+      found = true;
+      break;
+    }
+  }
+  if (!found) lines.push(`${key}: ${value}`);
+  fs.writeFileSync(p, lines.join('\n'));
+}
+
+// ── Subcommands ────────────────────────────────────────────────────────────
+
+function cmdVersion() {
+  process.stdout.write(`osengineer ${VERSION}\n`);
+}
+
+function cmdState(args) {
+  const cwd = process.cwd();
+  const repoRoot = findRepoRoot(cwd);
+
+  if (args[0] === 'set') {
+    if (!repoRoot) {
+      console.error('osengineer: not inside a git repo');
+      process.exit(1);
+    }
+    const [, key, ...rest] = args;
+    if (!key || rest.length === 0) {
+      console.error('Usage: osengineer state set <key> <value>');
+      process.exit(1);
+    }
+    writeStateField(repoRoot, key, rest.join(' '));
+    process.stdout.write(`set ${key} = ${rest.join(' ')}\n`);
+    return;
+  }
+
+  if (!repoRoot) {
+    console.error('osengineer: not inside a git repo');
+    process.exit(1);
+  }
+  const state = readStateMap(repoRoot);
+  if (!state) {
+    process.stdout.write('No .osengineer/ directory in this repo. Run install.sh first.\n');
+    process.exit(0);
+  }
+  for (const [k, v] of Object.entries(state)) {
+    process.stdout.write(`${k}: ${v}\n`);
+  }
+}
+
+function cmdInit(args) {
+  const target = args[0] || process.cwd();
+  if (!fs.existsSync(target)) {
+    console.error(`osengineer: ${target} does not exist`);
+    process.exit(1);
+  }
+  // Delegate to install.sh for the actual heavy lifting (hook install, agent
+  // copy, AGENTS.md scaffolding). The CLI's job is dispatch + ergonomics.
+  const installScript = path.join(SCRIPT_DIR, 'install.sh');
+  if (!fs.existsSync(installScript)) {
+    console.error(`osengineer: install.sh not found at ${installScript}`);
+    process.exit(1);
+  }
+  const result = spawnSync('bash', [installScript, target], { stdio: 'inherit' });
+  process.exit(result.status ?? 1);
+}
+
+function cmdExplain(args) {
+  const topic = args[0] || 'overview';
+  const messages = {
+    overview:
+      'osEngineer — a real-enforcement, multi-repo engineering skill.\n' +
+      'Three-level nesting: workbench → repo → team. Each level has an\n' +
+      'AGENTS.md (architect) and a .osengineer/ (state). Runtime enforcement\n' +
+      'via git hooks + Claude hooks + this CLI + CI status checks.\n',
+    phases:
+      'Phase lifecycle: idle → discuss → plan → execute → verify → accepted.\n' +
+      '`blocked` is a side-state entered on budget overrun or hard-rule violation.\n' +
+      'Transitions are gated by hooks: no execute without PHASE_PLAN.md, no\n' +
+      'verify without green test run, no merge without VERIFICATION.md.\n',
+    hooks:
+      'Ten enforcement hooks live in hooks/osEngineer-*. install.sh symlinks\n' +
+      'the relevant ones into .git/hooks/ and adds Claude entries to\n' +
+      '.claude/settings.json. Bypass any hook with OSE_BYPASS=1 (logged to\n' +
+      '.osengineer/bypass-log.jsonl).\n',
+    teams:
+      'P3+ feature: each team (coding / testing / infra / docs / security)\n' +
+      'lives in its folder with an AGENTS.md frontmatter that declares\n' +
+      'owns_paths, reads_paths, escalates_to. Cross-team handoffs live in\n' +
+      '.osengineer/handoffs/HO-<n>-*.md. The architect agent at the repo\n' +
+      'root routes work between teams.\n',
+  };
+  const msg = messages[topic];
+  if (!msg) {
+    process.stdout.write(`Unknown topic "${topic}". Available: ${Object.keys(messages).join(', ')}\n`);
+    process.exit(1);
+  }
+  process.stdout.write(msg);
+}
+
+function usage() {
+  process.stdout.write(
+    `osengineer ${VERSION}\n\n` +
+    'Usage:\n' +
+    '  osengineer init <path>           Initialise a repo with osEngineer wiring\n' +
+    '  osengineer state                 Show .osengineer/state.yml fields\n' +
+    '  osengineer state set <k> <v>     Update a state.yml field\n' +
+    '  osengineer version               Print osEngineer version\n' +
+    '  osengineer explain [topic]       Explain concepts (overview|phases|hooks|teams)\n'
+  );
+}
+
+// ── Dispatch ───────────────────────────────────────────────────────────────
+
+const [, , sub, ...rest] = process.argv;
+switch (sub) {
+  case 'version':
+  case '--version':
+  case '-v':
+    cmdVersion();
+    break;
+  case 'init':
+    cmdInit(rest);
+    break;
+  case 'state':
+    cmdState(rest);
+    break;
+  case 'explain':
+    cmdExplain(rest);
+    break;
+  case undefined:
+  case 'help':
+  case '--help':
+  case '-h':
+    usage();
+    break;
+  default:
+    process.stderr.write(`osengineer: unknown subcommand "${sub}"\n\n`);
+    usage();
+    process.exit(1);
+}
