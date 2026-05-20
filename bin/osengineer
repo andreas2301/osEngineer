@@ -2,24 +2,31 @@
 // osengineer — the osEngineer skill CLI.
 //
 // Subcommands:
-//   init <path>          Initialise a repo or workbench with osEngineer wiring
-//   state                Show current phase/team/budget for cwd
-//   state set <k> <v>    Update a state.yml field
-//   version              Print the osEngineer version
-//   explain [topic]      Print a short explanation of osEngineer concepts
+//   init <path>                       Run install.sh on a repo or workbench
+//   state                             Show current phase/team/budget
+//   state set <k> <v>                 Update a state.yml field
+//   detect-teams <path>               Auto-detect folder→team mapping
+//                                     (Go modules → coding, ansible/ → infra,
+//                                      *_test.go → testing, docs/ → docs,
+//                                      .github/codeql or security/ → security).
+//                                     Outputs YAML to stdout suitable for the
+//                                     `teams:` block of a repo AGENTS.md.
+//   handoff open --from <t> --to <t> --slug <s> [--closes-when "<text>"]
+//                                     Open a cross-team handoff ticket.
+//   handoff close <id> [--reason "<text>"]
+//                                     Close an open handoff.
+//   handoff list                      List open handoffs in cwd repo.
+//   version                           Print the osEngineer version.
+//   explain [topic]                   Print concept explanation.
 //
-// Wiring details (hooks, agents, AGENTS.md, .osengineer/state.yml) are owned
-// by install.sh. This CLI deals with runtime state and post-install ops.
-//
-// Built fresh for osEngineer 0.2.0 — does NOT port get-shit-done's bin/gsd-sdk.js
-// shim (which delegates to a compiled sdk/dist/cli.js that we do not adopt).
-// The enforcement hooks ARE ported; see ADR-001 for the merge protocol.
+// Wiring (hooks, agents) is owned by install.sh. This CLI deals with runtime
+// state, team detection, and handoff lifecycle.
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const SCRIPT_DIR = path.resolve(__dirname, '..');
 const VERSION_FILE = path.join(SCRIPT_DIR, 'VERSION');
@@ -27,7 +34,7 @@ const VERSION = fs.existsSync(VERSION_FILE)
   ? fs.readFileSync(VERSION_FILE, 'utf8').trim()
   : '0.0.0-dev';
 
-// ── State helpers ──────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 function findRepoRoot(cwd) {
   let current = cwd;
@@ -73,6 +80,32 @@ function writeStateField(repoRoot, key, value) {
   fs.writeFileSync(p, lines.join('\n'));
 }
 
+function listDirSafe(dir) {
+  try { return fs.readdirSync(dir); } catch { return []; }
+}
+
+function hasAny(repo, ...patterns) {
+  return patterns.some(p => fs.existsSync(path.join(repo, p)));
+}
+
+function hasFileMatching(repo, regex, depth = 3) {
+  const stack = [{ dir: repo, depth: 0 }];
+  while (stack.length > 0) {
+    const { dir, depth: d } = stack.pop();
+    if (d > depth) continue;
+    for (const name of listDirSafe(dir)) {
+      if (name === '.git' || name === 'node_modules' || name === 'vendor' ||
+          name === 'graphify-out' || name === '.osengineer') continue;
+      const full = path.join(dir, name);
+      let stat;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (stat.isDirectory()) stack.push({ dir: full, depth: d + 1 });
+      else if (regex.test(name)) return true;
+    }
+  }
+  return false;
+}
+
 // ── Subcommands ────────────────────────────────────────────────────────────
 
 function cmdVersion() {
@@ -80,53 +113,264 @@ function cmdVersion() {
 }
 
 function cmdState(args) {
-  const cwd = process.cwd();
-  const repoRoot = findRepoRoot(cwd);
-
+  const repoRoot = findRepoRoot(process.cwd());
   if (args[0] === 'set') {
-    if (!repoRoot) {
-      console.error('osengineer: not inside a git repo');
-      process.exit(1);
-    }
+    if (!repoRoot) { console.error('osengineer: not inside a git repo'); process.exit(1); }
     const [, key, ...rest] = args;
     if (!key || rest.length === 0) {
-      console.error('Usage: osengineer state set <key> <value>');
-      process.exit(1);
+      console.error('Usage: osengineer state set <key> <value>'); process.exit(1);
     }
     writeStateField(repoRoot, key, rest.join(' '));
     process.stdout.write(`set ${key} = ${rest.join(' ')}\n`);
     return;
   }
-
-  if (!repoRoot) {
-    console.error('osengineer: not inside a git repo');
-    process.exit(1);
-  }
+  if (!repoRoot) { console.error('osengineer: not inside a git repo'); process.exit(1); }
   const state = readStateMap(repoRoot);
   if (!state) {
-    process.stdout.write('No .osengineer/ directory in this repo. Run install.sh first.\n');
+    process.stdout.write('No .osengineer/ directory. Run install.sh first.\n');
     process.exit(0);
   }
-  for (const [k, v] of Object.entries(state)) {
-    process.stdout.write(`${k}: ${v}\n`);
-  }
+  for (const [k, v] of Object.entries(state)) process.stdout.write(`${k}: ${v}\n`);
 }
 
 function cmdInit(args) {
   const target = args[0] || process.cwd();
   if (!fs.existsSync(target)) {
-    console.error(`osengineer: ${target} does not exist`);
-    process.exit(1);
+    console.error(`osengineer: ${target} does not exist`); process.exit(1);
   }
-  // Delegate to install.sh for the actual heavy lifting (hook install, agent
-  // copy, AGENTS.md scaffolding). The CLI's job is dispatch + ergonomics.
   const installScript = path.join(SCRIPT_DIR, 'install.sh');
   if (!fs.existsSync(installScript)) {
-    console.error(`osengineer: install.sh not found at ${installScript}`);
-    process.exit(1);
+    console.error(`osengineer: install.sh not found at ${installScript}`); process.exit(1);
   }
   const result = spawnSync('bash', [installScript, target], { stdio: 'inherit' });
   process.exit(result.status ?? 1);
+}
+
+function detectTeams(repo) {
+  // Probes the repo for evidence of each team's relevance + suggested ownership.
+  // Returns an array of team objects matching the agents-md.schema.json `teams` shape.
+  const teams = [];
+
+  const hasGo      = hasAny(repo, 'go.mod');
+  const hasPython  = hasAny(repo, 'pyproject.toml', 'setup.py', 'requirements.txt');
+  const hasNode    = hasAny(repo, 'package.json');
+  const hasRust    = hasAny(repo, 'Cargo.toml');
+  const hasAnsible = hasAny(repo, 'ansible') || hasAny(repo, 'roles') || hasAny(repo, 'playbooks');
+  const hasCompose = hasFileMatching(repo, /^docker-compose.*\.ya?ml$/);
+  const hasSrcDir  = hasAny(repo, 'src') || hasAny(repo, 'internal') || hasAny(repo, 'cmd') || hasAny(repo, 'pkg');
+  const hasTestsDir = hasAny(repo, 'test') || hasAny(repo, 'tests') || hasAny(repo, 'integration') || hasAny(repo, 'e2e');
+  const hasGoTests = hasFileMatching(repo, /^.+_test\.go$/);
+  const hasPyTests = hasFileMatching(repo, /^test_.+\.py$/);
+  const hasDocs    = hasAny(repo, 'docs') || hasAny(repo, 'README.md') || hasAny(repo, 'README.rst');
+  const hasContracts = hasAny(repo, 'contracts') || hasFileMatching(repo, /^.+\.openapi\.ya?ml$/);
+  const hasCodeQL  = hasAny(repo, '.github/codeql');
+  const hasSecurityDir = hasAny(repo, 'security');
+
+  // Coding team
+  const codingPaths = [];
+  if (hasGo) { codingPaths.push('internal/**', 'cmd/**', 'pkg/**'); }
+  if (hasPython || hasNode || hasRust) codingPaths.push('src/**');
+  if (hasSrcDir && codingPaths.length === 0) codingPaths.push('src/**');
+  if (codingPaths.length > 0) {
+    teams.push({
+      team_id: 'coding',
+      folder: hasGo ? 'internal/' : (hasSrcDir ? 'src/' : null),
+      agents: ['developer', 'reviewer'],
+      owns_paths: codingPaths,
+      reads_paths: ['api/**', 'contracts/**', 'ansible/**', 'docs/**'],
+      escalates_to: ['testing', 'infra', 'docs', 'security'],
+    });
+  }
+
+  // Testing team (glob-only is common for Go)
+  const testingPaths = [];
+  if (hasGoTests) testingPaths.push('**/*_test.go');
+  if (hasPyTests) testingPaths.push('**/test_*.py');
+  if (hasTestsDir) testingPaths.push('tests/**', 'test/**', 'integration/**', 'e2e/**');
+  if (testingPaths.length > 0) {
+    teams.push({
+      team_id: 'testing',
+      folder: hasTestsDir ? (fs.existsSync(path.join(repo, 'tests')) ? 'tests/' : 'test/') : null,
+      agents: ['qa'],
+      owns_paths: testingPaths,
+      reads_paths: ['internal/**', 'cmd/**', 'pkg/**', 'src/**', 'api/**', 'contracts/**'],
+      escalates_to: ['coding'],
+    });
+  }
+
+  // Infra team
+  const infraPaths = [];
+  if (hasAnsible) infraPaths.push('ansible/**', 'roles/**', 'playbooks/**');
+  if (hasCompose) infraPaths.push('docker-compose*.yml', 'Dockerfile*');
+  if (hasAny(repo, 'scripts')) infraPaths.push('scripts/**');
+  if (hasAny(repo, '.github/workflows')) infraPaths.push('.github/workflows/**');
+  if (infraPaths.length > 0) {
+    teams.push({
+      team_id: 'infra',
+      folder: hasAnsible ? 'ansible/' : null,
+      agents: ['topology-validator', 'live-system-operator', 'cert-monitor', 'health-verifier'],
+      owns_paths: infraPaths,
+      reads_paths: ['**/*.yml', '**/Dockerfile', 'service-manifest.yml', 'contracts/**'],
+      escalates_to: ['coding', 'security', 'docs'],
+    });
+  }
+
+  // Docs team
+  const docsPaths = [];
+  if (hasDocs) docsPaths.push('docs/**', 'README*.md');
+  if (hasContracts) docsPaths.push('contracts/**', '**/*.openapi.yaml', '**/*.openapi.yml');
+  docsPaths.push('**/*.schema.json', 'service-manifest.yml', 'message-contract*.yaml');
+  teams.push({
+    team_id: 'docs',
+    folder: hasAny(repo, 'docs') ? 'docs/' : null,
+    agents: ['tech-writer'],
+    owns_paths: docsPaths,
+    reads_paths: ['**'],
+    escalates_to: ['coding', 'infra', 'security'],
+  });
+
+  // Security team (always present, owns the small SAST/secret-scan surface)
+  const securityPaths = ['.github/codeql/**', 'security/**', '.secretscanignore', '.base64scanignore'];
+  teams.push({
+    team_id: 'security',
+    folder: hasCodeQL ? '.github/codeql/' : (hasSecurityDir ? 'security/' : null),
+    agents: ['red-team-local', 'red-team-architect'],
+    owns_paths: securityPaths,
+    reads_paths: ['**'],
+    escalates_to: ['coding', 'infra', 'docs'],
+  });
+
+  return teams;
+}
+
+function teamsToYamlBlock(teams, indent = '  ') {
+  const lines = [];
+  for (const t of teams) {
+    lines.push(`${indent}- team_id: ${t.team_id}`);
+    lines.push(`${indent}  folder: ${t.folder === null ? 'null' : t.folder}`);
+    lines.push(`${indent}  agents: [${t.agents.join(', ')}]`);
+    lines.push(`${indent}  owns_paths:`);
+    for (const p of t.owns_paths) lines.push(`${indent}    - "${p}"`);
+    lines.push(`${indent}  reads_paths:`);
+    for (const p of t.reads_paths) lines.push(`${indent}    - "${p}"`);
+    lines.push(`${indent}  escalates_to: [${t.escalates_to.join(', ')}]`);
+  }
+  return lines.join('\n');
+}
+
+function cmdDetectTeams(args) {
+  const target = args[0] || process.cwd();
+  if (!fs.existsSync(target)) {
+    console.error(`osengineer: ${target} does not exist`); process.exit(1);
+  }
+  const teams = detectTeams(target);
+  process.stdout.write(teamsToYamlBlock(teams) + '\n');
+  // Also write a JSON cache for hooks (machine-friendly, no YAML parsing needed)
+  const cacheDir = path.join(target, '.osengineer', 'teams');
+  if (fs.existsSync(path.join(target, '.osengineer'))) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+    for (const t of teams) {
+      fs.writeFileSync(
+        path.join(cacheDir, `${t.team_id}.json`),
+        JSON.stringify(t, null, 2) + '\n'
+      );
+    }
+  }
+}
+
+function cmdHandoff(args) {
+  const repoRoot = findRepoRoot(process.cwd());
+  if (!repoRoot) { console.error('osengineer: not inside a git repo'); process.exit(1); }
+  const handoffsDir = path.join(repoRoot, '.osengineer', 'handoffs');
+  fs.mkdirSync(handoffsDir, { recursive: true });
+
+  const sub = args[0];
+  if (sub === 'open') {
+    const flags = parseFlags(args.slice(1), ['from', 'to', 'slug', 'closes-when']);
+    if (!flags.from || !flags.to || !flags.slug) {
+      console.error('Usage: osengineer handoff open --from <team> --to <team> --slug <s> [--closes-when "<text>"]');
+      process.exit(1);
+    }
+    const existing = listDirSafe(handoffsDir).filter(f => /^HO-\d+-/.test(f));
+    let nextNum = 1;
+    for (const f of existing) {
+      const m = f.match(/^HO-(\d+)-/);
+      if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
+    }
+    const id = `HO-${String(nextNum).padStart(3, '0')}`;
+    const file = path.join(handoffsDir, `${id}-${flags.slug}.md`);
+    const body = [
+      '---',
+      `handoff_id: ${id}`,
+      `from_team: ${flags.from}`,
+      `to_team: ${flags.to}`,
+      `opened_at: ${new Date().toISOString()}`,
+      flags['closes-when'] ? `closes_when: "${flags['closes-when']}"` : 'closes_when: ""',
+      'blocking_phase_transitions: [verify]',
+      '---',
+      '',
+      `# Handoff ${id}: ${flags.from} → ${flags.to}`,
+      '',
+      `Slug: ${flags.slug}`,
+      '',
+      flags['closes-when']
+        ? `**Closes when:** ${flags['closes-when']}`
+        : '**Closes when:** (fill this in — required before close)',
+      '',
+    ].join('\n');
+    fs.writeFileSync(file, body);
+    process.stdout.write(`opened ${id} → ${path.relative(repoRoot, file)}\n`);
+    return;
+  }
+
+  if (sub === 'close') {
+    const id = args[1];
+    if (!id) { console.error('Usage: osengineer handoff close <id> [--reason "<text>"]'); process.exit(1); }
+    const flags = parseFlags(args.slice(2), ['reason']);
+    const files = listDirSafe(handoffsDir).filter(f => f.startsWith(`${id}-`) && f.endsWith('.md'));
+    if (files.length === 0) { console.error(`osengineer: no open handoff matching ${id}`); process.exit(1); }
+    if (files.length > 1) { console.error(`osengineer: multiple handoffs match ${id}: ${files.join(', ')}`); process.exit(1); }
+    const file = path.join(handoffsDir, files[0]);
+    const content = fs.readFileSync(file, 'utf8');
+    if (/closed_at:/.test(content)) {
+      process.stdout.write(`${id} already closed\n`); return;
+    }
+    const footer = [
+      '',
+      `closed_at: ${new Date().toISOString()}`,
+      flags.reason ? `close_reason: "${flags.reason}"` : 'close_reason: "(no reason given)"',
+      '',
+    ].join('\n');
+    fs.appendFileSync(file, footer);
+    process.stdout.write(`closed ${id}\n`);
+    return;
+  }
+
+  if (sub === 'list' || !sub) {
+    const files = listDirSafe(handoffsDir).filter(f => /^HO-\d+-/.test(f) && f.endsWith('.md'));
+    if (files.length === 0) { process.stdout.write('no handoffs\n'); return; }
+    for (const f of files) {
+      const content = fs.readFileSync(path.join(handoffsDir, f), 'utf8');
+      const open = !/closed_at:/.test(content);
+      process.stdout.write(`${open ? '○' : '●'} ${f}\n`);
+    }
+    return;
+  }
+
+  console.error(`Usage: osengineer handoff (open|close|list) ...`);
+  process.exit(1);
+}
+
+function parseFlags(args, allowed) {
+  const out = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith('--')) continue;
+    const key = a.slice(2);
+    if (!allowed.includes(key)) continue;
+    out[key] = args[++i];
+  }
+  return out;
 }
 
 function cmdExplain(args) {
@@ -148,11 +392,19 @@ function cmdExplain(args) {
       'absolute path in .claude/settings.json. Bypass any hook with\n' +
       'OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl).\n',
     teams:
-      'P3+ feature: each team (coding / testing / infra / docs / security)\n' +
-      'lives in its folder with an AGENTS.md frontmatter that declares\n' +
-      'owns_paths, reads_paths, escalates_to. Cross-team handoffs live in\n' +
-      '.osengineer/handoffs/HO-<n>-*.md. The architect agent at the repo\n' +
-      'root routes work between teams.\n',
+      'Five teams per repo: coding / testing / infra / docs / security.\n' +
+      'install.sh auto-detects folder ownership from go.mod, ansible/,\n' +
+      '*_test.go, docs/, .github/codeql etc., and writes both the YAML\n' +
+      'in AGENTS.md AND a JSON cache in .osengineer/teams/<team>.json that\n' +
+      'osEngineer-pre-edit-guard reads to enforce owns_paths at edit time.\n' +
+      'Cross-team handoffs live in .osengineer/handoffs/HO-<n>-*.md and\n' +
+      'are managed via `osengineer handoff (open|close|list)`.\n',
+    handoffs:
+      'Handoffs are filesystem-tracked tickets between teams. When team A\n' +
+      'needs team B to act first, A runs:\n' +
+      '  osengineer handoff open --from <A> --to <B> --slug <s> --closes-when "<text>"\n' +
+      'and the architect agent watches the directory. Verify-phase transitions\n' +
+      'are blocked while any handoff is open.\n',
   };
   const msg = messages[topic];
   if (!msg) {
@@ -166,11 +418,15 @@ function usage() {
   process.stdout.write(
     `osengineer ${VERSION}\n\n` +
     'Usage:\n' +
-    '  osengineer init <path>           Initialise a repo with osEngineer wiring\n' +
-    '  osengineer state                 Show .osengineer/state.yml fields\n' +
-    '  osengineer state set <k> <v>     Update a state.yml field\n' +
-    '  osengineer version               Print osEngineer version\n' +
-    '  osengineer explain [topic]       Explain concepts (overview|phases|hooks|teams)\n'
+    '  osengineer init <path>                  Initialise a repo with osEngineer wiring\n' +
+    '  osengineer state                        Show .osengineer/state.yml fields\n' +
+    '  osengineer state set <k> <v>            Update a state.yml field\n' +
+    '  osengineer detect-teams <path>          Auto-detect team→folder mapping (outputs YAML)\n' +
+    '  osengineer handoff open --from <t> --to <t> --slug <s> [--closes-when "<text>"]\n' +
+    '  osengineer handoff close <id> [--reason "<text>"]\n' +
+    '  osengineer handoff list\n' +
+    '  osengineer version                      Print osEngineer version\n' +
+    '  osengineer explain [topic]              overview|phases|hooks|teams|handoffs\n'
   );
 }
 
@@ -181,23 +437,22 @@ switch (sub) {
   case 'version':
   case '--version':
   case '-v':
-    cmdVersion();
-    break;
+    cmdVersion(); break;
   case 'init':
-    cmdInit(rest);
-    break;
+    cmdInit(rest); break;
   case 'state':
-    cmdState(rest);
-    break;
+    cmdState(rest); break;
+  case 'detect-teams':
+    cmdDetectTeams(rest); break;
+  case 'handoff':
+    cmdHandoff(rest); break;
   case 'explain':
-    cmdExplain(rest);
-    break;
+    cmdExplain(rest); break;
   case undefined:
   case 'help':
   case '--help':
   case '-h':
-    usage();
-    break;
+    usage(); break;
   default:
     process.stderr.write(`osengineer: unknown subcommand "${sub}"\n\n`);
     usage();

@@ -1,0 +1,43 @@
+---
+scope: repo
+schema_version: 1
+architect: true
+osengineer_version: {{OSENGINEER_VERSION}}
+project_classification: {{CLASSIFICATION}}
+teams:
+{{TEAM_LIST}}
+phase_state_file: ./.osengineer/state.yml
+{{META_REF_LINE}}
+---
+
+# {{REPO_NAME}} — osEngineer repo manifest
+
+This file is the architect/orchestrator for {{REPO_NAME}}. The frontmatter is
+machine-parseable by osEngineer hooks (validated against
+`specs/SCHEMAS/agents-md.schema.json`); the prose below is for humans.
+
+## Teams
+
+The frontmatter `teams:` list above declares folder→team ownership for this
+repo. Each team's manifest lives in its folder (or as a sibling `.md` for
+glob-only teams like testing). The architect agent reads this file on every
+prompt to route work to the right team.
+
+## How osEngineer works in this repo
+
+- **Phase state** lives in `.osengineer/state.yml`. Inspect with
+  `osengineer state`. The state machine flows `idle → discuss → plan →
+  execute → verify → accepted`.
+- **Cross-team handoffs** live in `.osengineer/handoffs/HO-<n>-*.md`. Open
+  one when team A needs team B to act before A can continue.
+- **Phase-aware enforcement** — during `discuss` and `plan`, edits are
+  read-only outside `planning/` and `.osengineer/`.
+- **owns_paths enforcement** — during `execute`, edits to a path outside
+  the active team's `owns_paths` are blocked by `osEngineer-pre-edit-guard.js`.
+- **Conventional Commits** — the `commit-msg` git hook enforces format.
+- **Destructive bash** (`rm -rf`, `git push --force`, etc.) is blocked
+  without an active 4-part plan in `.osengineer/current-plan.md`.
+- **Override any rule** with `OSE_BYPASS=1` — logged to
+  `.osengineer/bypass-log.jsonl`.
+
+Run `osengineer explain hooks` for the full enforcement layer summary.

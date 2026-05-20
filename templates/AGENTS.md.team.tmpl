@@ -1,0 +1,22 @@
+---
+scope: team
+schema_version: 1
+team_id: {{TEAM_ID}}
+parent_repo: ../
+agents: {{AGENT_LIST}}
+owns_paths: {{OWNS_PATHS}}
+reads_paths: {{READS_PATHS}}
+escalates_to: {{ESCALATES_TO}}
+---
+
+# {{TEAM_ID}} team
+
+{{TEAM_DESCRIPTION}}
+
+This manifest is the per-folder contract for the {{TEAM_ID}} team in this repo.
+It declares what files this team owns (`owns_paths`), what it may read but not
+edit (`reads_paths`), and which other teams it escalates to when a handoff is
+needed.
+
+See `osEngineer/templates/team-{{TEAM_ID}}.md` for the canonical team
+description and hard rules.

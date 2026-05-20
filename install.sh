@@ -118,40 +118,75 @@ YAML
   # 5. git safe.directory (idempotent)
   git config --global --add safe.directory "$repo" 2>/dev/null || true
 
-  # 6. AGENTS.md template at root if absent
+  # 6. AGENTS.md — auto-detect teams + populate the frontmatter
   if [ ! -f "$repo/AGENTS.md" ]; then
+    # Auto-detect folder→team mapping; this ALSO writes .osengineer/teams/*.json
+    # as a side effect for the pre-edit guard to consume.
+    local teams_yaml
+    teams_yaml=$(node "$SCRIPT_DIR/bin/osengineer" detect-teams "$repo" 2>/dev/null || echo "")
+
+    # Determine project classification (small/medium/large) heuristically
+    local classification="medium"
+    local loc
+    loc=$(find "$repo" -type f \( -name "*.go" -o -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.rs" \) -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | head -200 | wc -l)
+    if [ "$loc" -lt 20 ]; then classification="small"
+    elif [ "$loc" -gt 100 ]; then classification="large"
+    fi
+
     cat > "$repo/AGENTS.md" <<MD
 ---
 scope: repo
 schema_version: 1
 architect: true
 osengineer_version: $VERSION
-teams: []  # populated in P3 — run \`osengineer init\` after P3 lands to auto-detect
+project_classification: $classification
+teams:
+$teams_yaml
 phase_state_file: ./.osengineer/state.yml
 ---
 
 # $repo_name — osEngineer repo manifest
 
 This file is the architect/orchestrator for $repo_name. The frontmatter is
-machine-parseable by osEngineer hooks; the prose below is for humans.
+machine-parseable by osEngineer hooks (validated against
+\`specs/SCHEMAS/agents-md.schema.json\`); the prose below is for humans.
 
 ## Teams
 
-(Auto-detection of folder→team mapping ships in osEngineer P3. Until then,
-this manifest acts as a placeholder declaring osEngineer initialisation only.)
+The frontmatter \`teams:\` list above was auto-detected from the repo layout
+(Go modules, ansible/, *_test.go globs, docs/, .github/codeql). Edit it to
+correct mistakes — \`install.sh\` re-runs are idempotent and never overwrite
+this file once it exists. If you change the teams list, also re-run
+\`osengineer detect-teams .\` to refresh the JSON cache at
+\`.osengineer/teams/<team>.json\` that the pre-edit guard consumes.
 
 ## How osEngineer works in this repo
 
-- **Phase state** lives in \`.osengineer/state.yml\`.
-- **Cross-team handoffs** live in \`.osengineer/handoffs/HO-*.md\`.
-- **Conventional Commits** are enforced by the \`commit-msg\` git hook.
-- **Destructive bash** (rm -rf, force-push, etc.) is blocked without an
-  active 4-part plan in \`.osengineer/current-plan.md\`.
-- **Override any rule** with \`OSE_BYPASS=1\` — logged to \`.osengineer/bypass-log.jsonl\`.
+- **Phase state** lives in \`.osengineer/state.yml\`. Inspect with
+  \`osengineer state\`. The state machine flows
+  \`idle → discuss → plan → execute → verify → accepted\`.
+- **Cross-team handoffs** live in \`.osengineer/handoffs/HO-<n>-*.md\`.
+  Open one with \`osengineer handoff open --from <a> --to <b> --slug <s>\`.
+- **Phase-aware enforcement** — during \`discuss\` and \`plan\`, edits are
+  read-only outside \`planning/\` and \`.osengineer/\`.
+- **owns_paths enforcement** — during \`execute\` with a \`current_team\`
+  set, edits to a path outside that team's \`owns_paths\` are blocked.
+- **Conventional Commits** — the \`commit-msg\` git hook enforces format.
+- **Destructive bash** (\`rm -rf\`, \`git push --force\`, etc.) is blocked
+  without an active 4-part plan in \`.osengineer/current-plan.md\`.
+- **Override any rule** with \`OSE_BYPASS=1\` — logged to
+  \`.osengineer/bypass-log.jsonl\`.
 
 Run \`osengineer explain hooks\` for the full enforcement layer summary.
 MD
-    log "  + AGENTS.md (repo template)"
+    log "  + AGENTS.md (repo manifest, classification=$classification)"
+  else
+    # AGENTS.md already exists — refresh just the JSON cache so the
+    # pre-edit guard's owns_paths globs stay current with any user edits.
+    if [ -d "$repo/.osengineer" ]; then
+      node "$SCRIPT_DIR/bin/osengineer" detect-teams "$repo" >/dev/null 2>&1 || true
+      log "  · AGENTS.md preserved; .osengineer/teams/*.json refreshed"
+    fi
   fi
 
   # 7. CLAUDE.md osEngineer section

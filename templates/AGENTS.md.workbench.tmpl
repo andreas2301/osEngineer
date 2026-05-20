@@ -1,0 +1,32 @@
+---
+scope: workbench
+schema_version: 1
+osengineer_version: {{OSENGINEER_VERSION}}
+{{META_REF_BLOCK}}
+cross_repo_handoffs_dir: ./.osengineer/handoffs/
+repos:
+{{REPO_LIST}}
+---
+
+# Workbench — {{WORKBENCH_NAME}}
+
+osEngineer-initialised workbench. This file is the workbench-level architect
+manifest; it lists which repos belong to which Sovereign Shield category and
+references the Codified Source of Truth (META) repo.
+
+## Repos
+
+The frontmatter `repos:` list above is the machine-parseable inventory. For each
+repo, see `./<repo>/AGENTS.md` for the per-repo team manifest.
+
+## Cross-repo coordination
+
+Cross-repo handoffs live under `.osengineer/handoffs/XR-<n>-<slug>.md`. The
+workbench architect inspects them on every prompt and routes to the target
+repo's architect.
+
+## META repo
+
+The META (Codified Source of Truth) repo holds ADRs, plans, team archetypes,
+Confluence sync artifacts, and the graphify-out knowledge graph that spans
+the workbench. Run `osengineer explain teams` for the model overview.
