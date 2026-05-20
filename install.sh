@@ -326,6 +326,8 @@ init_workbench() {
   [ -d "$root" ] || fail "workbench root $root does not exist"
 
   log "workbench root: $root"
+  mkdir -p "$root/.osengineer/handoffs"
+  touch "$root/.osengineer/handoffs/.gitkeep"
 
   # META detection
   local meta_repo=""
@@ -343,6 +345,17 @@ init_workbench() {
       break
     fi
   done
+
+  # ADR catalog discovery from META repo
+  if [ -n "$meta_repo" ]; then
+    node "$SCRIPT_DIR/bin/osengineer" discover-adrs "$meta_repo" \
+      --out "$root/.osengineer/adr-catalog.yml" >/dev/null 2>&1 || true
+    if [ -f "$root/.osengineer/adr-catalog.yml" ]; then
+      local adr_count
+      adr_count=$(awk '/^  - id:/ {n++} END {print n+0}' "$root/.osengineer/adr-catalog.yml" 2>/dev/null || echo 0)
+      log "+ .osengineer/adr-catalog.yml ($adr_count ADRs from META)"
+    fi
+  fi
 
   # Workbench-level AGENTS.md
   if [ ! -f "$root/AGENTS.md" ]; then
@@ -363,19 +376,67 @@ cross_repo_handoffs_dir: ./.osengineer/handoffs/
 
 osEngineer-initialised workbench. See \`.osengineer/\` for cross-repo state and
 \`./<repo>/AGENTS.md\` for each repo's team manifest.
+
+## Cross-repo handoffs
+
+Run from this directory:
+- \`osengineer handoff open --from-repo <r> --to-repo <r> --slug <s>\` to open a cross-repo ticket.
+- \`osengineer handoff list\` to see open / closed XR-* tickets.
+- Verify-phase transitions in any sub-repo are blocked while open XR tickets reference it.
+
+## META repo
+
+The META (Codified Source of Truth) repo holds ADRs, plans, team archetypes,
+Confluence sync artifacts, and the graphify-out knowledge graph that spans
+the workbench. Run \`osengineer explain teams\` for the model overview.
 YAML
     log "+ workbench AGENTS.md"
   fi
-  mkdir -p "$root/.osengineer/handoffs"
-  touch "$root/.osengineer/handoffs/.gitkeep"
+
+  # Resumable init: track per-repo status in init-progress.yml
+  local progress_file="$root/.osengineer/init-progress.yml"
+  if [ ! -f "$progress_file" ]; then
+    cat > "$progress_file" <<YAML
+# osEngineer workbench init progress. Each entry: <repo-name>: <pending|complete|failed>.
+# Re-running install.sh --workbench skips repos with status "complete" and retries others.
+osengineer_version: $VERSION
+started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+repos:
+YAML
+  fi
 
   # Iterate repos
+  local skipped=0
+  local processed=0
   for repo in "$root"/*; do
     [ -d "$repo/.git" ] || continue
-    init_repo "$repo"
+    local repo_name
+    repo_name=$(basename "$repo")
+    if grep -q "^  $repo_name: complete" "$progress_file" 2>/dev/null; then
+      log "  · $repo_name already complete; skipping (delete .osengineer/init-progress.yml to force)"
+      skipped=$((skipped + 1))
+      continue
+    fi
+    if init_repo "$repo"; then
+      # Update progress file
+      if grep -q "^  $repo_name:" "$progress_file" 2>/dev/null; then
+        sed -i.bak "s|^  $repo_name:.*|  $repo_name: complete|" "$progress_file"
+        rm -f "$progress_file.bak"
+      else
+        printf '  %s: complete\n' "$repo_name" >> "$progress_file"
+      fi
+      processed=$((processed + 1))
+    else
+      if grep -q "^  $repo_name:" "$progress_file" 2>/dev/null; then
+        sed -i.bak "s|^  $repo_name:.*|  $repo_name: failed|" "$progress_file"
+        rm -f "$progress_file.bak"
+      else
+        printf '  %s: failed\n' "$repo_name" >> "$progress_file"
+      fi
+    fi
   done
 
-  log "workbench init complete"
+  log "workbench init complete: $processed processed, $skipped skipped (resumable via $progress_file)"
 }
 
 # ── Global mode ────────────────────────────────────────────────────────────

@@ -47,6 +47,23 @@ function findRepoRoot(cwd) {
   return null;
 }
 
+// Find the nearest osEngineer-initialised root walking up from cwd.
+// Returns { root, scope } where scope is 'workbench' (has .osengineer/ but
+// no .git) or 'repo' (has both). Returns null if neither found.
+function findOsEngineerRoot(cwd) {
+  let current = cwd;
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(current, '.osengineer'))) {
+      const isRepo = fs.existsSync(path.join(current, '.git'));
+      return { root: current, scope: isRepo ? 'repo' : 'workbench' };
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
 function readStateMap(repoRoot) {
   const p = path.join(repoRoot, '.osengineer', 'state.yml');
   if (!fs.existsSync(p)) return null;
@@ -142,7 +159,11 @@ function cmdInit(args) {
   if (!fs.existsSync(installScript)) {
     console.error(`osengineer: install.sh not found at ${installScript}`); process.exit(1);
   }
-  const result = spawnSync('bash', [installScript, target], { stdio: 'inherit' });
+  // Detect workbench vs single repo: target IS a repo if it has .git/;
+  // target is a workbench if it has no .git/ but has child dirs with .git/.
+  const isRepo = fs.existsSync(path.join(target, '.git'));
+  const installArgs = isRepo ? [installScript, target] : [installScript, '--workbench', target];
+  const result = spawnSync('bash', installArgs, { stdio: 'inherit' });
   process.exit(result.status ?? 1);
 }
 
@@ -279,56 +300,95 @@ function cmdDetectTeams(args) {
 }
 
 function cmdHandoff(args) {
-  const repoRoot = findRepoRoot(process.cwd());
-  if (!repoRoot) { console.error('osengineer: not inside a git repo'); process.exit(1); }
-  const handoffsDir = path.join(repoRoot, '.osengineer', 'handoffs');
+  // Detect scope automatically from cwd: workbench scope uses XR-* tickets,
+  // repo scope uses HO-* tickets. User can override with --scope workbench|repo.
+  const ose = findOsEngineerRoot(process.cwd());
+  if (!ose) {
+    console.error('osengineer: cwd is not inside an osEngineer-initialised workbench or repo');
+    process.exit(1);
+  }
+
+  // Allow --scope override (must consume early)
+  const scopeOverride = parseFlags(args, ['scope']).scope;
+  const scope = scopeOverride || ose.scope;
+  if (!['workbench', 'repo'].includes(scope)) {
+    console.error(`osengineer: invalid --scope "${scope}" (must be workbench or repo)`);
+    process.exit(1);
+  }
+  const prefix = scope === 'workbench' ? 'XR' : 'HO';
+  const handoffsDir = path.join(ose.root, '.osengineer', 'handoffs');
   fs.mkdirSync(handoffsDir, { recursive: true });
 
-  const sub = args[0];
+  // Strip --scope flag from args so subcommand parsing isn't confused
+  const cleanArgs = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--scope') { i++; continue; }
+    cleanArgs.push(args[i]);
+  }
+  const sub = cleanArgs[0];
+
   if (sub === 'open') {
-    const flags = parseFlags(args.slice(1), ['from', 'to', 'slug', 'closes-when']);
-    if (!flags.from || !flags.to || !flags.slug) {
-      console.error('Usage: osengineer handoff open --from <team> --to <team> --slug <s> [--closes-when "<text>"]');
+    const allowed = ['from', 'to', 'slug', 'closes-when', 'from-repo', 'to-repo'];
+    const flags = parseFlags(cleanArgs.slice(1), allowed);
+    if (!flags.slug) {
+      console.error('Usage: osengineer handoff open --slug <s> [--from <team>] [--to <team>] [--from-repo <r>] [--to-repo <r>] [--closes-when "<text>"]');
       process.exit(1);
     }
-    const existing = listDirSafe(handoffsDir).filter(f => /^HO-\d+-/.test(f));
+    if (scope === 'repo' && (!flags.from || !flags.to)) {
+      console.error('repo-scope handoff requires --from <team> --to <team>');
+      process.exit(1);
+    }
+    if (scope === 'workbench' && (!flags['from-repo'] || !flags['to-repo'])) {
+      console.error('workbench-scope handoff requires --from-repo <r> --to-repo <r>');
+      process.exit(1);
+    }
+    const existing = listDirSafe(handoffsDir).filter(f => new RegExp(`^${prefix}-\\d+-`).test(f));
     let nextNum = 1;
     for (const f of existing) {
-      const m = f.match(/^HO-(\d+)-/);
+      const m = f.match(new RegExp(`^${prefix}-(\\d+)-`));
       if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
     }
-    const id = `HO-${String(nextNum).padStart(3, '0')}`;
+    const id = `${prefix}-${String(nextNum).padStart(3, '0')}`;
     const file = path.join(handoffsDir, `${id}-${flags.slug}.md`);
-    const body = [
+    const fmLines = [
       '---',
       `handoff_id: ${id}`,
-      `from_team: ${flags.from}`,
-      `to_team: ${flags.to}`,
-      `opened_at: ${new Date().toISOString()}`,
-      flags['closes-when'] ? `closes_when: "${flags['closes-when']}"` : 'closes_when: ""',
-      'blocking_phase_transitions: [verify]',
-      '---',
-      '',
-      `# Handoff ${id}: ${flags.from} → ${flags.to}`,
-      '',
-      `Slug: ${flags.slug}`,
-      '',
-      flags['closes-when']
-        ? `**Closes when:** ${flags['closes-when']}`
-        : '**Closes when:** (fill this in — required before close)',
-      '',
-    ].join('\n');
-    fs.writeFileSync(file, body);
-    process.stdout.write(`opened ${id} → ${path.relative(repoRoot, file)}\n`);
+      `scope: ${scope}`,
+    ];
+    if (scope === 'repo') {
+      fmLines.push(`from_team: ${flags.from}`);
+      fmLines.push(`to_team: ${flags.to}`);
+    } else {
+      fmLines.push(`from_repo: ${flags['from-repo']}`);
+      fmLines.push(`to_repo: ${flags['to-repo']}`);
+    }
+    fmLines.push(`opened_at: ${new Date().toISOString()}`);
+    fmLines.push(flags['closes-when'] ? `closes_when: "${flags['closes-when']}"` : 'closes_when: ""');
+    fmLines.push('blocking_phase_transitions: [verify]');
+    fmLines.push('---');
+    fmLines.push('');
+    const titleSubject = scope === 'repo'
+      ? `${flags.from} → ${flags.to}`
+      : `${flags['from-repo']} → ${flags['to-repo']}`;
+    fmLines.push(`# Handoff ${id}: ${titleSubject}`);
+    fmLines.push('');
+    fmLines.push(`Slug: ${flags.slug}`);
+    fmLines.push('');
+    fmLines.push(flags['closes-when']
+      ? `**Closes when:** ${flags['closes-when']}`
+      : '**Closes when:** (fill this in — required before close)');
+    fmLines.push('');
+    fs.writeFileSync(file, fmLines.join('\n'));
+    process.stdout.write(`opened ${id} → ${path.relative(ose.root, file)}\n`);
     return;
   }
 
   if (sub === 'close') {
-    const id = args[1];
+    const id = cleanArgs[1];
     if (!id) { console.error('Usage: osengineer handoff close <id> [--reason "<text>"]'); process.exit(1); }
-    const flags = parseFlags(args.slice(2), ['reason']);
+    const flags = parseFlags(cleanArgs.slice(2), ['reason']);
     const files = listDirSafe(handoffsDir).filter(f => f.startsWith(`${id}-`) && f.endsWith('.md'));
-    if (files.length === 0) { console.error(`osengineer: no open handoff matching ${id}`); process.exit(1); }
+    if (files.length === 0) { console.error(`osengineer: no handoff matching ${id}`); process.exit(1); }
     if (files.length > 1) { console.error(`osengineer: multiple handoffs match ${id}: ${files.join(', ')}`); process.exit(1); }
     const file = path.join(handoffsDir, files[0]);
     const content = fs.readFileSync(file, 'utf8');
@@ -347,7 +407,7 @@ function cmdHandoff(args) {
   }
 
   if (sub === 'list' || !sub) {
-    const files = listDirSafe(handoffsDir).filter(f => /^HO-\d+-/.test(f) && f.endsWith('.md'));
+    const files = listDirSafe(handoffsDir).filter(f => /^(HO|XR)-\d+-/.test(f) && f.endsWith('.md'));
     if (files.length === 0) { process.stdout.write('no handoffs\n'); return; }
     for (const f of files) {
       const content = fs.readFileSync(path.join(handoffsDir, f), 'utf8');
@@ -357,8 +417,99 @@ function cmdHandoff(args) {
     return;
   }
 
-  console.error(`Usage: osengineer handoff (open|close|list) ...`);
+  console.error('Usage: osengineer handoff (open|close|list) ...');
   process.exit(1);
+}
+
+// Discover ADRs in a META repo by scanning known locations. Writes a YAML
+// catalog to <workbench>/.osengineer/adr-catalog.yml if cwd has an .osengineer/.
+function discoverAdrs(metaPath) {
+  const candidates = [
+    'documentation/adrs',
+    'documentation/adr',
+    'docs/adr',
+    'docs/adrs',
+    '.claude/adr-catalog',
+  ];
+  const findings = [];
+  for (const sub of candidates) {
+    const dir = path.join(metaPath, sub);
+    if (!fs.existsSync(dir)) continue;
+    for (const f of listDirSafe(dir)) {
+      const m = f.match(/^ADR-(\d{3})-(.+)\.md$/i);
+      if (!m) continue;
+      let title = m[2].replace(/-/g, ' ');
+      let status = 'unknown';
+      try {
+        const content = fs.readFileSync(path.join(dir, f), 'utf8');
+        const titleLine = content.match(/^#\s+(.+)$/m);
+        if (titleLine) title = titleLine[1].trim().replace(/^ADR-\d+:?\s*/, '');
+        const sm = content.match(/^[*\s|]*Status[*\s|:]+\s*([A-Za-z ✅⚠️]+)/m);
+        if (sm) status = sm[1].trim().toLowerCase();
+      } catch {}
+      findings.push({
+        id: `ADR-${m[1]}`,
+        title,
+        status,
+        file: path.relative(metaPath, path.join(dir, f)).replace(/\\/g, '/'),
+      });
+    }
+  }
+  // Also parse consolidated arc42 section 9 if present
+  const arc42 = path.join(metaPath, 'documentation/09-architectural-decisions.md');
+  if (fs.existsSync(arc42)) {
+    try {
+      const content = fs.readFileSync(arc42, 'utf8');
+      const blocks = content.split(/^###\s+/m).slice(1);
+      for (const b of blocks) {
+        const m = b.match(/^ADR-(\d{3}):?\s*(.+?)$/m);
+        if (!m) continue;
+        const id = `ADR-${m[1]}`;
+        if (findings.some(f => f.id === id)) continue; // prefer individual file
+        const status = (b.match(/Status[*\s|:]+([A-Za-z ✅⚠️]+)/) || [, 'unknown'])[1].trim().toLowerCase();
+        findings.push({
+          id, title: m[2].trim(), status,
+          file: 'documentation/09-architectural-decisions.md',
+        });
+      }
+    } catch {}
+  }
+  findings.sort((a, b) => a.id.localeCompare(b.id));
+  return findings;
+}
+
+function cmdDiscoverAdrs(args) {
+  const metaPath = args[0];
+  if (!metaPath) {
+    console.error('Usage: osengineer discover-adrs <meta-path> [--out <file>]');
+    process.exit(1);
+  }
+  if (!fs.existsSync(metaPath)) {
+    console.error(`osengineer: ${metaPath} does not exist`); process.exit(1);
+  }
+  const findings = discoverAdrs(metaPath);
+  const flags = parseFlags(args.slice(1), ['out']);
+  const lines = [
+    '# osEngineer ADR catalog — generated from META repo',
+    `# Source: ${metaPath}`,
+    `# Generated: ${new Date().toISOString()}`,
+    '',
+    'adrs:',
+  ];
+  for (const a of findings) {
+    lines.push(`  - id: ${a.id}`);
+    lines.push(`    title: "${a.title.replace(/"/g, '\\"')}"`);
+    lines.push(`    status: ${a.status}`);
+    lines.push(`    file: ${a.file}`);
+  }
+  const out = lines.join('\n') + '\n';
+  if (flags.out) {
+    fs.mkdirSync(path.dirname(flags.out), { recursive: true });
+    fs.writeFileSync(flags.out, out);
+    process.stdout.write(`wrote ${findings.length} ADR entries → ${flags.out}\n`);
+  } else {
+    process.stdout.write(out);
+  }
 }
 
 function parseFlags(args, allowed) {
@@ -425,6 +576,8 @@ function usage() {
     '  osengineer handoff open --from <t> --to <t> --slug <s> [--closes-when "<text>"]\n' +
     '  osengineer handoff close <id> [--reason "<text>"]\n' +
     '  osengineer handoff list\n' +
+    '  osengineer discover-adrs <meta-path> [--out <file>]\n' +
+    '                                          Scan a META repo for ADRs; emit YAML catalog\n' +
     '  osengineer version                      Print osEngineer version\n' +
     '  osengineer explain [topic]              overview|phases|hooks|teams|handoffs\n'
   );
@@ -446,6 +599,8 @@ switch (sub) {
     cmdDetectTeams(rest); break;
   case 'handoff':
     cmdHandoff(rest); break;
+  case 'discover-adrs':
+    cmdDiscoverAdrs(rest); break;
   case 'explain':
     cmdExplain(rest); break;
   case undefined:
