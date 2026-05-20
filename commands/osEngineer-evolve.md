@@ -1,108 +1,142 @@
 # /osEngineer:evolve
 
-**Syntax:** `/osEngineer:evolve [focus-area]`  
-**Role:** Meta-agent — improves the skill itself based on usage.  
-**Trigger:** Explicit user call, or auto-nudge after 5 completed phases.  
-**Output:** `EVOLUTION_PROPOSAL.md` with user-selectable options.
+**Syntax:** `/osEngineer:evolve [status | propose | accept | reject]`
+**Role:** Meta-agent — improves the skill itself via HITL self-improvement.
+**Trigger:** Explicit user call, or auto-nudge when `phases_since_last_evolution ≥ 5`.
+**Output:** Updated `memory/patterns/<slug>.md` (on accept) or
+`.osengineer/evolution-rejections.jsonl` entry (on reject); counter reset to 0.
 
 ---
 
 ## Description
 
-The evolve command is osEngineer's self-improvement mechanism. It analyzes completed phases, identifies pain points, and presents the user with improvement options. The user selects which improvements to apply.
+The evolve loop is osEngineer's self-improvement mechanism. The post-commit
+hook ticks `.osengineer/evolution-counter.yml`. At counter ≥ 5 the session-start
+banner nudges. The user (with optional architect-agent help) authors
+improvement proposals, then accepts or rejects each. Accepted proposals are
+promoted to patterns in the osEngineer skill repo's `memory/patterns/`,
+making the learning durable across future installs and rollouts.
 
-**This is a HITL gate. The agent NEVER auto-applies evolution changes.**
+**This is a HITL gate. The CLI NEVER auto-applies evolution changes.** Proposals
+require an explicit `accept` or `reject` subcommand.
 
-## Steps
+---
 
-### 1. Gather Evidence
+## The flow
 
-Read from `memory/`:
-- Last 5 `VERIFICATION.md` files (token variance, test results)
-- Last 5 `RETROSPECTIVE.md` files (what went wrong, patterns)
-- `memory/environment-profile.yml` (current capabilities)
-- `memory/evolution-counter.yml` (phase count since last evolution)
+### 1. Auto-nudge fires (passive)
 
-### 2. Analyze Pain Points
-
-Look for recurring themes:
-- **Token overruns:** Same task type consistently underestimated?
-- **Topology drift:** Repeated AMQP mismatches?
-- **Missing metrics:** New services lack metrics?
-- **Test flakiness:** Same integration test fails intermittently?
-- **Context overflow:** Scope too wide, too many repos loaded?
-
-### 3. Generate Options
-
-Present 3–5 improvement options to the user:
+After 5 phases land via Conventional Commits, the post-commit hook ticks the
+counter to 5. The next session-start hook surfaces a banner:
 
 ```
-[osEngineer] Evolution Proposal — 5 phases analyzed
-
-Pain Points Detected:
-  1. Token estimates for Docker SDK tasks are 40% low (3/5 phases)
-  2. AMQP topology drift detected in 2 phases
-  3. New service ola-management-X lacks metrics onboarding
-
-Improvement Options:
-
-  [A] Refine token estimates
-      Update planning/TEMPLATES/PHASE_PLAN.md to add 50% buffer
-      for Docker SDK tasks. Update planner.md agent instructions.
-      Cost: ~500 tokens to implement.
-
-  [B] Add topology validator to CI
-      Wire topology-validator agent into pre-commit hook.
-      Auto-run on AMQP changes. Cost: ~1K tokens.
-
-  [C] Onboard metrics for ola-management-X
-      Run metrics-onboarding agent on the new service.
-      Cost: ~2K tokens.
-
-  [D] Add flaky-test tracker
-      New agent that marks intermittent test failures.
-      Cost: ~1.5K tokens.
-
-  [E] Shrink default scope
-      Reduce scope-manager default from 5 repos to 3.
-      Cost: ~200 tokens.
-
-Select options to apply (e.g., "A, B, E"):
+osEngineer state
+- phase: idle
+- ⚙ 5 phases since last /osEngineer:evolve — consider running it to surface improvement proposals.
 ```
 
-### 4. Apply Selected Options
+### 2. User runs status
 
-For each selected option:
-1. Create a mini-phase: `evolve/YYYY-MM-DD-<option>`.
-2. Apply the change (update template, add agent, etc.).
-3. Write `EVOLUTION_PROPOSAL.md` documenting what changed and why.
-4. Commit to osEngineer repo.
-
-### 5. Reset Counter
-
-```yaml
-# memory/evolution-counter.yml
-phases_since_last_evolution: 0
-last_evolution_date: 2026-05-20
-applied_options: [A, B, E]
+```
+$ osengineer evolve
+phases_since_last_evolution: 5
+total_evolutions_accepted: 3
+⚙ counter ≥ 5 — consider proposing improvements
+open proposals: 0
+closed proposals: 0
 ```
 
-## Auto-Nudge
+### 3. User (with architect help) proposes improvements
 
-After every phase completion, increment the counter:
-```yaml
-phases_since_last_evolution: +1
+The architect agent inspects:
+- the last few `planning/active/*/RETROSPECTIVE.md` files
+- the recent entries in `.osengineer/bypass-log.jsonl` (where rules were bypassed)
+- the recent entries in `.osengineer/handoffs/` (which teams deadlocked)
+- `memory/patterns/` (what's already documented)
+
+and surfaces 1–3 improvement candidates. The user opens proposals via:
+
+```
+$ osengineer evolve propose --title "Add queue-declare-before-bind to RabbitMQ pattern"  \
+    --category amqp \
+    --body-file /tmp/proposal-body.md
+opened EP-001 → .osengineer/evolution-proposals/EP-001-add-queue-declare-before-bind.md
 ```
 
-When counter reaches 5:
+### 4. User accepts or rejects each proposal
+
+**Accept** — promotes a pattern file into the osEngineer skill repo:
+
 ```
-[osEngineer] You've completed 5 phases since the last skill evolution.
-  Run /osEngineer:evolve to review and improve the skill.
-  (You can skip this nudge with /osEngineer:evolve --skip)
+$ osengineer evolve accept EP-001 --pattern-slug queue-declare-before-bind  \
+    --pattern-file /tmp/pattern.md
+accepted EP-001 → memory/patterns/queue-declare-before-bind.md
+counter reset to 0; total accepted = 4
 ```
 
-## Skip Rules
+If `--pattern-file` is omitted, a stub is created from the proposal body.
 
-User can skip evolution nudges:
-- `/osEngineer:evolve --skip` — Skip this nudge, reset counter to 0.
-- Set `auto_evolve: false` in `memory/environment-profile.yml` — Disable nudges entirely.
+**Reject** — logs reason; counter still resets (rejection counts as "addressed"):
+
+```
+$ osengineer evolve reject EP-002 --reason "duplicate of existing dual-listen-migration pattern"
+rejected EP-002 (reason logged); counter reset to 0
+```
+
+### 5. Pattern is now visible to all future osEngineer installs
+
+Pattern lives in `<osEngineer-skill-repo>/memory/patterns/queue-declare-before-bind.md`
+and ships with the next `install.sh` run on any repo.
+
+---
+
+## Auto-nudge tuning
+
+To change the nudge threshold or disable auto-nudge:
+
+- Edit `memory/environment-profile.yml` in your osEngineer skill repo:
+  ```yaml
+  auto_evolve: true
+  evolve_nudge_threshold: 5
+  ```
+- Or set `OSE_NO_NUDGE=1` env var in your `.claude/settings.json` env block
+  to suppress the banner specifically (does not affect counter increment).
+
+---
+
+## What gets stored where
+
+| Artifact | Location | Purpose |
+|---|---|---|
+| Counter | `<repo>/.osengineer/evolution-counter.yml` | per-repo nudge timing |
+| Proposals (open) | `<repo>/.osengineer/evolution-proposals/EP-NNN-*.md` | proposal documents pending decision |
+| Proposals (closed) | same path, status field flipped | audit trail |
+| Accepted patterns | `<osEngineer-skill>/memory/patterns/<slug>.md` | shared learning |
+| Rejection log | `<repo>/.osengineer/evolution-rejections.jsonl` | append-only rejection audit |
+
+The skill-repo location lets one workbench worth of work feed improvements
+back into the skill that gets reinstalled in the next workbench. The
+per-repo locations let many parallel proposals coexist without conflict.
+
+---
+
+## Hard rules
+
+- **CLI never modifies osEngineer's own files** outside `memory/patterns/`.
+  Code/template/agent edits are out of scope — they require a real phase
+  in the osEngineer repo itself with TDD + reviewer.
+- **Reject still resets the counter.** Rejecting a proposal is also a
+  decision the user "addressed" — it's not punished.
+- **No anonymous proposals.** Every proposal records `opened_in_repo` so
+  the trail back to context is preserved.
+- **No silent overwrites.** If `memory/patterns/<slug>.md` already exists,
+  `--pattern-slug` collisions are caller error; user must pick a unique slug
+  or update the existing pattern manually.
+
+---
+
+## Related commands
+
+- `/osEngineer:explain evolution` — concept overview
+- `/osEngineer:verify` — produces VERIFICATION.md which informs future proposals
+- `osengineer state` — see current phase and budget; useful pre-evolve context

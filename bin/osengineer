@@ -524,6 +524,198 @@ function parseFlags(args, allowed) {
   return out;
 }
 
+// ── Evolution loop ─────────────────────────────────────────────────────────
+//
+// `osengineer evolve` orchestrates the HITL self-improvement flow.
+// Proposals live in <repo>/.osengineer/evolution-proposals/<id>.md.
+// Accepted patterns are promoted into <osEngineer-skill>/memory/patterns/.
+// Rejections are logged to <repo>/.osengineer/evolution-rejections.jsonl.
+
+function readEvolutionCounter(repoRoot) {
+  const p = path.join(repoRoot, '.osengineer', 'evolution-counter.yml');
+  if (!fs.existsSync(p)) return { phases_since_last_evolution: 0, total_evolutions_accepted: 0 };
+  const raw = fs.readFileSync(p, 'utf8');
+  const out = { phases_since_last_evolution: 0, total_evolutions_accepted: 0 };
+  const m1 = raw.match(/^phases_since_last_evolution:\s*(\d+)/m);
+  const m2 = raw.match(/^total_evolutions_accepted:\s*(\d+)/m);
+  if (m1) out.phases_since_last_evolution = parseInt(m1[1], 10);
+  if (m2) out.total_evolutions_accepted = parseInt(m2[1], 10);
+  return out;
+}
+
+function writeEvolutionCounter(repoRoot, fields) {
+  const p = path.join(repoRoot, '.osengineer', 'evolution-counter.yml');
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const existing = readEvolutionCounter(repoRoot);
+  const merged = { ...existing, ...fields };
+  const lines = [
+    '# Incremented by osEngineer-post-commit hook. Auto-nudge fires at >= 5.',
+    `phases_since_last_evolution: ${merged.phases_since_last_evolution}`,
+    `total_evolutions_accepted: ${merged.total_evolutions_accepted}`,
+  ];
+  if (merged.last_evolution_date) lines.push(`last_evolution_date: ${merged.last_evolution_date}`);
+  fs.writeFileSync(p, lines.join('\n') + '\n');
+}
+
+function listProposals(repoRoot) {
+  const dir = path.join(repoRoot, '.osengineer', 'evolution-proposals');
+  if (!fs.existsSync(dir)) return [];
+  return listDirSafe(dir).filter(f => /^EP-\d+-/.test(f) && f.endsWith('.md'));
+}
+
+function cmdEvolve(args) {
+  const repoRoot = findRepoRoot(process.cwd());
+  if (!repoRoot) { console.error('osengineer: not inside a git repo'); process.exit(1); }
+  const sub = args[0];
+
+  if (!sub || sub === 'status') {
+    const c = readEvolutionCounter(repoRoot);
+    const proposals = listProposals(repoRoot);
+    const open = [];
+    const closed = [];
+    for (const f of proposals) {
+      const content = fs.readFileSync(path.join(repoRoot, '.osengineer', 'evolution-proposals', f), 'utf8');
+      (content.match(/^status:\s*(accepted|rejected)/im) ? closed : open).push(f);
+    }
+    process.stdout.write(`phases_since_last_evolution: ${c.phases_since_last_evolution}\n`);
+    process.stdout.write(`total_evolutions_accepted: ${c.total_evolutions_accepted}\n`);
+    if (c.phases_since_last_evolution >= 5) {
+      process.stdout.write(`⚙ counter ≥ 5 — consider proposing improvements\n`);
+    }
+    process.stdout.write(`open proposals: ${open.length}\n`);
+    for (const f of open) process.stdout.write(`  ○ ${f}\n`);
+    process.stdout.write(`closed proposals: ${closed.length}\n`);
+    for (const f of closed) process.stdout.write(`  ● ${f}\n`);
+    return;
+  }
+
+  if (sub === 'propose') {
+    const flags = parseFlags(args.slice(1), ['title', 'body-file', 'body', 'category']);
+    if (!flags.title) {
+      console.error('Usage: osengineer evolve propose --title "<t>" [--body "<text>" | --body-file <f>] [--category <c>]');
+      process.exit(1);
+    }
+    const dir = path.join(repoRoot, '.osengineer', 'evolution-proposals');
+    fs.mkdirSync(dir, { recursive: true });
+    const existing = listProposals(repoRoot);
+    let nextNum = 1;
+    for (const f of existing) {
+      const m = f.match(/^EP-(\d+)-/);
+      if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
+    }
+    const id = `EP-${String(nextNum).padStart(3, '0')}`;
+    const slug = flags.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+    const file = path.join(dir, `${id}-${slug}.md`);
+    let body = flags.body || '';
+    if (flags['body-file']) {
+      try { body = fs.readFileSync(flags['body-file'], 'utf8'); }
+      catch { console.error(`osengineer: cannot read --body-file ${flags['body-file']}`); process.exit(1); }
+    }
+    const content = [
+      '---',
+      `proposal_id: ${id}`,
+      `title: "${flags.title.replace(/"/g, '\\"')}"`,
+      `category: ${flags.category || 'general'}`,
+      'status: open',
+      `opened_at: ${new Date().toISOString()}`,
+      `opened_in_repo: ${path.basename(repoRoot)}`,
+      '---',
+      '',
+      `# Evolution proposal ${id}: ${flags.title}`,
+      '',
+      body || '(no body provided — fill this in before requesting acceptance)',
+      '',
+    ].join('\n');
+    fs.writeFileSync(file, content);
+    process.stdout.write(`opened ${id} → ${path.relative(repoRoot, file)}\n`);
+    return;
+  }
+
+  if (sub === 'accept') {
+    const id = args[1];
+    if (!id) { console.error('Usage: osengineer evolve accept <id> --pattern-slug <slug> [--pattern-file <f>]'); process.exit(1); }
+    const flags = parseFlags(args.slice(2), ['pattern-slug', 'pattern-file']);
+    if (!flags['pattern-slug']) { console.error('--pattern-slug is required'); process.exit(1); }
+    const dir = path.join(repoRoot, '.osengineer', 'evolution-proposals');
+    const files = listDirSafe(dir).filter(f => f.startsWith(`${id}-`) && f.endsWith('.md'));
+    if (files.length === 0) { console.error(`osengineer: no proposal matching ${id}`); process.exit(1); }
+    if (files.length > 1) { console.error(`osengineer: multiple proposals match ${id}`); process.exit(1); }
+    const file = path.join(dir, files[0]);
+
+    // Mark proposal accepted
+    const original = fs.readFileSync(file, 'utf8');
+    const updated = original.replace(/^status:\s*open/m, 'status: accepted')
+      .replace(/^(---\n[\s\S]*?)(\n---)/m, `$1\naccepted_at: ${new Date().toISOString()}$2`);
+    fs.writeFileSync(file, updated);
+
+    // Promote a pattern file into the osEngineer skill repo
+    const patternFile = path.join(SCRIPT_DIR, 'memory', 'patterns', `${flags['pattern-slug']}.md`);
+    if (flags['pattern-file']) {
+      try {
+        const src = fs.readFileSync(flags['pattern-file'], 'utf8');
+        fs.mkdirSync(path.dirname(patternFile), { recursive: true });
+        fs.writeFileSync(patternFile, src);
+      } catch { console.error(`osengineer: cannot read --pattern-file ${flags['pattern-file']}`); process.exit(1); }
+    } else {
+      // Derive a minimal pattern stub from the proposal body
+      const stub = [
+        `# Pattern: ${flags['pattern-slug']}`,
+        '',
+        `Promoted from evolution proposal ${id} in repo ${path.basename(repoRoot)} on ${new Date().toISOString().slice(0,10)}.`,
+        '',
+        original.replace(/^---\n[\s\S]*?\n---\n/m, ''),
+      ].join('\n');
+      fs.mkdirSync(path.dirname(patternFile), { recursive: true });
+      fs.writeFileSync(patternFile, stub);
+    }
+
+    // Reset counter and bump accepted total
+    const c = readEvolutionCounter(repoRoot);
+    writeEvolutionCounter(repoRoot, {
+      phases_since_last_evolution: 0,
+      total_evolutions_accepted: c.total_evolutions_accepted + 1,
+      last_evolution_date: new Date().toISOString().slice(0, 10),
+    });
+    process.stdout.write(`accepted ${id} → memory/patterns/${flags['pattern-slug']}.md\ncounter reset to 0; total accepted = ${c.total_evolutions_accepted + 1}\n`);
+    return;
+  }
+
+  if (sub === 'reject') {
+    const id = args[1];
+    if (!id) { console.error('Usage: osengineer evolve reject <id> --reason "<text>"'); process.exit(1); }
+    const flags = parseFlags(args.slice(2), ['reason']);
+    if (!flags.reason) { console.error('--reason is required'); process.exit(1); }
+    const dir = path.join(repoRoot, '.osengineer', 'evolution-proposals');
+    const files = listDirSafe(dir).filter(f => f.startsWith(`${id}-`) && f.endsWith('.md'));
+    if (files.length === 0) { console.error(`osengineer: no proposal matching ${id}`); process.exit(1); }
+    const file = path.join(dir, files[0]);
+    const original = fs.readFileSync(file, 'utf8');
+    const updated = original.replace(/^status:\s*open/m, 'status: rejected')
+      .replace(/^(---\n[\s\S]*?)(\n---)/m, `$1\nrejected_at: ${new Date().toISOString()}\nreject_reason: "${flags.reason.replace(/"/g, '\\"')}"$2`);
+    fs.writeFileSync(file, updated);
+
+    // Append to rejections log
+    const logPath = path.join(repoRoot, '.osengineer', 'evolution-rejections.jsonl');
+    const entry = JSON.stringify({
+      proposal_id: id, rejected_at: new Date().toISOString(), reason: flags.reason,
+    }) + '\n';
+    fs.appendFileSync(logPath, entry);
+
+    // Reset counter (rejection counts toward "addressed")
+    const c = readEvolutionCounter(repoRoot);
+    writeEvolutionCounter(repoRoot, {
+      phases_since_last_evolution: 0,
+      total_evolutions_accepted: c.total_evolutions_accepted,
+      last_evolution_date: new Date().toISOString().slice(0, 10),
+    });
+    process.stdout.write(`rejected ${id} (reason logged); counter reset to 0\n`);
+    return;
+  }
+
+  console.error('Usage: osengineer evolve (status|propose|accept|reject) ...');
+  process.exit(1);
+}
+
 function cmdExplain(args) {
   const topic = args[0] || 'overview';
   const messages = {
@@ -556,6 +748,14 @@ function cmdExplain(args) {
       '  osengineer handoff open --from <A> --to <B> --slug <s> --closes-when "<text>"\n' +
       'and the architect agent watches the directory. Verify-phase transitions\n' +
       'are blocked while any handoff is open.\n',
+    evolution:
+      'Evolution loop: the post-commit hook increments\n' +
+      '.osengineer/evolution-counter.yml; at >= 5 the session-start banner\n' +
+      'auto-nudges. Propose an improvement with\n' +
+      '  osengineer evolve propose --title "<t>" --body "<text>"\n' +
+      'Accept with `osengineer evolve accept <id> --pattern-slug <s>` (promotes\n' +
+      'to memory/patterns/) or `osengineer evolve reject <id> --reason "<r>"`\n' +
+      '(logged to evolution-rejections.jsonl). Either action resets the counter.\n',
   };
   const msg = messages[topic];
   if (!msg) {
@@ -578,6 +778,12 @@ function usage() {
     '  osengineer handoff list\n' +
     '  osengineer discover-adrs <meta-path> [--out <file>]\n' +
     '                                          Scan a META repo for ADRs; emit YAML catalog\n' +
+    '  osengineer evolve [status]              Show counter + open/closed proposals\n' +
+    '  osengineer evolve propose --title "<t>" [--body "<text>" | --body-file <f>] [--category <c>]\n' +
+    '  osengineer evolve accept <id> --pattern-slug <s> [--pattern-file <f>]\n' +
+    '                                          Promote proposal to memory/patterns/<s>.md; reset counter\n' +
+    '  osengineer evolve reject <id> --reason "<text>"\n' +
+    '                                          Log rejection; reset counter\n' +
     '  osengineer version                      Print osEngineer version\n' +
     '  osengineer explain [topic]              overview|phases|hooks|teams|handoffs\n'
   );
@@ -601,6 +807,8 @@ switch (sub) {
     cmdHandoff(rest); break;
   case 'discover-adrs':
     cmdDiscoverAdrs(rest); break;
+  case 'evolve':
+    cmdEvolve(rest); break;
   case 'explain':
     cmdExplain(rest); break;
   case undefined:
