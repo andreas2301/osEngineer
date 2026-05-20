@@ -98,7 +98,34 @@ install_on_project() {
     echo "[install]   + planning/TEMPLATES/"
   fi
 
-  # 5. Check for graphify and suggest build
+  # 5. Wire zeroclaw repo config (.claude/settings.json)
+  echo "[install] Wiring zeroclaw config..."
+  for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
+    local claude_dir="$repo/.claude"
+    mkdir -p "$claude_dir"
+    if [ ! -f "$claude_dir/settings.json" ]; then
+      cat > "$claude_dir/settings.json" <<'JSON'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f graphify-out/graph.json ] && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: Knowledge graph exists. Read graphify-out/GRAPH_REPORT.md for god nodes and community structure before searching raw files.\"}}' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+      echo "[install]   + .claude/settings.json → $(basename "$repo")"
+    fi
+  done
+
+  # 6. Check for graphify and suggest build
   if [ ! -d "$project_root/graphify-out" ]; then
     local first_repo
     first_repo=$(find "$project_root" -maxdepth 2 -type d -name ".git" | head -1 | sed 's|/.git$||')
@@ -138,6 +165,30 @@ install_on_workbench() {
 
       # Planning dirs
       mkdir -p "$repo/planning/active" "$repo/planning/completed" 2>/dev/null || true
+
+      # Zeroclaw config wiring (.claude/settings.json)
+      local claude_dir="$repo/.claude"
+      mkdir -p "$claude_dir"
+      if [ ! -f "$claude_dir/settings.json" ]; then
+        cat > "$claude_dir/settings.json" <<'JSON'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f graphify-out/graph.json ] && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: Knowledge graph exists. Read graphify-out/GRAPH_REPORT.md for god nodes and community structure before searching raw files.\"}}' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSON
+        echo "[install]   + .claude/settings.json → $repo_name"
+      fi
     fi
   done
 

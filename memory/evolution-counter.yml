@@ -1,0 +1,7 @@
+# Evolution Counter
+# Incremented after each completed phase.
+# Reset to 0 after each evolution.
+
+phases_since_last_evolution: 0
+last_evolution_date: ""
+auto_evolve_nudge: true  # Set false to disable auto-nudges

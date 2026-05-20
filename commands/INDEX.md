@@ -1,8 +1,9 @@
 # commands/ INDEX
 
-- [observer-init.md](observer-init.md) — `/osEngineer:init <project-root>`
-- [observer-plan.md](observer-plan.md) — `/osEngineer:plan <goal>`
-- [observer-fix.md](observer-fix.md) — `/osEngineer:fix <ticket>`
-- [observer-feature.md](observer-feature.md) — `/osEngineer:feature <ticket>`
-- [observer-investigate.md](observer-investigate.md) — `/osEngineer:investigate <symptom>`
-- [observer-verify.md](observer-verify.md) — `/osEngineer:verify <phase-id>`
+- [osEngineer-init.md](osEngineer-init.md) — `/osEngineer:init <project-root>`
+- [osEngineer-plan.md](osEngineer-plan.md) — `/osEngineer:plan <goal>`
+- [osEngineer-fix.md](osEngineer-fix.md) — `/osEngineer:fix <ticket>`
+- [osEngineer-feature.md](osEngineer-feature.md) — `/osEngineer:feature <ticket>`
+- [osEngineer-investigate.md](osEngineer-investigate.md) — `/osEngineer:investigate <symptom>`
+- [osEngineer-verify.md](osEngineer-verify.md) — `/osEngineer:verify <phase-id>`
+- [osEngineer-evolve.md](osEngineer-evolve.md) — `/osEngineer:evolve [focus-area]`

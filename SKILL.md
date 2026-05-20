@@ -26,10 +26,12 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 
 ## Quick Start
 
-1. **Discovery:** Run `/osEngineer:investigate <symptom>` to understand the current state.
-2. **Plan:** Run `/osEngineer:plan <goal>` to generate a `PHASE_PLAN.md`.
-3. **Execute:** Run `/osEngineer:fix <ticket>` or `/osEngineer:feature <ticket>` to execute a planned phase.
-4. **Verify:** Run `/osEngineer:verify <phase>` to validate deliverables.
+1. **Initialize:** Run `/osEngineer:init /path/to/project` to detect environment and discover repos.
+2. **Discovery:** Run `/osEngineer:investigate <symptom>` to understand the current state.
+3. **Plan:** Run `/osEngineer:plan <goal>` to generate a `PHASE_PLAN.md`.
+4. **Execute:** Run `/osEngineer:fix <ticket>` or `/osEngineer:feature <ticket>` to execute a planned phase.
+5. **Verify:** Run `/osEngineer:verify <phase>` to validate deliverables.
+6. **Evolve:** Run `/osEngineer:evolve` to improve the skill itself (HITL, auto-nudge at 5 phases).
 
 ---
 
@@ -55,6 +57,8 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 - `agents/dba.md` — database schema agent
 - `agents/qa.md` — testing specialist
 - `agents/ui-ux-designer.md` — UI/UX reasoning rules
+- `agents/sync-agent.md` — live ↔ workbench synchronization
+- `agents/budget-tracker.md` — token spend tracking
 - `integrations/confluence-mcp.md` — Atlassian Confluence MCP
 - `integrations/vault-mcp.md` — HashiCorp Vault MCP
 - `integrations/playwright-mcp.md` — browser testing MCP
@@ -80,11 +84,12 @@ osEngineer integrates patterns from these external skills but is **completely st
 
 When osEngineer starts on a new project:
 
-1. **Scan for repos:** `discovery/repo-discovery.md` scans the project root for `.git` directories.
-2. **Read ADR catalog:** Looks for `docs/adr/`, `.claude/adr-catalog/`, or `META/` ADR indices.
-3. **Run Graphify:** If `graphify-out/` exists, loads the graph; if not, suggests building it.
-4. **Read CLAUDE.md files:** Per-repo `.claude/CLAUDE.md` or `AGENTS.md` files are ingested.
-5. **Build repo map:** Creates a `RESEARCH.md` with repo topology, dependencies, and classification.
+1. **Detect execution environment:** `discovery/execution-environment.md` probes terminal/IDE/web/daemon and ASKS THE USER to confirm. NEVER assume.
+2. **Scan for repos:** `discovery/repo-discovery.md` scans the project root for `.git` directories.
+3. **Read ADR catalog:** Looks for `docs/adr/`, `.claude/adr-catalog/`, or `META/` ADR indices.
+4. **Run Graphify:** If `graphify-out/` exists, loads the graph; if not, suggests building it.
+5. **Read CLAUDE.md files:** Per-repo `.claude/CLAUDE.md` or `AGENTS.md` files are ingested.
+6. **Build repo map:** Creates a `RESEARCH.md` with repo topology, dependencies, and classification.
 
 ---
 

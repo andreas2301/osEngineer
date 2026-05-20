@@ -10,4 +10,5 @@ Discovery and research layer. Converts unknown codebases into structured knowled
 | `graphify-integration.md` | Query and maintain graphify knowledge graphs |
 | `context7-integration.md` | Use Context7 MCP for code documentation |
 | `adr-catalog-protocol.md` | Read and write ADR catalogs |
+| `execution-environment.md` | Detect where osEngineer runs (terminal/IDE/web/daemon) |
 | `sovereign-shield-repo-map.yml` | Sovereign Shield specific: 28-repo topology |
