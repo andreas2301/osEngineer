@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osengineer.dev/schemas/message-contract.schema.json",
+  "title": "AMQP message contract",
+  "description": "Doc-first AMQP message contract. Validated at commit time. Producers and consumers reference the same contract; contract fields are append-only-optional (no breaking renames). Adapted to Observer Shield's AMQP-only inter-service rule (no OpenAPI for service-to-service).",
+  "type": "object",
+  "required": ["contract_id", "version", "producer", "exchange", "routing_key", "payload"],
+  "properties": {
+    "contract_id": {
+      "type": "string",
+      "pattern": "^MC-[a-z0-9-]+$",
+      "description": "Stable identifier like MC-guardian-escalation, MC-strategist-decision."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["proposed", "active", "deprecated", "retired"]
+    },
+    "producer": {
+      "type": "object",
+      "required": ["service", "team"],
+      "properties": {
+        "service": { "type": "string" },
+        "team": { "type": "string" }
+      }
+    },
+    "consumers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["service"],
+        "properties": {
+          "service": { "type": "string" },
+          "consumer_group": { "type": "string" }
+        }
+      }
+    },
+    "exchange": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["direct", "topic", "fanout", "headers"] }
+      }
+    },
+    "routing_key": { "type": "string" },
+    "vhost": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": ["schema_ref"],
+      "properties": {
+        "schema_ref": { "type": "string" },
+        "encoding": { "type": "string", "enum": ["json", "protobuf", "msgpack"] },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string" },
+              "required": { "type": "boolean" },
+              "description": { "type": "string" },
+              "added_in": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "properties": {
+        "guarantee": { "type": "string", "enum": ["at-most-once", "at-least-once", "exactly-once"] },
+        "max_retries": { "type": "integer", "minimum": 0 },
+        "dlx": { "type": "string" }
+      }
+    },
+    "adr_refs": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^ADR-\\d{3}$" }
+    }
+  }
+}

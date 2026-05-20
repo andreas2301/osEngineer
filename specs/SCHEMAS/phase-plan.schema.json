@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osengineer.dev/schemas/phase-plan.schema.json",
+  "title": "osEngineer PHASE_PLAN.md frontmatter",
+  "description": "YAML frontmatter at the top of every PHASE_PLAN.md. The body is markdown prose; this schema validates only the machine-parseable header.",
+  "type": "object",
+  "required": ["phase_id", "goal", "tasks", "token_budget"],
+  "properties": {
+    "phase_id": {
+      "type": "string",
+      "pattern": "^phase-\\d{3}(\\.\\d+)?-[a-z0-9-]+$",
+      "description": "Stable identifier like phase-033-retry-backoff or phase-072.1-urgent-hotfix."
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 10
+    },
+    "classification": {
+      "type": "string",
+      "enum": ["feature", "fix", "refactor", "adr", "hotfix"]
+    },
+    "owner_team": { "type": "string" },
+    "token_budget": {
+      "type": "object",
+      "required": ["estimate", "circuit_breaker"],
+      "properties": {
+        "estimate": { "type": "integer", "minimum": 100 },
+        "circuit_breaker": { "type": "integer", "minimum": 100 },
+        "actual": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "rollback_path": { "type": "string" },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["risk", "likelihood", "impact"],
+        "properties": {
+          "risk": { "type": "string" },
+          "likelihood": { "type": "string", "enum": ["low", "medium", "high"] },
+          "impact": { "type": "string", "enum": ["low", "medium", "high"] },
+          "mitigation": { "type": "string" }
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "acceptance"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^T\\d+$" },
+          "description": { "type": "string" },
+          "depends_on": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^T\\d+$" }
+          },
+          "acceptance": { "type": "string" },
+          "token_estimate": { "type": "integer", "minimum": 0 },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in_progress", "completed", "blocked"]
+          }
+        }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

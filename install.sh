@@ -29,7 +29,10 @@ AGENTS_DIR="$SCRIPT_DIR/agents"
 VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "0.0.0-dev")"
 
 # Mandatory agents — copied into every initialised repo's .claude/agents/
+# Includes the two orchestration agents (architect, verifier) introduced in
+# osEngineer 0.2.0 P2 alongside the 14 implementation roles.
 MANDATORY_AGENTS=(
+  architect.md verifier.md
   developer.md reviewer.md judge.md
   red-team-local.md red-team-architect.md
   tech-writer.md researcher.md planner.md

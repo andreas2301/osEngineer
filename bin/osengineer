@@ -143,10 +143,10 @@ function cmdExplain(args) {
       'Transitions are gated by hooks: no execute without PHASE_PLAN.md, no\n' +
       'verify without green test run, no merge without VERIFICATION.md.\n',
     hooks:
-      'Ten enforcement hooks live in hooks/osEngineer-*. install.sh symlinks\n' +
-      'the relevant ones into .git/hooks/ and adds Claude entries to\n' +
-      '.claude/settings.json. Bypass any hook with OSE_BYPASS=1 (logged to\n' +
-      '.osengineer/bypass-log.jsonl).\n',
+      'Ten enforcement hooks live in hooks/osEngineer-*. install.sh copies\n' +
+      'the git hooks into .git/hooks/ and wires the Claude hooks via\n' +
+      'absolute path in .claude/settings.json. Bypass any hook with\n' +
+      'OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl).\n',
     teams:
       'P3+ feature: each team (coding / testing / infra / docs / security)\n' +
       'lives in its folder with an AGENTS.md frontmatter that declares\n' +

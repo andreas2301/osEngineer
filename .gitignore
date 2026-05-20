@@ -1,10 +1,15 @@
-# osEngineer skill artifacts
+# osEngineer skill artifacts (in-progress phases not shipped; seeded
+# patterns + the bootstrap retrospective ARE shipped as starter content).
 planning/active/
 planning/completed/
 memory/retrospectives/*.md
 memory/patterns/*.md
 !memory/retrospectives/.gitkeep
 !memory/patterns/.gitkeep
+!memory/patterns/queue-declare-before-consume.md
+!memory/patterns/dual-listen-migration.md
+!memory/patterns/fail-closed-on-tls-error.md
+!memory/retrospectives/2026-05-20-osEngineer-bootstrap.md
 
 # OS
 .DS_Store

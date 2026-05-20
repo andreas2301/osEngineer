@@ -4,7 +4,14 @@ Agent role definitions for the osEngineer skill team.
 
 Each `.md` file defines a role: mandate, protocol, output format, and trigger conditions.
 
-## Mandatory Agents (always loaded)
+## Orchestration Agents (always active in initialised repos)
+
+| File | Role | When to use |
+|------|------|-------------|
+| `architect.md` | Per-scope router (workbench/repo) | Every prompt — reads AGENTS.md, routes work to teams |
+| `verifier.md` | Phase verification gate | Every `verify → accepted` transition |
+
+## Mandatory Implementation Agents (always loaded)
 
 These agents form the core team. For small repos, the developer handles everything.
 For large cross-repo work, all roles fire in sequence.

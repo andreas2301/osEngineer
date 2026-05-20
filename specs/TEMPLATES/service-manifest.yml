@@ -1,0 +1,53 @@
+# Example service-manifest.yml — validates against
+# specs/SCHEMAS/service-manifest.schema.json.
+#
+# Drop a copy of this file at <repo-root>/service-manifest.yml of every
+# Observer Shield service. The osEngineer-pre-commit hook validates it
+# against the schema on every commit.
+
+service:
+  name: ola-management-strategist
+  language: go
+  repo: ola-management-strategist
+  binary: ./cmd/strategist
+  container_image: ola-management-strategist:latest
+
+owner_team: coding
+
+adr_refs:
+  - ADR-014
+  - ADR-021
+
+amqp:
+  vhost: shield_internal
+  exchanges_produced:
+    - name: ex.strategist.decisions
+      type: topic
+      durable: true
+      routing_keys:
+        - strategist.decision.created
+        - strategist.decision.updated
+  queues_consumed:
+    - name: q.strategist.inbound
+      exchange: ex.infra.events
+      routing_key: infra.event.observed
+      durable: true
+      dlx: ex.dead-letter
+
+metrics:
+  endpoint: /metrics
+  port: 9101
+  scrape_interval_seconds: 30
+
+tls:
+  required: true
+  ca_file_env: SHIELD_TLS_CA_FILE
+  cert_file_env: SHIELD_TLS_CERT_FILE
+  key_file_env: SHIELD_TLS_KEY_FILE
+
+vault_secrets:
+  - path: secret/shield/strategist/api-key
+    purpose: middleware auth for /strategist/* HTTP routes
+
+http:
+  metrics_only: true   # service-to-service communication is AMQP-only

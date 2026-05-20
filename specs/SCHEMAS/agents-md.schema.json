@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osengineer.dev/schemas/agents-md.schema.json",
+  "title": "AGENTS.md frontmatter",
+  "description": "Machine-parseable YAML frontmatter block of any AGENTS.md file in an osEngineer-initialised workbench / repo / team.",
+  "type": "object",
+  "required": ["scope", "schema_version"],
+  "properties": {
+    "scope": {
+      "type": "string",
+      "enum": ["workbench", "repo", "team"],
+      "description": "Which level of the three-level osEngineer nesting this AGENTS.md operates at."
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Frontmatter contract version. Bumped only on breaking changes."
+    },
+    "osengineer_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$"
+    },
+    "architect": { "type": "boolean" },
+    "project_classification": {
+      "type": "string",
+      "enum": ["small", "medium", "large", "specialist"]
+    },
+    "meta_ref": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["path"],
+          "properties": {
+            "path": { "type": "string" },
+            "role": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "phase_state_file": { "type": "string" },
+    "cross_repo_handoffs_dir": { "type": "string" },
+    "repos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string" },
+          "category": { "type": "string" }
+        }
+      }
+    },
+    "teams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["team_id"],
+        "properties": {
+          "team_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "folder": { "type": ["string", "null"] },
+          "agents": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "owns_paths": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "reads_paths": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "excludes": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "escalates_to": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "team_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "parent_repo": { "type": "string" },
+    "agents": { "type": "array", "items": { "type": "string" } },
+    "owns_paths": { "type": "array", "items": { "type": "string" } },
+    "reads_paths": { "type": "array", "items": { "type": "string" } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scope": { "const": "workbench" } } },
+      "then": {
+        "required": ["repos"],
+        "not": { "anyOf": [{ "required": ["teams"] }, { "required": ["team_id"] }] }
+      }
+    },
+    {
+      "if": { "properties": { "scope": { "const": "repo" } } },
+      "then": {
+        "not": { "anyOf": [{ "required": ["repos"] }, { "required": ["team_id"] }] }
+      }
+    },
+    {
+      "if": { "properties": { "scope": { "const": "team" } } },
+      "then": {
+        "required": ["team_id"],
+        "not": { "anyOf": [{ "required": ["repos"] }, { "required": ["teams"] }] }
+      }
+    }
+  ]
+}
