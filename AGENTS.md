@@ -40,10 +40,10 @@ osEngineer uses a **role-based agent team** sized to repo complexity. For small 
 5. **Live System:** Live-System-Operator + Health-Verifier + Sync-Agent for production incidents.
 6. **Metrics Rollout:** Metrics-Onboarding + Topology-Validator for observability work.
 
-## Sovereign Shield Conventions
+## Project Conventions
 
 - **Small repos** (< 5K LOC, single service): Developer handles everything; Reviewer runs on PR.
 - **Large repos** (> 20K LOC, complex topology): Full mandatory team.
 - **Cross-repo** (changes touch >1 repo): Red-Team-Architect activates automatically.
-- **Live system ops** (docker, vault, certs): Live-System-Operator takes lead; Developer never edits source on `/opt/sovereign-shield` directly.
+- **Live system ops** (docker, vault, certs): Live-System-Operator takes lead; Developer never edits source on `/opt/<project>` directly.
 - **Context pressure** (>20 repos in workbench): Scope-Manager prunes repo list per phase goal.

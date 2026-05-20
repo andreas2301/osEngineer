@@ -45,7 +45,7 @@ When a change affects an existing ADR:
 
 3. Update `docs/adr/INDEX.md` or `.claude/adr-catalog/INDEX.md`.
 
-## Sovereign Shield Contracts
+## Project Contracts
 
 | Surface | Location | Schema Tool |
 |---------|----------|-------------|
@@ -58,12 +58,12 @@ When a change affects an existing ADR:
 ## Output Format
 
 ```markdown
-# Contract — retry-policy-v1.yaml
+# Contract — <contract-name>.yaml
 
 ## Producer
-- Repo: ola-management-strategist
-- Exchange: ex.management.missions
-- Routing key: mission.request.{team_id}
+- Repo: <service>
+- Exchange: ex.management.<resource>
+- Routing key: <resource>.request.{id}
 
 ## Schema
 ```yaml
@@ -72,13 +72,13 @@ required: [schema_version, plan_id, customer_id]
 properties:
   schema_version:
     type: string
-    enum: ["mission-plan-v1"]
+    enum: ["<resource>-plan-v1"]
   plan_id:
     type: string
     format: uuid
 ```
 
 ## Validation
-- JSON Schema: `internal/schema/files/mission-plan-v1.json`
+- JSON Schema: `internal/schema/files/<resource>-plan-v1.json`
 - Registry entry: `universal-agent-v1.json` (runtime_type extended)
 ```

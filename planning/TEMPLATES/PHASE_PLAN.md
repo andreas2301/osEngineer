@@ -25,7 +25,7 @@
 
 | # | Task | Owner | Deps | Acceptance Criteria | Token Est | Status |
 |---|------|-------|------|---------------------|-----------|--------|
-| T1 | Research current retry behaviour | researcher | — | Document all retry sites in fleet executor | 2K | planned |
+| T1 | Research current retry behaviour | researcher | — | Document all retry sites in the service | 2K | planned |
 | T2 | Design backoff contract | tech-writer | T1 | `retry-policy-v1.yaml` exists and validates | 1.5K | planned |
 | T3 | Implement backoff in executor core | developer | T2 | All tests green; no regression in spawn latency | 4K | planned |
 | T4 | Add topology to ansible | developer | T2 | `configure_rabbitmq.yml` declares retry exchanges | 2K | planned |

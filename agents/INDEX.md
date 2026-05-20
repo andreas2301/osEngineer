@@ -1,7 +1,7 @@
 # agents/ INDEX
 
 ## Mandatory
-- [developer.md](developer.md) — TDD protocol, commit discipline, Sovereign Shield specifics
+- [developer.md](developer.md) — TDD protocol, commit discipline, project-specific conventions
 - [reviewer.md](reviewer.md) — Correctness, tests, style, commit quality
 - [judge.md](judge.md) — Merge gate, hard rules, override protocol
 - [red-team-local.md](red-team-local.md) — SAST, secrets, allowlist enforcement

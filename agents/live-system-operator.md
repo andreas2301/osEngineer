@@ -29,7 +29,7 @@ If running as **autonomous-daemon**, live operations are READ-ONLY unless explic
 
 ```bash
 # Pre-check: get current state
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep ola-
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep <prefix>-
 
 # Restart with healthcheck
 docker compose restart <service>
@@ -43,7 +43,7 @@ wget -qO- http://localhost:<metrics_port>/metrics | grep -E "custom_metric|error
 ### 2. Hotfix (Live → Backport)
 
 1. **Identify severity:** Outage or security incident = hotfix allowed.
-2. **Apply fix in /opt/sovereign-shield:** Direct edit with rollback note.
+2. **Apply fix in /opt/<project>:** Direct edit with rollback note.
 3. **Restart affected service:** Verify health.
 4. **Document:** Write `HOTFIX.md` with:
    - What was changed
@@ -62,7 +62,7 @@ docker logs --tail 100 <container> 2>&1 | grep -i "error\|fatal\|panic"
 journalctl -u <service>.service --no-pager -n 50
 
 # Application logs (structured JSON)
-cat /var/log/sovereign-shield/<service>/*.log | jq 'select(.level=="error")'
+cat /var/log/<project>/<service>/*.log | jq 'select(.level=="error")'
 ```
 
 ### 4. AMQP Topology Verification
@@ -72,10 +72,10 @@ cat /var/log/sovereign-shield/<service>/*.log | jq 'select(.level=="error")'
 rabbitmqctl list_exchanges name type durable | grep -E "ex\.|management"
 
 # List queues
-rabbitmqctl list_queues name messages consumers | grep -E "strategist\.|supervisor\.|mission"
+rabbitmqctl list_queues name messages consumers | grep -E "<queue_prefix>\."
 
 # Check bindings
-rabbitmqctl list_bindings source_name destination_name routing_key | grep -E "ex\.management|mission"
+rabbitmqctl list_bindings source_name destination_name routing_key | grep -E "ex\.management|<resource>"
 ```
 
 ### 5. Vault Status Check
@@ -88,19 +88,16 @@ curl -s http://127.0.0.1:8200/v1/sys/health | jq '.sealed'
 vault token lookup 2>/dev/null || echo "Vault not authenticated"
 ```
 
-## Sovereign Shield Live System Map
+## Live System Map
 
-| Service | Container | Metrics Port | Compose File | Restart Cmd |
-|---------|-----------|--------------|--------------|-------------|
-| Strategist | ola-strategist | 9091 | docker-compose.yml | `docker compose restart strategist` |
-| Supervisor | ola-supervisor | 8080/metrics | docker-compose.yml | `docker compose restart supervisor` |
-| Guardian | ola-guardian | — | docker-compose.yml | `docker compose restart guardian` |
-| Metronome | ola-metronome | 9091 | docker-compose.yml | `docker compose restart metronome` |
-| Persist | ola-persist | 9091 | docker-compose.yml | `docker compose restart persist` |
-| Accountant | ola-accountant | 9091 | docker-compose.yml | `docker compose restart accountant` |
-| Witness | ola-witness | 9091 | docker-compose.yml | `docker compose restart witness` |
-| Registry | ola-registry | 9091 | docker-compose.yml | `docker compose restart registry` |
-| Fleet broker | rabbitmq-fleet | 15672 | docker-compose.yml | `docker compose restart rabbitmq-fleet` |
+Discover the live system map dynamically:
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker compose config --services
+```
+
+Fill in a local runbook table with your project's actual services, ports, and restart commands.
 
 ## Rollback Commands
 

@@ -23,14 +23,14 @@ You are the scope-manager agent in osEngineer. 28 repos cannot fit in one contex
 ### Step 1: Parse Goal
 
 Extract keywords from the goal:
-- "mission planner" → strategist, supervisor, registry
+- "<resource> planner" → <producer>, <consumer>, <schema-registry>
 - "metrics" → all services with metrics gaps
-- "AMQP topology" → strategist, supervisor, ansible
-- "cert renewal" → install-guide, all services
+- "AMQP topology" → <producer>, <consumer>, <infra-config>
+- "cert renewal" → <install-guide>, all services
 
 ### Step 2: Follow Dependency Graph
 
-Use `sovereign-shield-repo-map.yml` to find:
+Use the repo map (e.g., `discovery/<project>-repo-map.yml`) to find:
 - **Direct dependencies:** Repos that import/export contracts with primary repos.
 - **Indirect dependencies:** Repos that share Vault paths, networks, or broker vhosts.
 
@@ -39,7 +39,7 @@ Use `sovereign-shield-repo-map.yml` to find:
 If the goal touches a contract (AMQP message, HTTP API, schema):
 - Load the **producer repo**.
 - Load the **consumer repo**.
-- Load the **registry/repo-map** if schema is shared.
+- Load the **schema registry** repo if schemas are shared.
 
 ### Step 4: Prune
 
@@ -50,21 +50,21 @@ Remove repos that:
 
 ## Scope Example
 
-**Goal:** "Fix strategist mission planner to publish to supervisor bus"
+**Goal:** "Fix <service-A> <resource> planner to publish to <service-B> bus"
 
 ```yaml
 # SCOPE.yaml
 primary:
-  - ola-management-strategist      # Producer of MissionPlan
-  - ola-management-supervisor      # Consumer of MissionPlan
-  - ola-management-registry        # Schema registry
+  - <service>      # Producer of MissionPlan
+  - <service>      # Consumer of MissionPlan
+  - <service>        # Schema registry
 supporting:
   - ansible/                       # Topology declarations
-  - sovereign-shield-install-guide # Documentation updates
+  - <project>-install-guide # Documentation updates
 excluded:
   - OS-MDashboard        # No UI change
-  - ola-fleet-chameleon  # No fleet change
-  - ola-management-wand  # No Vault change
+  - <service>  # No fleet change
+  - <service>  # No Vault change
 ```
 
 ## Dynamic Scope Expansion

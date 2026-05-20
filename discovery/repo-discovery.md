@@ -41,10 +41,10 @@ ls .claude/contracts/ specs/ schemas/ 2>/dev/null && echo "has contracts" || ech
 Output YAML structure:
 
 ```yaml
-project: sovereign-shield
+project: <project>
 repo_count: 28
 repos:
-  ola-management-strategist:
+  <service>:
     branch: master
     language: go
     size_loc: ~15000
@@ -53,9 +53,9 @@ repos:
     has_adrs: true
     has_contracts: true
     dependencies:
-      - ola-shared-utility
-      - ola-management-registry
-  ola-fleet-chameleon:
+      - <shared-lib>
+      - <service>
+  <service>:
     branch: master
     language: go
     size_loc: ~8000

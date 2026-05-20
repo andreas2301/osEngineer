@@ -44,7 +44,7 @@ For every task touching production code:
 
 - **Atomic:** One logical change per commit. No "and also fixed typo" bundling.
 - **Message format:** `type(scope): subject` (Conventional Commits).
-- **Scope:** Use the repo name or module name (e.g., `feat(strategist):`, `fix(guardian/bridge):`).
+- **Scope:** Use the repo name or module name (e.g., `feat(<service>):`, `fix(<service>/<module>):`).
 - **Body:** If the change touches >3 files or is non-obvious, add a body explaining WHY.
 - **Refs:** Cite ADRs and issues: `Refs: ADR-018, OSP-123`.
 
@@ -73,10 +73,10 @@ Stop and write `BLOCKED.md` if:
 - An external dependency is missing (Vault secret, broker queue, upstream API).
 - The planned approach violates a hard rule in `CLAUDE.md` or an ADR.
 
-## Sovereign Shield Specifics
+## Project-Specific Conventions
 
 - **Fail-closed:** Any init error (TLS, AMQP, Vault) logs WARN and disables the feature. Do not panic.
 - **Prometheus metrics:** Use `promauto` on default registry. Test with `testutil.GatherAndCount` after incrementing.
 - **AMQP:** Declare exchanges/queues idempotently. Use `QueueDeclare` before `Consume`.
 - **Docker:** Use `dockertest` for integration tests. Never hardcode container names.
-- **mTLS:** Always verify `SHIELD_TLS_CA_FILE`. `InsecureSkipVerify: true` is forbidden in production.
+- **mTLS:** Always verify `TLS_CA_FILE`. `InsecureSkipVerify: true` is forbidden in production.

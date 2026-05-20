@@ -98,8 +98,8 @@ install_on_project() {
     echo "[install]   + planning/TEMPLATES/"
   fi
 
-  # 5. Wire zeroclaw repo config (.claude/settings.json)
-  echo "[install] Wiring zeroclaw config..."
+  # 5. Wire the agent runtime repo config (.claude/settings.json)
+  echo "[install] Wiring agent runtime config..."
   for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
     local claude_dir="$repo/.claude"
     mkdir -p "$claude_dir"
@@ -140,7 +140,7 @@ JSON
 
 # ── Workbench install ────────────────────────────────────────────
 install_on_workbench() {
-  local workbench="/home/engineer/.zeroclaw/workspace/workbench"
+  local workbench="<workbench-path>"
 
   if [ ! -d "$workbench" ]; then
     echo "[install] ERROR: Workbench not found at $workbench"
@@ -166,7 +166,7 @@ install_on_workbench() {
       # Planning dirs
       mkdir -p "$repo/planning/active" "$repo/planning/completed" 2>/dev/null || true
 
-      # Zeroclaw config wiring (.claude/settings.json)
+      # agent runtime config wiring (.claude/settings.json)
       local claude_dir="$repo/.claude"
       mkdir -p "$claude_dir"
       if [ ! -f "$claude_dir/settings.json" ]; then
@@ -230,8 +230,8 @@ case "$MODE" in
   all)
     install_on_workbench
     install_global_hooks
-    if [ -d "/opt/sovereign-shield" ]; then
-      install_on_project "/opt/sovereign-shield"
+    if [ -d "/opt/<project>" ]; then
+      install_on_project "/opt/<project>"
     fi
     echo "[install] All modes complete"
     ;;

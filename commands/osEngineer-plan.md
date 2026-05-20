@@ -21,7 +21,7 @@ Generate a `PHASE_PLAN.md` for a given goal. This is the planning phase of osEng
 ## Example
 
 ```
-/osEngineer:plan "Implement ADR-033 retry-with-backoff for fleet executor"
+/osEngineer:plan "Implement ADR-033 retry-with-backoff for the service"
 ```
 
 ## Constraints

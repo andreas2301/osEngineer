@@ -33,11 +33,11 @@ Block the merge if ANY of these are true:
 - No red commit in test history (TDD violation).
 - Breaking change without migration plan.
 
-## Sovereign Shield Hard Rules
+## Project Hard Rules
 
 The judge has special authority on these rules. Violation = automatic BLOCK:
 
-1. **SOLID wall preserved:** Strategist knows missions, not Docker. Supervisor knows containers, not mission planning.
+1. **SOLID wall preserved:** Each service has a single responsibility. Business logic services don't import infrastructure SDKs (docker, k8s). Infrastructure services don't contain business rules.
 2. **Fail-closed:** Any init error must disable the feature, not panic or fallback insecure.
 3. **mTLS everywhere:** No `InsecureSkipVerify: true` in production paths.
 4. **Vault for secrets:** No hardcoded passwords, tokens, or keys in production code.

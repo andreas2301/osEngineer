@@ -15,7 +15,7 @@ When activated:
 4. Flag flaky tests (time-dependent, network-dependent).
 5. Recommend property-based tests for state machines.
 
-## Sovereign Shield Specifics
+## Project-Specific Conventions
 
 - `dockertest` for container-based integration tests.
 - `rabbitmq` in-memory test broker for AMQP tests.

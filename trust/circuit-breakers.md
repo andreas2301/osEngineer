@@ -32,7 +32,7 @@ When circuit breaker trips:
 - **Git operations:** Max 3 retries (network issues).
 - **Docker operations:** Max 2 retries (resource contention).
 
-## Sovereign Shield Specifics
+## Project-Specific Conventions
 
 - Prometheus scrape timeout: 10s (circuit breaker on slow metrics).
 - AMQP connection retry: Max 5 attempts, then disable consumer.

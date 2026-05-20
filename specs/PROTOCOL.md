@@ -29,26 +29,26 @@ Adapted from [Spec Kit](https://github.com/github/spec-kit).
 - **Additive only:** New fields, new enums, new endpoints.
 - **No renames:** Renaming breaks consumers. Deprecate + add new instead.
 - **No removals:** Remove only after 2 major versions with deprecation warning.
-- **Version in path/name:** `mission-plan-v1.json`, not `mission-plan.json`.
+- **Version in path/name:** `<resource>-plan-v1.json`, not `<resource>-plan.json`.
 
-## Sovereign Shield Contracts
+## Project Contracts
 
 ```yaml
 # Example: AMQP message contract
-# .claude/contracts/produced/mission-plan.yaml
+# .claude/contracts/produced/<resource>-plan.yaml
 
 producer:
-  repo: ola-management-strategist
-  exchange: ex.management.missions
-  routing_key: mission.request.{team_id}
-  schema: internal/schema/files/mission-plan-v1.json
+  repo: <service>
+  exchange: ex.management.<resource>
+  routing_key: <resource>.request.{id}
+  schema: internal/schema/files/<resource>-plan-v1.json
 
 consumer:
-  repo: ola-management-supervisor
-  queue: supervisor.mission.requests
-  binding_key: mission.request.#
+  repo: <service>
+  queue: <consumer>.<resource>.requests
+  binding_key: <resource>.request.#
 
 validation:
   json_schema: "https://json-schema.org/draft/2020-12/schema"
-  registry_entry: universal-agent-v1.json
+  registry_entry: <schema-registry>-v1.json
 ```

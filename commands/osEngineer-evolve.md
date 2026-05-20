@@ -42,7 +42,7 @@ Present 3–5 improvement options to the user:
 Pain Points Detected:
   1. Token estimates for Docker SDK tasks are 40% low (3/5 phases)
   2. AMQP topology drift detected in 2 phases
-  3. New service ola-management-X lacks metrics onboarding
+  3. New service <service>-X lacks metrics onboarding
 
 Improvement Options:
 
@@ -55,7 +55,7 @@ Improvement Options:
       Wire topology-validator agent into pre-commit hook.
       Auto-run on AMQP changes. Cost: ~1K tokens.
 
-  [C] Onboard metrics for ola-management-X
+  [C] Onboard metrics for <service>-X
       Run metrics-onboarding agent on the new service.
       Cost: ~2K tokens.
 

@@ -3,7 +3,6 @@
 **Version:** 0.1.0  
 **Scope:** Cross-repo, cross-SDLC, cross-session engineering  
 **Project-Agnostic:** Yes — discovers repos, ADRs, and topology from any project root  
-**Primary Target:** Sovereign Shield (28 repos) as reference implementation  
 **License:** MIT
 
 ---
@@ -92,19 +91,3 @@ When osEngineer starts on a new project:
 5. **Read CLAUDE.md files:** Per-repo `.claude/CLAUDE.md` or `AGENTS.md` files are ingested.
 6. **Build repo map:** Creates a `RESEARCH.md` with repo topology, dependencies, and classification.
 
----
-
-## Sovereign Shield Reference Mapping
-
-For Sovereign Shield specifically, osEngineer knows these repo categories:
-
-| Category | Repos |
-|----------|-------|
-| **Management Layer** | `ola-management-strategist`, `ola-management-supervisor`, `ola-management-guardian`, `ola-management-metronome`, `ola-management-persist`, `ola-management-registry`, `ola-management-accountant`, `ola-management-witness`, `ola-management-operator`, `ola-management-oracle`, `ola-management-gatekeeper`, `ola-management-wand`, `ola-management-scribe` |
-| **Fleet Layer** | `ola-fleet-chameleon`, `ola-fleet-executor`, `ola-fleet-executor-core`, `ola-fleet-ex-hermes`, `ola-fleet-ex-jcode`, `ola-fleet-ex-opencode`, `ola-fleet-routine` |
-| **Host / Config** | `ola-host-engineer-config`, `ola-management-wizard-config`, `ola-management-universal-agent` |
-| **Observability** | `OS-MDashboard`, `OpenSpace` |
-| **Meta / Install** | `sovereign-shield-install-guide`, `sovereign-shield-backup`, `fleet-backup` |
-| **Shared** | `ola-shared-utility` |
-
-*(This mapping is loaded from `discovery/sovereign-shield-repo-map.yml` when the project is identified as Sovereign Shield.)*

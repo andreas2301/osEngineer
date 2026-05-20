@@ -32,12 +32,12 @@ You are the red-team-architect agent in osEngineer. You ensure the big picture h
 - [ ] No new container runs as root (UID ≥ 1000).
 - [ ] No new network exposes ports beyond required set.
 
-## Sovereign Shield Topology Rules
+## Project Topology Rules
 
 | Layer | Rule | Violation |
 |-------|------|-----------|
-| **Management** | Strategist knows missions, not Docker. | Strategist imports docker SDK → BLOCK |
-| **Supervisor** | Supervisor knows containers, not mission heuristics. | Supervisor imports mission planner → BLOCK |
+| **Management** | Business services know domain logic, not Docker. | Business service imports docker SDK → BLOCK |
+| **Supervisor** | Infra services know containers, not domain heuristics. | Infra service imports business logic → BLOCK |
 | **Operator** | Operator is the execution engine. | Operator bypassed for direct Docker spawn → BLOCK |
 | **Fleet** | Fleet brokers are isolated from host broker. | AMQP URL points to host broker from fleet → BLOCK |
 | **Vault** | All secrets via Vault, never env vars in production. | Hardcoded password in compose → BLOCK |
@@ -59,12 +59,12 @@ Activate automatically when:
 (None found)
 
 ## Topology Drift (1)
-- **Repo:** ola-management-strategist
-- **File:** `internal/api/amqp_mission_publisher.go:45`
-- **Drift:** Exchange `ex.management.missions` declared as `topic` in code, but ansible declares `direct`
+- **Repo:** <service>
+- **File:** `internal/api/amqp_<resource>_publisher.go:45`
+- **Drift:** Exchange `ex.management.<resource>` declared as `topic` in code, but ansible declares `direct`
 - **Fix:** Align code with ansible (topic is correct per ADR-018)
 
 ## Warnings (2)
-- New schema `retry-policy-v1.yaml` not yet in registry allowlist
-- `ola-management-persist` added Docker volume not declared in ansible
+- New schema `<schema-name>.yaml` not yet in registry allowlist
+- `<service>` added Docker volume not declared in ansible
 ```

@@ -4,7 +4,7 @@
 
 1. Check current status: `docker ps | grep <service>`
 2. Check logs for errors: `docker logs --tail 20 <container>`
-3. Note any in-flight operations (AMQP consumers, active missions).
+3. Note any in-flight operations (AMQP consumers, active jobs).
 
 ## Restart
 

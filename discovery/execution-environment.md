@@ -37,8 +37,8 @@ gh auth status &>/dev/null && echo "github-cli"
 # Probe 5: Can we write to filesystem?
 touch /tmp/osengineer_probe_$$ 2>/dev/null && rm /tmp/osengineer_probe_$$ && echo "fs-write"
 
-# Probe 6: Is zeroclaw daemon running?
-pgrep -x zeroclaw &>/dev/null && echo "daemon"
+# Probe 6: Is the agent runtime running?
+pgrep -f agent-runtime &>/dev/null && echo "daemon"
 
 # Probe 7: Context window size (ask LLM to self-report)
 # This is done via prompt, not shell
@@ -57,7 +57,7 @@ Present findings to user:
   Shell: /bin/bash
   File system: read-write
   Docker: available
-  GitHub CLI: authenticated (andreas2301)
+  GitHub CLI: authenticated
   Context window: ~128K tokens (inferred)
 
   Is this correct? [yes / no / partial]

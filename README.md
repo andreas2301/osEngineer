@@ -1,7 +1,7 @@
 # osEngineer
 
 > An epic-level, multi-repo engineering skill for autonomous AI agents.  
-> Built for [Sovereign Shield](https://github.com/andreas2301/sovereign-shield-install-guide). Reusable for any project.
+> Reusable for any project. Built for platform-quality engineering.
 
 ## What Problem Does This Solve?
 
@@ -49,7 +49,7 @@ cd osEngineer
 ./install.sh --all
 ```
 
-The install script is idempotent. It configures `git safe.directory`, symlinks hooks, creates planning directories, and wires zeroclaw repo settings.
+The install script is idempotent. It configures `git safe.directory`, symlinks hooks, creates planning directories, and wires the agent runtime repo settings.
 
 To remove osEngineer wiring from a project:
 
@@ -80,7 +80,7 @@ Runs the discovery protocol:
 ### Plan a phase
 
 ```
-/osEngineer:plan "Implement retry-with-backoff for fleet executor"
+/osEngineer:plan "Implement retry-with-backoff for the service"
 ```
 
 Generates `PHASE_PLAN.md` with numbered tasks, dependencies, acceptance criteria, and token estimates.

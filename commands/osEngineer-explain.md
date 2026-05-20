@@ -47,7 +47,7 @@ When osEngineer initializes on a project (`/osEngineer:init`), it creates or dis
 │       ├── RETROSPECTIVE.md      # What worked, what didn't, pattern extraction
 │       └── EVOLUTION_PROPOSAL.md # Skill improvement proposal (HITL)
 ├── .claude/
-│   └── settings.json             # Zeroclaw hook config (graphify PreToolUse)
+│   └── settings.json             # agent runtime hook config (graphify PreToolUse)
 ├── graphify-out/                 # Existing or suggested; source of truth for architecture
 └── .git/hooks/                   # Symlinked: post-commit-graphify, pre-commit-schema-lint
 ```
@@ -109,7 +109,7 @@ Not all agents run for every task. The dispatch rules:
 ### Safety Rules
 
 - **Token budget hard limit:** Exceed 150% of estimate → abort with structured handoff.
-- **Live system read-only:** Never edit source in `/opt/sovereign-shield/` directly. Workbench → PR.
+- **Live system read-only:** Never edit source in `/opt/<project>/` directly. Workbench → PR.
 - **Circuit breakers:** 3 consecutive failures on same agent → escalate to human.
 - **HITL gates:** Deployments, schema changes, and auth modifications require explicit approval.
 

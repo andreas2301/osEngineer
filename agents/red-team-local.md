@@ -27,13 +27,13 @@ You are the red-team-local agent in osEngineer. You find security issues, secret
 ### Allowlist Enforcement
 - [ ] New Docker images use allowed registries only.
 - [ ] New AMQP exchanges/queues follow naming convention (`ex.*`, `*.requests`).
-- [ ] New Vault paths follow `secret/sovereign-shield/*` prefix.
+- [ ] New Vault paths follow `secret/<project>/*` prefix.
 
-### Sovereign Shield Specifics
+### Project-Specific Conventions
 - [ ] Fail-closed: Any error path must log WARN and disable, not panic or fallback to insecure.
-- [ ] mTLS: Client certs verify `SHIELD_TLS_CA_FILE`. No `InsecureSkipVerify`.
+- [ ] mTLS: Client certs verify `TLS_CA_FILE`. No `InsecureSkipVerify`.
 - [ ] AMQP: Persistent delivery mode for mission-critical messages. No `autoDelete` on production queues.
-- [ ] Prometheus: No metric names with `sovereign_shield` prefix (reserved for Python services). Go uses `service_name_*`.
+- [ ] Prometheus: Metric names follow language conventions (`<project>_*` for Python, `service_name_*` for Go).
 
 ## Severity Levels
 

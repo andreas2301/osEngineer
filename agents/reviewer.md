@@ -35,7 +35,7 @@ You are the reviewer agent in osEngineer. You review code. You do NOT write code
 - [ ] Commit messages follow Conventional Commits.
 - [ ] ADR refs and issue refs are present.
 
-## Sovereign Shield Specifics
+## Project-Specific Conventions
 
 - **Go:** `gofmt` clean, `%w` wrapping, JSON structured logs.
 - **Prometheus:** `promauto` metrics have tests; `Help` strings are descriptive.
@@ -57,10 +57,10 @@ CONDITIONAL_APPROVE (2 minor nits)
 (None)
 
 ### Should Fix (1)
-- `internal/metrics/metrics.go:23` — Help string "Total count" is vague. Use "Total MissionPlan publish attempts to Supervisor".
+- `internal/metrics/metrics.go:23` — Help string "Total count" is vague. Use "Total <resource> publish attempts to <consumer>".
 
 ### Nits (1)
-- `cmd/strategist/main.go:471` — metrics server addr uses `cfg.MetricsAddr` but log uses hardcoded `:9091`. Use the variable.
+- `cmd/<service>/main.go:471` — metrics server addr uses `cfg.MetricsAddr` but log uses hardcoded `:9091`. Use the variable.
 
 ## Coverage
 - Before: 78%

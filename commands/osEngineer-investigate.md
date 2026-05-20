@@ -12,7 +12,7 @@ Investigate a symptom, error, or unknown behavior. Uses graph queries, logs, and
 
 ## Steps
 
-1. Accept symptom (e.g., "strategist metrics not showing on /metrics").
+1. Accept symptom (e.g., "<service> metrics not showing on /metrics").
 2. Query graphify for related components (if available).
 3. Read relevant ADRs.
 4. Check recent commits in affected repos.
@@ -31,5 +31,5 @@ Output:
 Hypothesis: promauto registers on DefaultRegisterer at init-time.
 Test creates custom registry and tries to re-register → duplicate error.
 Fix: Test should verify via Gather() or testutil, not re-register.
-Recommended: /osEngineer:plan "Fix strategist metrics test pattern"
+Recommended: /osEngineer:plan "Fix <service> metrics test pattern"
 ```

@@ -63,7 +63,7 @@ uninstall_from_project() {
   done
 
   # 2. Remove .claude/settings.json if it matches our template
-  echo "[uninstall] Removing zeroclaw config..."
+  echo "[uninstall] Removing agent runtime config..."
   for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
     local settings="$repo/.claude/settings.json"
     local repo_name
@@ -109,7 +109,7 @@ uninstall_from_project() {
 
 # ── Workbench uninstall ──────────────────────────────────────────
 uninstall_from_workbench() {
-  local workbench="/home/engineer/.zeroclaw/workspace/workbench"
+  local workbench="<workbench-path>"
 
   if [ ! -d "$workbench" ]; then
     echo "[uninstall] Workbench not found at $workbench"
@@ -204,8 +204,8 @@ case "$MODE" in
   all)
     uninstall_from_workbench
     uninstall_global_hooks
-    if [ -d "/opt/sovereign-shield" ]; then
-      uninstall_from_project "/opt/sovereign-shield"
+    if [ -d "/opt/<project>" ]; then
+      uninstall_from_project "/opt/<project>"
     fi
     echo "[uninstall] All modes complete"
     ;;

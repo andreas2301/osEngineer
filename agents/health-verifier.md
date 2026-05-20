@@ -15,7 +15,7 @@ You are the health-verifier agent in osEngineer. `docker ps` showing `Up` is not
 ### 1. Container Health
 
 ```bash
-docker ps --format "table {{.Names}}\t{{.Status}}" | grep ola-
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep <prefix>-
 ```
 
 Status must be `(healthy)` not just `(up)`.
@@ -33,18 +33,17 @@ Must return CUSTOM metrics (not just Go runtime). If only `go_` metrics → serv
 
 ```bash
 # List consumers per queue
-rabbitmqctl list_consumers | grep -E "strategist\.|supervisor\.|mission"
+rabbitmqctl list_consumers | grep -E "<queue_prefix>\."
 
 # Check queue depth (should be near 0 in steady state)
-rabbitmqctl list_queues name messages | grep -E "strategist\.|supervisor\.|mission"
+rabbitmqctl list_queues name messages | grep -E "<queue_prefix>\."
 ```
 
 ### 4. API Health Checks
 
 ```bash
-# HTTP health endpoints
-curl -sf http://localhost:8080/health || echo "FAIL: strategist health"
-curl -sf http://localhost:8080/health || echo "FAIL: supervisor health"
+# HTTP health endpoints — test each service
+curl -sf http://localhost:<port>/health || echo "FAIL: <service> health"
 ```
 
 ### 5. Vault Connectivity
@@ -53,18 +52,27 @@ curl -sf http://localhost:8080/health || echo "FAIL: supervisor health"
 curl -sf http://127.0.0.1:8200/v1/sys/health | jq -e '.sealed == false' || echo "FAIL: Vault sealed"
 ```
 
-## Sovereign Shield Health Matrix
+## Health Matrix Template
+
+Build a local health matrix for your project by discovering services dynamically:
+
+```bash
+# Discover services from docker compose
+docker compose config --services
+
+# Discover metrics ports from compose or env
+grep -r "metrics.*port\|prometheus\|9091" docker-compose*.yml .env* 2>/dev/null
+
+# Discover queue bindings from code or config
+grep -r "QueueDeclare\|queue.*=\|routing.*key" <repo>/internal/messaging/ 2>/dev/null
+```
+
+Fill in this template per service:
 
 | Service | Metrics Port | Health Endpoint | AMQP Consumer | Custom Metric Example |
 |---------|-------------|-----------------|---------------|----------------------|
-| Strategist | 9091 | :8080/health | strategist.mission.status | `mission_plans_published_total` |
-| Supervisor | 8080/metrics | :8080/health | supervisor.mission.requests | `supervisor_missions_handled_total` |
-| Guardian | — | :8080/health | guardian.events | `guardian_schema_validation_errors_total` |
-| Metronome | 9091 | :8080/health | metronome.budget.responses | `metronome_tasks_submitted_total` |
-| Persist | 9091 | :8080/health | persist.approvals | `persist_records_total` |
-| Accountant | 9091 | :8080/health | accountant.cost.events | `accountant_cost_events_total` |
-| Witness | 9091 | :8080/health | — | `witness_http_requests_total` |
-| Registry | 9091 | :8080/health | — | `registry_registrations_total` |
+| `<service-1>` | `<port>` | `:8080/health` | `<queue.name>` | `<metric>_total` |
+| `<service-2>` | `<port>` | `:8080/health` | `<queue.name>` | `<metric>_total` |
 
 ## Failure Handling
 

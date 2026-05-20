@@ -35,7 +35,7 @@ cat graphify-out/graph.json | jq '.communities[] | select(.name | contains("dock
 - **AST-only rebuild:** After routine commits. Cost: low (deterministic, no LLM).
 - **Skip filter:** Post-commit hook exits early if all changed files are inside `graphify-out/`.
 
-## Sovereign Shield Graphify Locations
+## Project Graphify Locations
 
 Each repo with graphify:
 - `graphify-out/graph.json` — raw graph

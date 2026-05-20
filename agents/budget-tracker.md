@@ -22,10 +22,10 @@ circuit_breaker: 21750  # 150%
 
 ### 2. Measure Actual
 
-If running in a system that exposes token usage (e.g., zeroclaw logs):
+If running in a system that exposes token usage (e.g., the agent runtime logs):
 ```bash
-# Extract from zeroclaw logs
-grep -E "tokens_used|input_tokens|output_tokens" /var/log/zeroclaw/*.log | tail -20
+# Extract from the agent runtime logs
+grep -E "tokens_used|input_tokens|output_tokens" /var/log/agent-runtime/*.log | tail -20
 ```
 
 If no automated source, ask the user:

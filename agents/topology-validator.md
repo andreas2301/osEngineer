@@ -38,7 +38,7 @@ Diff them:
 Parse `docker-compose.yml` and `docker-compose-fleet.yml`:
 | Check | Pass Criteria |
 |-------|--------------|
-| Service names | Match repo names (e.g., `strategist:` in compose) |
+| Service names | Match repo names (e.g., `<service>:` in compose) |
 | Networks | All services on correct networks (`net-secure`, `net-fleet`, etc.) |
 | Ports | No port conflicts between services |
 | Volumes | Cert mounts are `:ro` (read-only) |
@@ -48,18 +48,18 @@ Parse `docker-compose.yml` and `docker-compose-fleet.yml`:
 
 For schemas used by multiple repos:
 ```bash
-# Compare registry schema with consumer schemas
-diff <(cat ola-management-registry/internal/schema/files/mission-plan-v1.json | jq -S .) \
-     <(cat ola-management-strategist/internal/schema/files/mission-plan-v1.json | jq -S .)
+# Compare schema registry with consumer schemas
+diff <(cat <producer>/internal/schema/files/<resource>-plan-v1.json | jq -S .) \
+     <(cat <consumer>/internal/schema/files/<resource>-plan-v1.json | jq -S .)
 ```
 
 Any difference = BLOCK.
 
-## Sovereign Shield Topology Rules
+## Project Topology Rules
 
 | Rule | Violation Example |
 |------|-------------------|
-| Host broker = management bus | Fleet broker used for `ex.management.missions` → BLOCK |
+| Host broker = management bus | Fleet broker used for `ex.management.<resource>` → BLOCK |
 | DLX = fanout | DLX declared as `topic` → BLOCK |
 | Persistent queues | `autoDelete: true` on production queue → BLOCK |
 | Idempotent declares | Code panics on `PRECONDITION_FAILED` instead of handling → HIGH |
@@ -71,7 +71,7 @@ Any difference = BLOCK.
 
 ## AMQP (3 checks)
 - [x] Exchange names match
-- [ ] Exchange types match: `strategist.provisioning.responses.dlx` is `topic` in code, `fanout` in ansible
+- [ ] Exchange types match: `<exchange.name>` is `topic` in code, `fanout` in ansible
 - [x] Queue names match
 
 ## Docker Compose (5 checks)
