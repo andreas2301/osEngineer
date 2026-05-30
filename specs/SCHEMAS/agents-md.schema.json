@@ -40,6 +40,7 @@
     },
     "phase_state_file": { "type": "string" },
     "cross_repo_handoffs_dir": { "type": "string" },
+    "project_overview": { "type": "string", "description": "Path to PROJECT_OVERVIEW.md" },
     "repos": {
       "type": "array",
       "items": {

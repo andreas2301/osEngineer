@@ -50,6 +50,57 @@
         "path": { "type": "string", "description": "Path to graphify binary or clone directory." },
         "output_dir": { "type": "string", "default": "graphify-out" }
       }
+    },
+    "knowledge_sources": {
+      "type": "object",
+      "description": "External platforms where project knowledge lives.",
+      "properties": {
+        "confluence": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" },
+            "space_key": { "type": "string" }
+          }
+        },
+        "notion": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" }
+          }
+        },
+        "jira": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" },
+            "project_key": { "type": "string" }
+          }
+        },
+        "linear": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" },
+            "team_key": { "type": "string" }
+          }
+        },
+        "miro": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" }
+          }
+        },
+        "figma": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" }
+          }
+        },
+        "slack": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" }
+          }
+        }
+      }
     }
   }
 }
