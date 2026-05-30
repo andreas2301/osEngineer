@@ -1,6 +1,6 @@
 # osEngineer — Epic-Level Multi-Repo Engineering Skill
 
-**Version:** 0.1.0  
+**Version:** 0.2.0  
 **Scope:** Cross-repo, cross-SDLC, cross-session engineering  
 **Project-Agnostic:** Yes — discovers repos, ADRs, and topology from any project root  
 **Primary Target:** Sovereign Shield (28 repos) as reference implementation  
@@ -40,6 +40,8 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 
 ### Mandatory (loaded into context by default)
 
+- `agents/architect.md` — repo-level orchestration & team coordination
+- `agents/verifier.md` — phase verification & acceptance gate
 - `agents/developer.md` — primary implementation agent
 - `agents/reviewer.md` — code review agent
 - `agents/judge.md` — merge gate / architectural judge
@@ -48,6 +50,12 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 - `agents/tech-writer.md` — docs & contract authoring
 - `agents/researcher.md` — discovery & graph query agent
 - `agents/planner.md` — phase planning agent
+- `agents/live-system-operator.md` — Docker ops, hotfixes, log inspection
+- `agents/metrics-onboarding.md` — promauto setup, test generation, endpoint wiring
+- `agents/topology-validator.md` — code vs ansible drift, schema consistency
+- `agents/cert-monitor.md` — expiry tracking, renewal scripts
+- `agents/health-verifier.md` — container health, metrics endpoints
+- `agents/scope-manager.md` — context window optimization for large workbenches
 - `planning/PROTOCOL.md` — osEngineer phase lifecycle
 - `discovery/repo-discovery.md` — auto-discover project repos
 - `trust/circuit-breakers.md` — token budget & abort rules

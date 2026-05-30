@@ -2,217 +2,283 @@
 # uninstall.sh — Remove osEngineer wiring from target project(s).
 #
 # Usage:
-#   ./uninstall.sh /path/to/project              # Remove from a project
-#   ./uninstall.sh --workbench                   # Remove from workbench repos
-#   ./uninstall.sh --global                      # Remove global git hooks
-#   ./uninstall.sh --all                         # All of the above
+#   ./uninstall.sh <repo-path>              # Remove from a single repo
+#   ./uninstall.sh --workbench [<path>]     # Remove from every .git repo under <path>
+#   ./uninstall.sh --global                 # Remove global git hooks
+#   ./uninstall.sh --all                    # All of the above
 #
-# This script is idempotent and safe. It only removes symlinks and
-# directories that osEngineer created. It will ASK before deleting
-# planning directories that contain user data.
+# Idempotent and safe. Only removes files/directories that osEngineer created.
+# Asks before deleting planning directories or user-modified files.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_PROJECT=""
-MODE=""
+VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "0.0.0-dev")"
 
-# Parse args
+log() { printf '[osEngineer-uninstall] %s\n' "$*"; }
+warn() { printf '[osEngineer-uninstall] WARNING: %s\n' "$*" >&2; }
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+is_osengineer_hook() {
+  local f="$1"
+  [ -f "$f" ] && head -3 "$f" 2>/dev/null | grep -q 'osEngineer'
+}
+
+# ── Per-repo uninstall ─────────────────────────────────────────────────────
+
+uninstall_repo() {
+  local repo="$1"
+  local repo_name
+  repo_name="$(basename "$repo")"
+
+  [ -d "$repo/.git" ] || { warn "$repo is not a git repo — skipping"; return 0; }
+
+  log "── removing from $repo_name ──"
+
+  # 1. Git hooks
+  local ghooks="$repo/.git/hooks"
+  if [ -d "$ghooks" ]; then
+    for hook in commit-msg pre-commit post-commit; do
+      local dst="$ghooks/$hook"
+      if [ -f "$dst" ] && is_osengineer_hook "$dst"; then
+        if [ -f "$dst.pre-osengineer" ]; then
+          mv "$dst.pre-osengineer" "$dst"
+          log "  · restored original $hook hook"
+        else
+          rm -f "$dst"
+          log "  · removed $hook hook"
+        fi
+      fi
+    done
+  fi
+
+  # 2. .osengineer/ directory
+  if [ -d "$repo/.osengineer" ]; then
+    local has_user_data=false
+    # Anything beyond the default seeded files counts as user data
+    if [ -n "$(find "$repo/.osengineer" -type f 2>/dev/null \
+      | grep -v '/handoffs/\.gitkeep$' \
+      | grep -v '/bypass-log\.jsonl$' \
+      | grep -v '/state\.yml$' \
+      | grep -v '/evolution-counter\.yml$' \
+      | grep -v '/teams/' \
+      | grep -v '/init-progress\.yml$' \
+      | grep -v '/adr-catalog\.yml$' \
+      | grep -v '/evolution-proposals/' \
+      | grep -v '/evolution-rejections\.jsonl$' \
+      | head -1)" ]; then
+      has_user_data=true
+    fi
+    if [ "$has_user_data" = true ]; then
+      read -r -p "[osEngineer-uninstall] $repo_name/.osengineer/ contains user data. Delete? [y/N] " response
+      if [[ "$response" =~ ^[Yy]$ ]]; then
+        rm -rf "$repo/.osengineer"
+        log "  · .osengineer/ removed"
+      else
+        log "  · .osengineer/ kept (user declined)"
+      fi
+    else
+      rm -rf "$repo/.osengineer"
+      log "  · .osengineer/ removed"
+    fi
+  fi
+
+  # 3. .claude/agents/ — remove osEngineer agent files
+  if [ -d "$repo/.claude/agents" ]; then
+    local removed=0
+    for agent in "$SCRIPT_DIR"/agents/*.md; do
+      local fname
+      fname="$(basename "$agent")"
+      if [ -f "$repo/.claude/agents/$fname" ]; then
+        rm -f "$repo/.claude/agents/$fname"
+        removed=$((removed + 1))
+      fi
+    done
+    if [ $removed -gt 0 ]; then
+      log "  · $removed agent files removed from .claude/agents/"
+    fi
+    rmdir "$repo/.claude/agents" 2>/dev/null || true
+    rmdir "$repo/.claude" 2>/dev/null || true
+  fi
+
+  # 4. .claude/settings.json — revert osEngineer merge (inline Node)
+  if [ -f "$repo/.claude/settings.json" ]; then
+    local cfg="$repo/.claude/settings.json"
+    node -e "
+const fs = require('fs');
+const path = process.argv[1];
+let existing;
+try { existing = JSON.parse(fs.readFileSync(path, 'utf8')); }
+catch (e) { process.exit(0); }
+
+function isOseEntry(entry) {
+  if (!entry || !Array.isArray(entry.hooks)) return false;
+  return entry.hooks.some(h => typeof h?.command === 'string' && h.command.includes('osEngineer-'));
+}
+
+for (const event of Object.keys(existing.hooks || {})) {
+  existing.hooks[event] = (existing.hooks[event] || []).filter(e => !isOseEntry(e));
+  if (existing.hooks[event].length === 0) delete existing.hooks[event];
+}
+if (Object.keys(existing.hooks || {}).length === 0) delete existing.hooks;
+
+if (existing.statusLine?.command?.includes('osEngineer-statusline')) {
+  delete existing.statusLine;
+}
+
+if (existing.env) {
+  delete existing.env.OSENGINEER_HOME;
+  delete existing.env.OSENGINEER_VERSION;
+  if (Object.keys(existing.env).length === 0) delete existing.env;
+}
+
+if (Object.keys(existing).length === 0) {
+  fs.unlinkSync(path);
+} else {
+  fs.writeFileSync(path, JSON.stringify(existing, null, 2) + '\n');
+}
+" "$cfg" 2>/dev/null && log "  · .claude/settings.json reverted"
+    rmdir "$repo/.claude" 2>/dev/null || true
+  fi
+
+  # 5. AGENTS.md — remove only if generated by osEngineer
+  if [ -f "$repo/AGENTS.md" ] && grep -q 'osengineer_version:' "$repo/AGENTS.md" 2>/dev/null; then
+    rm -f "$repo/AGENTS.md"
+    log "  · AGENTS.md removed"
+  fi
+
+  # 6. CLAUDE.md — remove osEngineer section only
+  if [ -f "$repo/CLAUDE.md" ] && grep -q '## osEngineer' "$repo/CLAUDE.md" 2>/dev/null; then
+    local line_count
+    line_count="$(wc -l < "$repo/CLAUDE.md" | tr -d ' ')"
+    if [ "$line_count" -le 10 ]; then
+      rm -f "$repo/CLAUDE.md"
+      log "  · CLAUDE.md removed (only osEngineer content)"
+    else
+      node -e "
+const fs = require('fs');
+const path = process.argv[1];
+const content = fs.readFileSync(path, 'utf8');
+const lines = content.split('\n');
+let start = -1, end = -1;
+for (let i = 0; i < lines.length; i++) {
+  if (/^##\\s+osEngineer\\s*\$/.test(lines[i])) { start = i; }
+  else if (start !== -1 && /^##\\s+/.test(lines[i])) { end = i; break; }
+}
+if (start === -1) process.exit(0);
+const out = [...lines.slice(0, start), ...lines.slice(end === -1 ? lines.length : end)].join('\n').replace(/\\n{3,}/g, '\\n\\n');
+fs.writeFileSync(path, out);
+" "$repo/CLAUDE.md" 2>/dev/null && log "  · osEngineer section removed from CLAUDE.md"
+    fi
+  fi
+
+  # 7. git safe.directory
+  git config --global --unset safe.directory "$repo" 2>/dev/null || true
+}
+
+# ── Workbench uninstall ────────────────────────────────────────────────────
+
+uninstall_workbench() {
+  local root="${1:-$(dirname "$SCRIPT_DIR")}"
+  [ -d "$root" ] || { warn "workbench root $root does not exist"; return 0; }
+
+  log "workbench root: $root"
+
+  for repo in "$root"/*; do
+    [ -d "$repo/.git" ] || continue
+    uninstall_repo "$repo"
+  done
+
+  # Workbench-level files
+  if [ -f "$root/AGENTS.md" ] && grep -q 'scope: workbench' "$root/AGENTS.md" 2>/dev/null; then
+    rm -f "$root/AGENTS.md"
+    log "  · workbench AGENTS.md removed"
+  fi
+
+  if [ -d "$root/.osengineer" ]; then
+    read -r -p "[osEngineer-uninstall] Remove workbench-level .osengineer/? [y/N] " response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+      rm -rf "$root/.osengineer"
+      log "  · workbench .osengineer/ removed"
+    fi
+  fi
+}
+
+# ── Global hooks uninstall ─────────────────────────────────────────────────
+
+uninstall_global_hooks() {
+  log "removing global git hooks"
+  local gdir
+  gdir="$(git config --global core.hooksPath 2>/dev/null || echo "")"
+  if [ -z "$gdir" ]; then
+    gdir="$HOME/.git-hooks"
+  fi
+  if [ -d "$gdir" ]; then
+    for hook in commit-msg pre-commit post-commit; do
+      local dst="$gdir/$hook"
+      if [ -f "$dst" ] && is_osengineer_hook "$dst"; then
+        if [ -f "$dst.pre-osengineer" ]; then
+          mv "$dst.pre-osengineer" "$dst"
+          log "  · restored original global $hook hook"
+        else
+          rm -f "$dst"
+          log "  · removed global $hook hook"
+        fi
+      fi
+    done
+  fi
+
+  local current_path
+  current_path="$(git config --global core.hooksPath 2>/dev/null || echo "")"
+  if [ "$current_path" = "$gdir" ]; then
+    read -r -p "[osEngineer-uninstall] Unset global core.hooksPath? [y/N] " response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+      git config --global --unset core.hooksPath 2>/dev/null || true
+      log "  · core.hooksPath unset"
+    fi
+  fi
+}
+
+# ── Dispatch ───────────────────────────────────────────────────────────────
+
 if [ $# -eq 0 ]; then
-  echo "Usage: $0 <project-root> | --workbench | --global | --all"
+  cat <<USAGE
+osEngineer uninstaller — version $VERSION
+
+Usage:
+  $0 <repo-path>                Remove from a single repo
+  $0 --workbench [<path>]       Remove from every .git repo under <path>
+  $0 --global                   Remove global git hooks
+  $0 --all                      All of the above
+
+USAGE
   exit 1
 fi
 
-if [ "$1" = "--all" ]; then
-  MODE="all"
-elif [ "$1" = "--workbench" ]; then
-  MODE="workbench"
-elif [ "$1" = "--global" ]; then
-  MODE="global"
-else
-  TARGET_PROJECT="$1"
-  MODE="project"
-fi
-
-# ── Project uninstall ────────────────────────────────────────────
-uninstall_from_project() {
-  local project_root="$1"
-
-  if [ ! -d "$project_root" ]; then
-    echo "[uninstall] WARNING: $project_root does not exist"
-    return 0
-  fi
-
-  echo "[uninstall] Removing osEngineer from $project_root"
-
-  # 1. Remove symlinks from .git/hooks
-  echo "[uninstall] Removing git hooks..."
-  for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
-    local hooks_dir="$repo/.git/hooks"
-    local repo_name
-    repo_name=$(basename "$repo")
-
-    if [ -L "$hooks_dir/post-commit-graphify" ]; then
-      rm -f "$hooks_dir/post-commit-graphify"
-      echo "[uninstall]   - post-commit-graphify → $repo_name"
-    fi
-    if [ -L "$hooks_dir/pre-commit-schema-lint" ]; then
-      rm -f "$hooks_dir/pre-commit-schema-lint"
-      echo "[uninstall]   - pre-commit-schema-lint → $repo_name"
-    fi
-  done
-
-  # 2. Remove .claude/settings.json if it matches our template
-  echo "[uninstall] Removing zeroclaw config..."
-  for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
-    local settings="$repo/.claude/settings.json"
-    local repo_name
-    repo_name=$(basename "$repo")
-
-    if [ -f "$settings" ] && grep -q "graphify-out/graph.json" "$settings" 2>/dev/null; then
-      rm -f "$settings"
-      echo "[uninstall]   - .claude/settings.json → $repo_name"
-      # Remove empty .claude directory
-      rmdir "$repo/.claude" 2>/dev/null || true
-    fi
-  done
-
-  # 3. Ask before removing planning directories (may contain user data)
-  if [ -d "$project_root/planning" ]; then
-    local has_user_data=false
-    if [ -n "$(find "$project_root/planning" -type f 2>/dev/null | head -1)" ]; then
-      has_user_data=true
-    fi
-
-    if [ "$has_user_data" = true ]; then
-      read -r -p "[uninstall] $project_root/planning/ contains files. Delete? [y/N] " response
-      if [[ "$response" =~ ^[Yy]$ ]]; then
-        rm -rf "$project_root/planning"
-        echo "[uninstall]   - planning/ removed"
-      else
-        echo "[uninstall]   - planning/ kept (user declined)"
-      fi
-    else
-      rm -rf "$project_root/planning"
-      echo "[uninstall]   - planning/ removed (empty)"
-    fi
-  fi
-
-  # 4. Remove safe.directory entries (best effort)
-  echo "[uninstall] Removing git safe.directory entries..."
-  for repo in $(find "$project_root" -maxdepth 2 -type d -name ".git" | sed 's|/.git$||'); do
-    git config --global --unset safe.directory "$repo" 2>/dev/null || true
-  done
-
-  echo "[uninstall] Done for $project_root"
-}
-
-# ── Workbench uninstall ──────────────────────────────────────────
-uninstall_from_workbench() {
-  local workbench="/home/engineer/.zeroclaw/workspace/workbench"
-
-  if [ ! -d "$workbench" ]; then
-    echo "[uninstall] Workbench not found at $workbench"
-    return 0
-  fi
-
-  echo "[uninstall] Removing from all workbench repos..."
-
-  for repo in "$workbench"/*; do
-    if [ -d "$repo/.git" ]; then
-      local repo_name
-      repo_name=$(basename "$repo")
-      echo "[uninstall] --- $repo_name ---"
-
-      # Remove hooks
-      local hooks_dir="$repo/.git/hooks"
-      rm -f "$hooks_dir/post-commit-graphify" 2>/dev/null || true
-      rm -f "$hooks_dir/pre-commit-schema-lint" 2>/dev/null || true
-
-      # Remove settings.json if ours
-      local settings="$repo/.claude/settings.json"
-      if [ -f "$settings" ] && grep -q "graphify-out/graph.json" "$settings" 2>/dev/null; then
-        rm -f "$settings"
-        rmdir "$repo/.claude" 2>/dev/null || true
-      fi
-
-      # Remove safe.directory
-      git config --global --unset safe.directory "$repo" 2>/dev/null || true
-
-      # Ask before removing planning
-      if [ -d "$repo/planning" ]; then
-        local has_files
-        has_files=$(find "$repo/planning" -type f 2>/dev/null | head -1)
-        if [ -n "$has_files" ]; then
-          read -r -p "[uninstall] $repo_name/planning/ contains files. Delete? [y/N] " response
-          if [[ "$response" =~ ^[Yy]$ ]]; then
-            rm -rf "$repo/planning"
-            echo "[uninstall]   - planning/ removed"
-          else
-            echo "[uninstall]   - planning/ kept"
-          fi
-        else
-          rm -rf "$repo/planning"
-        fi
-      fi
-    fi
-  done
-
-  echo "[uninstall] Workbench uninstall complete"
-}
-
-# ── Global hooks uninstall ───────────────────────────────────────
-uninstall_global_hooks() {
-  echo "[uninstall] Removing global git hooks..."
-
-  local global_hooks_dir
-  global_hooks_dir="$(git config --global core.hooksPath 2>/dev/null || echo "")"
-
-  if [ -z "$global_hooks_dir" ]; then
-    global_hooks_dir="$HOME/.git-hooks"
-  fi
-
-  if [ -d "$global_hooks_dir" ]; then
-    rm -f "$global_hooks_dir/post-commit-graphify" 2>/dev/null || true
-    rm -f "$global_hooks_dir/pre-commit-schema-lint" 2>/dev/null || true
-    echo "[uninstall] Global hooks removed from $global_hooks_dir"
-  fi
-
-  # Optionally unset global hooks path if it points to our dir
-  local current_path
-  current_path="$(git config --global core.hooksPath 2>/dev/null || echo "")"
-  if [ "$current_path" = "$global_hooks_dir" ]; then
-    read -r -p "[uninstall] Unset global core.hooksPath? [y/N] " response
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-      git config --global --unset core.hooksPath 2>/dev/null || true
-      echo "[uninstall] core.hooksPath unset"
-    fi
-  fi
-}
-
-# ── Main dispatch ────────────────────────────────────────────────
-case "$MODE" in
-  project)
-    uninstall_from_project "$TARGET_PROJECT"
+case "$1" in
+  --workbench)
+    uninstall_workbench "${2:-}"
     ;;
-  workbench)
-    uninstall_from_workbench
-    ;;
-  global)
+  --global)
     uninstall_global_hooks
     ;;
-  all)
-    uninstall_from_workbench
+  --all)
+    uninstall_workbench
     uninstall_global_hooks
     if [ -d "/opt/sovereign-shield" ]; then
-      uninstall_from_project "/opt/sovereign-shield"
+      uninstall_repo "/opt/sovereign-shield"
     fi
-    echo "[uninstall] All modes complete"
+    ;;
+  -h|--help)
+    cat <<USAGE
+osEngineer uninstaller — version $VERSION
+Usage: $0 <repo-path> | --workbench [<path>] | --global | --all
+USAGE
     ;;
   *)
-    echo "Usage: $0 <project-root> | --workbench | --global | --all"
-    exit 1
+    uninstall_repo "$1"
     ;;
 esac
 
-echo "[uninstall] osEngineer removal complete"
+log "osEngineer uninstall complete (version $VERSION)"

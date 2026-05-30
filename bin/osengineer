@@ -105,6 +105,14 @@ function hasAny(repo, ...patterns) {
   return patterns.some(p => fs.existsSync(path.join(repo, p)));
 }
 
+function hasDir(repo, ...patterns) {
+  return patterns.some(p => {
+    const full = path.join(repo, p);
+    try { return fs.statSync(full).isDirectory(); }
+    catch { return false; }
+  });
+}
+
 function hasFileMatching(repo, regex, depth = 3) {
   const stack = [{ dir: repo, depth: 0 }];
   while (stack.length > 0) {
@@ -176,16 +184,16 @@ function detectTeams(repo) {
   const hasPython  = hasAny(repo, 'pyproject.toml', 'setup.py', 'requirements.txt');
   const hasNode    = hasAny(repo, 'package.json');
   const hasRust    = hasAny(repo, 'Cargo.toml');
-  const hasAnsible = hasAny(repo, 'ansible') || hasAny(repo, 'roles') || hasAny(repo, 'playbooks');
+  const hasAnsible = hasDir(repo, 'ansible', 'roles', 'playbooks');
   const hasCompose = hasFileMatching(repo, /^docker-compose.*\.ya?ml$/);
-  const hasSrcDir  = hasAny(repo, 'src') || hasAny(repo, 'internal') || hasAny(repo, 'cmd') || hasAny(repo, 'pkg');
-  const hasTestsDir = hasAny(repo, 'test') || hasAny(repo, 'tests') || hasAny(repo, 'integration') || hasAny(repo, 'e2e');
+  const hasSrcDir  = hasDir(repo, 'src', 'internal', 'cmd', 'pkg');
+  const hasTestsDir = hasDir(repo, 'test', 'tests', 'integration', 'e2e');
   const hasGoTests = hasFileMatching(repo, /^.+_test\.go$/);
   const hasPyTests = hasFileMatching(repo, /^test_.+\.py$/);
-  const hasDocs    = hasAny(repo, 'docs') || hasAny(repo, 'README.md') || hasAny(repo, 'README.rst');
-  const hasContracts = hasAny(repo, 'contracts') || hasFileMatching(repo, /^.+\.openapi\.ya?ml$/);
-  const hasCodeQL  = hasAny(repo, '.github/codeql');
-  const hasSecurityDir = hasAny(repo, 'security');
+  const hasDocs    = hasDir(repo, 'docs') || hasAny(repo, 'README.md', 'README.rst');
+  const hasContracts = hasDir(repo, 'contracts') || hasFileMatching(repo, /^.+\.openapi\.ya?ml$/);
+  const hasCodeQL  = hasDir(repo, '.github/codeql');
+  const hasSecurityDir = hasDir(repo, 'security');
 
   // Coding team
   const codingPaths = [];
@@ -195,7 +203,7 @@ function detectTeams(repo) {
   if (codingPaths.length > 0) {
     teams.push({
       team_id: 'coding',
-      folder: hasGo ? 'internal/' : (hasSrcDir ? 'src/' : null),
+      folder: hasGo && hasDir(repo, 'internal') ? 'internal/' : (hasDir(repo, 'src') ? 'src/' : null),
       agents: ['developer', 'reviewer'],
       owns_paths: codingPaths,
       reads_paths: ['api/**', 'contracts/**', 'ansible/**', 'docs/**'],
@@ -223,8 +231,8 @@ function detectTeams(repo) {
   const infraPaths = [];
   if (hasAnsible) infraPaths.push('ansible/**', 'roles/**', 'playbooks/**');
   if (hasCompose) infraPaths.push('docker-compose*.yml', 'Dockerfile*');
-  if (hasAny(repo, 'scripts')) infraPaths.push('scripts/**');
-  if (hasAny(repo, '.github/workflows')) infraPaths.push('.github/workflows/**');
+  if (hasDir(repo, 'scripts')) infraPaths.push('scripts/**');
+  if (hasDir(repo, '.github/workflows')) infraPaths.push('.github/workflows/**');
   if (infraPaths.length > 0) {
     teams.push({
       team_id: 'infra',
@@ -243,7 +251,7 @@ function detectTeams(repo) {
   docsPaths.push('**/*.schema.json', 'service-manifest.yml', 'message-contract*.yaml');
   teams.push({
     team_id: 'docs',
-    folder: hasAny(repo, 'docs') ? 'docs/' : null,
+    folder: hasDir(repo, 'docs') ? 'docs/' : null,
     agents: ['tech-writer'],
     owns_paths: docsPaths,
     reads_paths: ['**'],
@@ -395,13 +403,12 @@ function cmdHandoff(args) {
     if (/closed_at:/.test(content)) {
       process.stdout.write(`${id} already closed\n`); return;
     }
-    const footer = [
-      '',
-      `closed_at: ${new Date().toISOString()}`,
-      flags.reason ? `close_reason: "${flags.reason}"` : 'close_reason: "(no reason given)"',
-      '',
-    ].join('\n');
-    fs.appendFileSync(file, footer);
+    const reason = flags.reason || '(no reason given)';
+    const updated = updateFrontmatter(content, {
+      closed_at: new Date().toISOString(),
+      close_reason: `"${reason.replace(/"/g, '\\"')}"`,
+    });
+    fs.writeFileSync(file, updated);
     process.stdout.write(`closed ${id}\n`);
     return;
   }
@@ -517,11 +524,43 @@ function parseFlags(args, allowed) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (!a.startsWith('--')) continue;
-    const key = a.slice(2);
+    const eq = a.indexOf('=');
+    const key = eq !== -1 ? a.slice(2, eq) : a.slice(2);
     if (!allowed.includes(key)) continue;
-    out[key] = args[++i];
+    if (eq !== -1) {
+      out[key] = a.slice(eq + 1);
+    } else if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
+      out[key] = args[++i];
+    } else {
+      out[key] = '';
+    }
   }
   return out;
+}
+
+// Insert or update key-value pairs inside the first YAML frontmatter block.
+function updateFrontmatter(content, updates) {
+  const lines = content.split('\n');
+  let startIdx = -1;
+  let endIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === '---') {
+      if (startIdx === -1) startIdx = i;
+      else { endIdx = i; break; }
+    }
+  }
+  if (startIdx === -1 || endIdx === -1) return content;
+  const fmLines = lines.slice(startIdx + 1, endIdx);
+  for (const [key, value] of Object.entries(updates)) {
+    const keyRe = new RegExp('^' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\s*');
+    const idx = fmLines.findIndex(l => keyRe.test(l));
+    if (idx !== -1) {
+      fmLines[idx] = `${key}: ${value}`;
+    } else {
+      fmLines.push(`${key}: ${value}`);
+    }
+  }
+  return [...lines.slice(0, startIdx + 1), ...fmLines, ...lines.slice(endIdx)].join('\n');
 }
 
 // ── Evolution loop ─────────────────────────────────────────────────────────
@@ -644,8 +683,10 @@ function cmdEvolve(args) {
 
     // Mark proposal accepted
     const original = fs.readFileSync(file, 'utf8');
-    const updated = original.replace(/^status:\s*open/m, 'status: accepted')
-      .replace(/^(---\n[\s\S]*?)(\n---)/m, `$1\naccepted_at: ${new Date().toISOString()}$2`);
+    const updated = updateFrontmatter(original, {
+      status: 'accepted',
+      accepted_at: new Date().toISOString(),
+    });
     fs.writeFileSync(file, updated);
 
     // Promote a pattern file into the osEngineer skill repo

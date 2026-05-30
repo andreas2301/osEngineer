@@ -229,10 +229,12 @@ install_git_hook() {
     mv "$dst" "$dst.pre-osengineer"
     cat > "$dst" <<EOF
 #!/usr/bin/env bash
-# osEngineer hook dispatcher — runs osEngineer-* then the pre-existing hook.
+# osEngineer hook dispatcher — runs pre-existing hook then osEngineer-*.
 "$dst.pre-osengineer" "\$@" || exit \$?
+# --- osEngineer hook follows ---
 EOF
-    cat "$src" >> "$dst"
+    # Strip shebang from osEngineer source to avoid duplicate interpreter lines
+    tail -n +2 "$src" >> "$dst"
   else
     cp "$src" "$dst"
   fi

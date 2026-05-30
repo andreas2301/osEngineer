@@ -1,0 +1,50 @@
+{
+  "name": "osengineer",
+  "version": "0.2.0",
+  "description": "Epic-level, multi-repo engineering skill for autonomous AI agents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andreas2301/osEngineer.git"
+  },
+  "bin": {
+    "osengineer": "./bin/osengineer"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "echo 'Run: shellcheck install.sh uninstall.sh hooks/*.sh'"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "agents/",
+    "commands/",
+    "discovery/",
+    "hooks/",
+    "integrations/",
+    "live-system/",
+    "memory/",
+    "planning/",
+    "specs/",
+    "templates/",
+    "trust/",
+    "install.sh",
+    "uninstall.sh",
+    "SKILL.md",
+    "README.md",
+    "VERSION",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ai-agent",
+    "skill",
+    "multi-repo",
+    "engineering",
+    "claude",
+    "kimi",
+    "autonomous"
+  ]
+}
