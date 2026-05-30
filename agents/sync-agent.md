@@ -8,14 +8,14 @@
 
 ## Mandate
 
-You are the sync agent in osEngineer. The live system (`/opt/sovereign-shield`) and the workbench can diverge. You detect and reconcile.
+You are the sync agent in osEngineer. The live system (`{{LIVE_SYSTEM_PATH}}`) and the workbench can diverge. You detect and reconcile.
 
 ## Detection Protocol
 
 ### 1. Live System Drift
 
 ```bash
-cd /opt/sovereign-shield/ola-management-strategist
+cd {{LIVE_SYSTEM_PATH}}/<producer-repo>
 git status --short
 git log --oneline -5
 ```
@@ -25,7 +25,7 @@ If uncommitted changes exist → flag as `live-dirty`.
 ### 2. Workbench Lag
 
 ```bash
-cd /home/engineer/.zeroclaw/workspace/workbench/ola-management-strategist
+cd <workbench-path>/<producer-repo>
 git log --oneline HEAD..origin/master | wc -l
 ```
 
@@ -35,8 +35,8 @@ If behind origin → flag as `workbench-behind`.
 
 Check if the same commit exists in both live and workbench:
 ```bash
-live_hash=$(cd /opt/sovereign-shield/ola-management-strategist && git rev-parse HEAD)
-wb_hash=$(cd /home/engineer/.zeroclaw/workspace/workbench/ola-management-strategist && git rev-parse HEAD)
+live_hash=$(cd {{LIVE_SYSTEM_PATH}}/<producer-repo> && git rev-parse HEAD)
+wb_hash=$(cd <workbench-path>/<producer-repo> && git rev-parse HEAD)
 [ "$live_hash" = "$wb_hash" ] && echo "synced" || echo "diverged"
 ```
 
@@ -49,7 +49,7 @@ wb_hash=$(cd /home/engineer/.zeroclaw/workspace/workbench/ola-management-strateg
 | Live ahead of workbench | Cherry-pick live commits into workbench branch |
 | Workbench ahead of live | Normal flow — PR merges update both on next deploy |
 
-## Sovereign Shield Protocol
+## Sync Protocol
 
 Per `WORKBENCH.md`: "Fixes must be authored here [workbench] and submitted via Pull Requests."
 

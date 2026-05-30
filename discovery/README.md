@@ -11,4 +11,4 @@ Discovery and research layer. Converts unknown codebases into structured knowled
 | `context7-integration.md` | Use Context7 MCP for code documentation |
 | `adr-catalog-protocol.md` | Read and write ADR catalogs |
 | `execution-environment.md` | Detect where osEngineer runs (terminal/IDE/web/daemon) |
-| `sovereign-shield-repo-map.yml` | Sovereign Shield specific: 28-repo topology |
+| `workbench-config.yml` | Generated during install: project name, repo list, META repo, graphify config |

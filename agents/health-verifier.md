@@ -53,7 +53,7 @@ curl -sf http://localhost:8080/health || echo "FAIL: supervisor health"
 curl -sf http://127.0.0.1:8200/v1/sys/health | jq -e '.sealed == false' || echo "FAIL: Vault sealed"
 ```
 
-## Sovereign Shield Health Matrix
+## Health Matrix
 
 | Service | Metrics Port | Health Endpoint | AMQP Consumer | Custom Metric Example |
 |---------|-------------|-----------------|---------------|----------------------|

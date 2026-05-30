@@ -11,7 +11,7 @@
 
 Turn osEngineer from a scaffold of protocol-markdown into an engineering skill that:
 - Initialises a single repo OR a workbench (folder of N repos) with one command
-- Discovers the Platform META repo (`sovereign-shield-backup`) or helps create one
+- Discovers the Platform META repo (`<meta-repo>`) or helps create one
 - Drops per-folder team manifests with auto-detected ownership (Go / Ansible / tests / docs / security)
 - Enforces every claimed rule at runtime via git + Claude hooks + a Node CLI + CI status checks
 - Supports the full phase lifecycle (`discuss → plan → execute → verify → accepted`) with persistent state
@@ -19,7 +19,7 @@ Turn osEngineer from a scaffold of protocol-markdown into an engineering skill t
 
 ## 2. Non-goals
 
-- Building a new META repo (sovereign-shield-backup already serves that role)
+- Building a new META repo (a reference project already serves that role)
 - Replacing Claude Code or Anthropic SDK functionality
 - Supporting non-git projects
 - Calendar-based scheduling — work is token-bound, not week-bound
@@ -45,14 +45,14 @@ Every `AGENTS.md` has a YAML frontmatter block. The frontmatter is machine-parse
 scope: workbench
 schema_version: 1
 meta_ref:
-  path: ./sovereign-shield-backup
+  path: ./<meta-repo>
   role: codified-source-of-truth
 repos:
-  - path: ./ola-management-strategist
+  - path: ./<service-repo-a>
     category: management
-  - path: ./ola-fleet-executor
+  - path: ./<service-repo-b>
     category: fleet
-  - path: ./OS-MDashboard
+  - path: ./<observability-repo>
     category: observability
 cross_repo_handoffs_dir: ./.osengineer/handoffs/
 ---
@@ -98,7 +98,7 @@ teams:
     owns_paths: [".github/codeql/**", "security/**"]
     reads_paths: ["**"]
     escalates_to: [coding, infra]
-meta_ref: ../sovereign-shield-backup
+meta_ref: ../<meta-repo>
 phase_state_file: ./.osengineer/state.yml
 ---
 ```
@@ -136,7 +136,7 @@ owns_paths: ["internal/**", "cmd/**", "pkg/**"]
 | `VERSION` file | `osEngineer/VERSION` | New, starts at `0.2.0` (post-GSD-merge) |
 | `CHANGELOG.md` | `osEngineer/CHANGELOG.md` | New, first entry = "0.2.0 — initial GSD merge + real enforcement" |
 | `install.sh` | `osEngineer/install.sh` | Heavy refactor: must copy `agents/*.md` into `<repo>/.claude/agents/`, install both git hooks + Claude hooks, write `AGENTS.md` per scope, drop `CLAUDE.md` template, initialise `.osengineer/state.yml` |
-| Memory seeds | `osEngineer/memory/patterns/` and `retrospectives/` | New: 3 real Observer Shield patterns + 1 retrospective |
+| Memory seeds | `osEngineer/memory/patterns/` and `retrospectives/` | New: 3 real reference-project patterns + 1 retrospective |
 | ADR-001 | `osEngineer/docs/adr/ADR-001-gsd-merge.md` | New: records the get-shit-done merge with source SHA |
 
 ## 6. Data flow
@@ -213,7 +213,7 @@ All hook scripts are prefixed `osEngineer-`. No internal reference to `gsd-*` re
 | 2 | `osEngineer-pre-commit.sh` | git `pre-commit` | (a) Reject if production file touched without matching test in same commit during `execute` phase. (b) Reject if schema file touched and fails JSON Schema 2020-12 validation. (c) Reject if any file outside current team's `owns_paths` was touched |
 | 3 | `osEngineer-post-commit.sh` | git `post-commit` | Run `graphify update . --ast-only` (skip if only `graphify-out/*` changed). Increment `<repo>/.osengineer/evolution-counter.yml`. If counter hits 5, set `auto_nudge: true` for next session |
 | 4 | `osEngineer-prompt-guard.js` | Claude `UserPromptSubmit` | Inject phase state, active team, budget-used, open handoffs into the prompt. Block `/osEngineer:execute` if no `PHASE_PLAN.md`. Block all when state is `blocked` |
-| 5 | `osEngineer-pre-edit-guard.js` | Claude `PreToolUse` on Edit/Write | Block edits during `discuss`/`plan` phases (read-only). Block edits to paths outside current team's `owns_paths`. Block edits to `/opt/sovereign-shield/` live system. **Phased activation:** `owns_paths` check is no-op until P3 ships team contracts; phase-gate and live-system checks active from P1 |
+| 5 | `osEngineer-pre-edit-guard.js` | Claude `PreToolUse` on Edit/Write | Block edits during `discuss`/`plan` phases (read-only). Block edits to paths outside current team's `owns_paths`. Block edits to the live system path. **Phased activation:** `owns_paths` check is no-op until P3 ships team contracts; phase-gate and live-system checks active from P1 |
 | 6 | `osEngineer-pre-bash-guard.js` | Claude `PreToolUse` on Bash | Block destructive bash (`rm -rf`, `git push --force`, `docker rm`, `kubectl delete`) without an active 4-part plan in `.osengineer/current-plan.md` |
 | 7 | `osEngineer-read-guard.js` | Claude `PreToolUse` on Read/Grep/Glob | Block reads outside repo root unless a cross-repo handoff names that repo |
 | 8 | `osEngineer-post-tool.js` | Claude `PostToolUse` | Track token usage against phase budget. Trigger circuit-breaker at 150% by writing `BLOCKED.md` and setting state to `blocked` |
@@ -333,8 +333,8 @@ osEngineer/
 |---|---|---|---|
 | **P1** | Real enforcement spine | Port `get-shit-done/bin/gsd-sdk.js` → `osEngineer/bin/osengineer`; port + rename relevant hooks; wire into refactored `install.sh`; add ADR-001 + rename script | `osengineer init <test-repo>` writes hooks + `AGENTS.md`; `git commit -m "broken"` fails with osEngineer error; statusline shows phase |
 | **P2** | Markdown gap closure | Write 4 JSON schemas + 2 spec templates; seed 3 patterns + 1 retrospective; add `VERSION` + `CHANGELOG.md`; write `agents/verifier.md` + `agents/architect.md`; rename catalog `AGENTS.md` → `agents/INDEX.md`; populate `commands/osEngineer-fix.md` and `osEngineer-feature.md` with real orchestration logic | All `INDEX.md` references resolve; `osengineer explain` produces coherent dump; schema validation works on example files |
-| **P3** | Team-folder model | Write 5 team templates + 3 AGENTS.md.tmpl variants; build auto-detect logic in `bin/osengineer init`; build handoff filesystem protocol; wire `owns_paths` validation into `osEngineer-pre-edit-guard.js` | Init on `ola-management-strategist` proposes correct team map; user-edited AGENTS.md is honoured; edit to a path outside active team's `owns_paths` is blocked with a clear error |
-| **P4** | META + workbench mode | Add workbench scope to `bin/osengineer init`; META detection probe; cross-repo handoff protocol; ADR catalog read from META; Confluence MCP fleshed out from 6 lines to full config (Observer Shield OSP / Vigil pattern) | `osengineer init D:\Repositories` discovers META, writes workbench AGENTS.md, initialises a sample of repos in one resumable pass |
+| **P3** | Team-folder model | Write 5 team templates + 3 AGENTS.md.tmpl variants; build auto-detect logic in `bin/osengineer init`; build handoff filesystem protocol; wire `owns_paths` validation into `osEngineer-pre-edit-guard.js` | Init on `<service-repo-a>` proposes correct team map; user-edited AGENTS.md is honoured; edit to a path outside active team's `owns_paths` is blocked with a clear error |
+| **P4** | META + workbench mode | Add workbench scope to `bin/osengineer init`; META detection probe; cross-repo handoff protocol; ADR catalog read from META; Confluence MCP fleshed out from 6 lines to full config (reference project pattern) | `osengineer init D:\Repositories` discovers META, writes workbench AGENTS.md, initialises a sample of repos in one resumable pass |
 | **P5** | Evolution loop | Wire post-commit counter increment; auto-nudge banner at 5 phases; `/osEngineer:evolve` HITL flow; RETROSPECTIVE.md auto-generation post-merge; pattern promotion from retrospectives | Counter ticks; auto-nudge fires at phase #5; accepted proposal lands in `memory/patterns/`; rejected proposal logged with reason |
 
 Each phase = its own spec → plan → execute → verify cycle inside `osEngineer/planning/active/`. P1 starts immediately after this design is approved.
@@ -364,7 +364,7 @@ Each phase = its own spec → plan → execute → verify cycle inside `osEngine
 
 After all 5 phases:
 - `osengineer init D:\Repositories` initializes the entire workbench in one resumable command
-- Every Observer Shield repo has a per-repo `AGENTS.md` reflecting its real folder layout
+- Every reference project repo has a per-repo `AGENTS.md` reflecting its real folder layout
 - The 10 hooks fire and enforce TDD / circuit-breakers / phase gates without manual reminders
 - The 7-layer spec from product screenshots is *substantively* covered, not merely *described*
 - Calendar estimates are absent from all artifacts; only token budgets remain

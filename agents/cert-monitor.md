@@ -15,13 +15,13 @@ You are the cert-monitor agent in osEngineer. TLS cert expiry causes outages. Yo
 ### 1. Discover Cert Directories
 
 ```bash
-find /opt/sovereign-shield/certs -name "*.pem" -o -name "*.crt" | sort
+find {{LIVE_SYSTEM_PATH}}/certs -name "*.pem" -o -name "*.crt" | sort
 ```
 
 ### 2. Check Expiry
 
 ```bash
-for cert in /opt/sovereign-shield/certs/*/*.pem; do
+for cert in {{LIVE_SYSTEM_PATH}}/certs/*/*.pem; do
   expiry=$(openssl x509 -enddate -noout -in "$cert" | cut -d= -f2)
   days_left=$(( ($(date -d "$expiry" +%s) - $(date +%s)) / 86400 ))
   echo "$(basename $(dirname $cert)): $days_left days left"
@@ -31,7 +31,7 @@ done
 ### 3. Check Renewal Scripts
 
 ```bash
-ls /opt/sovereign-shield/scripts/cert-renew*.sh 2>/dev/null || echo "NO_RENEWAL_SCRIPTS"
+ls {{LIVE_SYSTEM_PATH}}/scripts/cert-renew*.sh 2>/dev/null || echo "NO_RENEWAL_SCRIPTS"
 crontab -l 2>/dev/null | grep cert-renew || echo "NO_CRON"
 ```
 
@@ -44,7 +44,7 @@ crontab -l 2>/dev/null | grep cert-renew || echo "NO_CRON"
 | < 30 | MEDIUM | Add to next maintenance window |
 | < 60 | LOW | Note in report |
 
-## Sovereign Shield Cert Layout
+## Cert Layout
 
 ```
 certs/

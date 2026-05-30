@@ -52,12 +52,12 @@ This file is the canonical agent catalog. It replaces the previous root-level `A
 
 In osEngineer-initialised repos with team manifests (P3+), the architect agent reads `<repo>/AGENTS.md` and routes per-team rather than per-role.
 
-## Observer Shield conventions
+## Project-Specific Conventions
 
 - **Small repos** (<5K LOC, single service): Developer handles everything; Reviewer runs on PR.
 - **Large repos** (>20K LOC, complex topology): Full mandatory team.
 - **Cross-repo** (changes touch >1 repo): Red-Team-Architect activates automatically.
-- **Live system ops** (docker, vault, certs): Live-System-Operator takes lead; Developer never edits source on `/opt/sovereign-shield` directly (enforced by `osEngineer-pre-edit-guard.js`).
+- **Live system ops** (docker, vault, certs): Live-System-Operator takes lead; Developer never edits source on the live system directly (enforced by `osEngineer-pre-edit-guard.js`).
 - **Context pressure** (>20 repos in workbench): Scope-Manager prunes repo list per phase goal.
 
 ## How agents are delivered

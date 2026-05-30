@@ -49,13 +49,13 @@ Parse `docker-compose.yml` and `docker-compose-fleet.yml`:
 For schemas used by multiple repos:
 ```bash
 # Compare registry schema with consumer schemas
-diff <(cat ola-management-registry/internal/schema/files/mission-plan-v1.json | jq -S .) \
-     <(cat ola-management-strategist/internal/schema/files/mission-plan-v1.json | jq -S .)
+diff <(cat <registry-repo>/internal/schema/files/plan-v1.json | jq -S .) \
+     <(cat <producer-repo>/internal/schema/files/plan-v1.json | jq -S .)
 ```
 
 Any difference = BLOCK.
 
-## Sovereign Shield Topology Rules
+## Topology Validation Rules
 
 | Rule | Violation Example |
 |------|-------------------|

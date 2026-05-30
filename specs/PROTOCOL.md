@@ -31,20 +31,20 @@ Adapted from [Spec Kit](https://github.com/github/spec-kit).
 - **No removals:** Remove only after 2 major versions with deprecation warning.
 - **Version in path/name:** `mission-plan-v1.json`, not `mission-plan.json`.
 
-## Sovereign Shield Contracts
+## Project Contracts
 
 ```yaml
 # Example: AMQP message contract
 # .claude/contracts/produced/mission-plan.yaml
 
 producer:
-  repo: ola-management-strategist
+  repo: <producer-repo>
   exchange: ex.management.missions
   routing_key: mission.request.{team_id}
   schema: internal/schema/files/mission-plan-v1.json
 
 consumer:
-  repo: ola-management-supervisor
+  repo: <consumer-repo>
   queue: supervisor.mission.requests
   binding_key: mission.request.#
 

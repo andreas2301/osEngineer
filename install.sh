@@ -55,6 +55,50 @@ ensure_node() {
   command -v node >/dev/null 2>&1 || fail "node not found in PATH (required for osEngineer Claude hooks)"
 }
 
+# ── Interactive prompts ────────────────────────────────────────────────────
+
+# Ask a question with a default. Returns the answer (or default if empty).
+prompt() {
+  local question="$1"
+  local default="$2"
+  if [ -n "$default" ]; then
+    read -r -p "$question [$default] " answer
+  else
+    read -r -p "$question " answer
+  fi
+  printf '%s' "${answer:-$default}"
+}
+
+# Yes/no prompt. Returns "y" or "n".
+prompt_yn() {
+  local question="$1"
+  local default="${2:-n}"
+  read -r -p "$question [y/N] " answer
+  answer="${answer:-$default}"
+  case "$answer" in
+    [Yy]*) printf 'y' ;;
+    *) printf 'n' ;;
+  esac
+}
+
+# Prompt user to pick from a list. Returns the selected index (0-based) or empty.
+prompt_choice() {
+  local question="$1"
+  shift
+  printf '%s\n' "$question"
+  local i=0
+  for opt in "$@"; do
+    printf '  %d) %s\n' "$((i+1))" "$opt"
+    i=$((i + 1))
+  done
+  read -r -p "Choice [1-$i]: " choice
+  if [ -z "$choice" ] || [ "$choice" -lt 1 ] || [ "$choice" -gt "$i" ] 2>/dev/null; then
+    printf ''
+  else
+    printf '%s' "$((choice - 1))"
+  fi
+}
+
 # ── Core: per-repo init ────────────────────────────────────────────────────
 
 init_repo() {
@@ -321,6 +365,36 @@ console.log('  + .claude/settings.json merged');
 NODE
 }
 
+# ── Repo classification helpers ────────────────────────────────────────────
+
+detect_dominant_lang() {
+  local repo="$1"
+  local counts=""
+  counts=$(find "$repo" -type f -not -path '*/node_modules/*' -not -path '*/vendor/*' -not -path '*/.git/*' \
+    | sed 's/.*\.//' | sort | uniq -c | sort -rn | head -5 2>/dev/null || true)
+  case "$counts" in
+    *go*)     printf 'go' ;;
+    *py*)     printf 'python' ;;
+    *rs*)     printf 'rust' ;;
+    *ts*)     printf 'typescript' ;;
+    *js*)     printf 'javascript' ;;
+    *java*)   printf 'java' ;;
+    *cpp*|*cc*|*hpp*) printf 'cpp' ;;
+    *c|*h)    printf 'c' ;;
+    *)        printf 'mixed' ;;
+  esac
+}
+
+classify_repo() {
+  local repo="$1"
+  local loc
+  loc=$(find "$repo" -type f \( -name "*.go" -o -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.rs" -o -name "*.java" -o -name "*.cpp" -o -name "*.c" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/vendor/*" 2>/dev/null | wc -l)
+  if [ "$loc" -lt 20 ]; then printf 'small'
+  elif [ "$loc" -lt 100 ]; then printf 'medium'
+  else printf 'large'
+  fi
+}
+
 # ── Workbench mode ─────────────────────────────────────────────────────────
 
 init_workbench() {
@@ -331,22 +405,118 @@ init_workbench() {
   mkdir -p "$root/.osengineer/handoffs"
   touch "$root/.osengineer/handoffs/.gitkeep"
 
-  # META detection
-  local meta_repo=""
+  # ── 1. Project name ───────────────────────────────────────────────────────
+  local project_name
+  project_name="$(prompt "Project name" "$(basename "$root")")"
+  log "project: $project_name"
+
+  # ── 2. Discover repos ─────────────────────────────────────────────────────
+  local discovered=()
+  for candidate in "$root"/*; do
+    [ -d "$candidate/.git" ] || continue
+    discovered+=("$candidate")
+  done
+
+  printf 'Discovered %d repo(s):\n' "${#discovered[@]}"
+  for d in "${discovered[@]}"; do
+    printf '  · %s\n' "$(basename "$d")"
+  done
+
+  local use_all
+  use_all="$(prompt_yn "Use all discovered repos?")"
+  local repos=()
+  if [ "$use_all" = "y" ]; then
+    repos=("${discovered[@]}")
+  else
+    for d in "${discovered[@]}"; do
+      local name
+      name="$(basename "$d")"
+      local inc
+      inc="$(prompt_yn "Include $name?" "y")"
+      [ "$inc" = "y" ] && repos+=("$d")
+    done
+  fi
+
+  # Allow adding extra paths
+  while true; do
+    local extra
+    extra="$(prompt "Additional repo path (or empty to finish)")"
+    [ -z "$extra" ] && break
+    extra="$(cd "$root" && realpath -m "$extra" 2>/dev/null || echo "$extra")"
+    if [ -d "$extra/.git" ]; then
+      repos+=("$extra")
+      log "  + added $(basename "$extra")"
+    else
+      warn "$extra is not a git repo — skipping"
+    fi
+  done
+
+  # ── 3. META repo ──────────────────────────────────────────────────────────
+  local meta_candidates=()
   for candidate in "$root"/*; do
     [ -d "$candidate/.git" ] || continue
     local readme="$candidate/README.md"
-    if [ -f "$readme" ] && grep -qiE 'source of truth' "$readme" 2>/dev/null; then
-      meta_repo="$candidate"
-      log "META repo detected: $(basename "$candidate")"
-      break
-    fi
-    if [ -d "$candidate/plans" ] && [ -d "$candidate/teams" ]; then
-      meta_repo="$candidate"
-      log "META repo detected (by /plans+/teams): $(basename "$candidate")"
-      break
+    if [ -f "$readme" ] && grep -qiE 'source of truth|architecture|adr' "$readme" 2>/dev/null; then
+      meta_candidates+=("$candidate")
+    elif [ -d "$candidate/docs/adr" ] || [ -d "$candidate/documentation/adr" ]; then
+      meta_candidates+=("$candidate")
     fi
   done
+
+  local meta_repo=""
+  local meta_choice
+  printf 'META repo candidates (%d found):\n' "${#meta_candidates[@]}"
+  local idx=1
+  for c in "${meta_candidates[@]}"; do
+    printf '  %d) %s\n' "$idx" "$(basename "$c")"
+    idx=$((idx + 1))
+  done
+  printf '  %d) None — create a META repo skeleton\n' "$idx"
+  idx=$((idx + 1))
+  printf '  %d) None — skip META for now\n' "$idx"
+
+  read -r -p "Select META repo option [1-$idx]: " meta_choice
+  if [ -n "$meta_choice" ] && [ "$meta_choice" -ge 1 ] 2>/dev/null && [ "$meta_choice" -le "${#meta_candidates[@]}" ] 2>/dev/null; then
+    meta_repo="${meta_candidates[$((meta_choice - 1))]}"
+    log "META repo selected: $(basename "$meta_repo")"
+  elif [ -n "$meta_choice" ] && [ "$meta_choice" -eq "$((idx - 1))" ] 2>/dev/null; then
+    # Create META skeleton
+    local meta_path="$root/meta"
+    mkdir -p "$meta_path/docs/adr" "$meta_path/docs/teams"
+    cat > "$meta_path/README.md" <<'META_README'
+# META — Codified Source of Truth
+
+This repo holds architecture decisions, team contracts, and cross-repo specifications.
+
+## Structure
+
+- `docs/adr/` — Architecture Decision Records
+- `docs/teams/` — Team archetypes and conventions
+- `docs/plans/` — Cross-repo phase plans
+META_README
+    cat > "$meta_path/docs/adr/ADR-001-project-charter.md" <<'META_ADR'
+# ADR-001: Project Charter
+
+## Status
+
+Proposed
+
+## Context
+
+What is this project? Why does it exist? What are the constraints?
+
+## Decision
+
+(Write the initial architectural principles here.)
+
+## Consequences
+
+(What follows from this decision?)
+META_ADR
+    git -C "$meta_path" init >/dev/null 2>&1 || true
+    meta_repo="$meta_path"
+    log "META repo created: $meta_path"
+  fi
 
   # ADR catalog discovery from META repo
   if [ -n "$meta_repo" ]; then
@@ -359,7 +529,73 @@ init_workbench() {
     fi
   fi
 
-  # Workbench-level AGENTS.md
+  # ── 4. Graphify ───────────────────────────────────────────────────────────
+  local graphify_installed=false
+  local graphify_path=""
+  if command -v graphify >/dev/null 2>&1; then
+    graphify_installed=true
+    graphify_path="$(command -v graphify)"
+    log "graphify detected: $graphify_path"
+  else
+    local clone_gf
+    clone_gf="$(prompt_yn "graphify not found on PATH. Clone from GitHub?")"
+    if [ "$clone_gf" = "y" ]; then
+      local gf_dest
+      gf_dest="$(prompt "Clone destination" "$HOME/.local/share/graphify")"
+      mkdir -p "$(dirname "$gf_dest")"
+      if [ ! -d "$gf_dest/.git" ]; then
+        git clone https://github.com/safishamsi/graphify.git "$gf_dest" >/dev/null 2>&1 || warn "graphify clone failed; install manually later"
+      fi
+      if [ -d "$gf_dest/.git" ]; then
+        graphify_installed=true
+        graphify_path="$gf_dest"
+        log "graphify cloned to $gf_dest"
+        printf '\n>> Add to your PATH: export PATH="%s:$PATH"\n' "$gf_dest"
+      fi
+    fi
+  fi
+
+  # ── 5. Write workbench-config.yml ─────────────────────────────────────────
+  local config_file="$root/.osengineer/workbench-config.yml"
+  cat > "$config_file" <<YAML
+# osEngineer workbench configuration — generated by install.sh
+schema_version: 1
+project_name: "$project_name"
+YAML
+
+  if [ ${#repos[@]} -gt 0 ]; then
+    printf '\ndiscovered_repos:\n' >> "$config_file"
+    for r in "${repos[@]}"; do
+      local rname rlang rclass rbranch
+      rname="$(basename "$r")"
+      rbranch="$(cd "$r" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+      rlang="$(detect_dominant_lang "$r")"
+      rclass="$(classify_repo "$r")"
+      printf '  - path: "./%s"\n' "$rname" >> "$config_file"
+      printf '    name: "%s"\n' "$rname" >> "$config_file"
+      printf '    language: "%s"\n' "$rlang" >> "$config_file"
+      printf '    classification: "%s"\n' "$rclass" >> "$config_file"
+      printf '    default_branch: "%s"\n' "$rbranch" >> "$config_file"
+    done
+  fi
+
+  if [ -n "$meta_repo" ]; then
+    printf '\nmeta_repo:\n' >> "$config_file"
+    printf '  path: "./%s"\n' "$(basename "$meta_repo")" >> "$config_file"
+    printf '  name: "%s"\n' "$(basename "$meta_repo")" >> "$config_file"
+    printf '  auto_detected: %s\n' "true" >> "$config_file"
+  fi
+
+  if [ "$graphify_installed" = true ]; then
+    printf '\ngraphify:\n' >> "$config_file"
+    printf '  installed: true\n' >> "$config_file"
+    printf '  path: "%s"\n' "$graphify_path" >> "$config_file"
+    printf '  output_dir: "graphify-out"\n' >> "$config_file"
+  fi
+
+  log "+ .osengineer/workbench-config.yml"
+
+  # ── 6. Workbench-level AGENTS.md ──────────────────────────────────────────
   if [ ! -f "$root/AGENTS.md" ]; then
     local meta_block=""
     [ -n "$meta_repo" ] && meta_block="meta_ref:
@@ -374,7 +610,7 @@ $meta_block
 cross_repo_handoffs_dir: ./.osengineer/handoffs/
 ---
 
-# Workbench — $(basename "$root")
+# Workbench — $project_name
 
 osEngineer-initialised workbench. See \`.osengineer/\` for cross-repo state and
 \`./<repo>/AGENTS.md\` for each repo's team manifest.
@@ -400,7 +636,6 @@ YAML
   if [ ! -f "$progress_file" ]; then
     cat > "$progress_file" <<YAML
 # osEngineer workbench init progress. Each entry: <repo-name>: <pending|complete|failed>.
-# Re-running install.sh --workbench skips repos with status "complete" and retries others.
 osengineer_version: $VERSION
 started_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 repos:
@@ -410,7 +645,7 @@ YAML
   # Iterate repos
   local skipped=0
   local processed=0
-  for repo in "$root"/*; do
+  for repo in "${repos[@]}"; do
     [ -d "$repo/.git" ] || continue
     local repo_name
     repo_name=$(basename "$repo")
@@ -420,7 +655,6 @@ YAML
       continue
     fi
     if init_repo "$repo"; then
-      # Update progress file
       if grep -q "^  $repo_name:" "$progress_file" 2>/dev/null; then
         sed -i.bak "s|^  $repo_name:.*|  $repo_name: complete|" "$progress_file"
         rm -f "$progress_file.bak"
@@ -475,7 +709,7 @@ osEngineer installer — version $VERSION
 Usage:
   $0 <repo-path>                Initialise a single repo
   $0 --workbench [<path>]       Initialise every .git repo under <path>
-  $0 --all                      --workbench plus /opt/sovereign-shield if present
+  $0 --all                      --workbench plus any extra repos specified interactively
   $0 --global                   Install osEngineer git hooks as global hooks
 
 USAGE
@@ -492,9 +726,6 @@ case "$1" in
   --all)
     init_workbench
     init_global_hooks
-    if [ -d "/opt/sovereign-shield" ]; then
-      init_repo "/opt/sovereign-shield"
-    fi
     ;;
   -h|--help)
     cat <<USAGE

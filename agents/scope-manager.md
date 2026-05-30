@@ -30,7 +30,7 @@ Extract keywords from the goal:
 
 ### Step 2: Follow Dependency Graph
 
-Use `sovereign-shield-repo-map.yml` to find:
+Use `.osengineer/workbench-config.yml` to find:
 - **Direct dependencies:** Repos that import/export contracts with primary repos.
 - **Indirect dependencies:** Repos that share Vault paths, networks, or broker vhosts.
 
@@ -50,21 +50,21 @@ Remove repos that:
 
 ## Scope Example
 
-**Goal:** "Fix strategist mission planner to publish to supervisor bus"
+**Goal:** "Fix management service to publish to orchestrator bus"
 
 ```yaml
 # SCOPE.yaml
 primary:
-  - ola-management-strategist      # Producer of MissionPlan
-  - ola-management-supervisor      # Consumer of MissionPlan
-  - ola-management-registry        # Schema registry
+  - <producer-repo>      # Producer of Plan
+  - <consumer-repo>      # Consumer of Plan
+  - <registry-repo>      # Schema registry
 supporting:
-  - ansible/                       # Topology declarations
-  - sovereign-shield-install-guide # Documentation updates
+  - ansible/             # Topology declarations
+  - <docs-repo>          # Documentation updates
 excluded:
-  - OS-MDashboard        # No UI change
-  - ola-fleet-chameleon  # No fleet change
-  - ola-management-wand  # No Vault change
+  - <dashboard-repo>     # No UI change
+  - <fleet-repo>         # No fleet change
+  - <config-repo>        # No config change
 ```
 
 ## Dynamic Scope Expansion

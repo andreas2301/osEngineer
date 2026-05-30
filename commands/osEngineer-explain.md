@@ -109,7 +109,7 @@ Not all agents run for every task. The dispatch rules:
 ### Safety Rules
 
 - **Token budget hard limit:** Exceed 150% of estimate → abort with structured handoff.
-- **Live system read-only:** Never edit source in `/opt/sovereign-shield/` directly. Workbench → PR.
+- **Live system read-only:** Never edit source on the live system directly. Workbench → PR.
 - **Circuit breakers:** 3 consecutive failures on same agent → escalate to human.
 - **HITL gates:** Deployments, schema changes, and auth modifications require explicit approval.
 

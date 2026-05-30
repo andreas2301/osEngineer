@@ -1,7 +1,7 @@
 # osEngineer
 
 > An epic-level, multi-repo engineering skill for autonomous AI agents.  
-> Built for [Sovereign Shield](https://github.com/andreas2301/sovereign-shield-install-guide). Reusable for any project.
+> Project-agnostic multi-repo engineering skill. Ships with a [Sovereign Shield](https://github.com/andreas2301/sovereign-shield-install-guide) reference overlay in `examples/`.
 
 ## What Problem Does This Solve?
 

@@ -33,7 +33,7 @@ Block the merge if ANY of these are true:
 - No red commit in test history (TDD violation).
 - Breaking change without migration plan.
 
-## Sovereign Shield Hard Rules
+## Project Hard Rules
 
 The judge has special authority on these rules. Violation = automatic BLOCK:
 

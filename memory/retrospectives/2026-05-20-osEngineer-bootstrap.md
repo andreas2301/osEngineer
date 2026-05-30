@@ -13,7 +13,7 @@
   end-to-end: bad commits rejected, good commits accepted, state.yml
   populated.
 - **P2:** wrote 4 JSON Schemas (agents-md, phase-plan, service-manifest,
-  message-contract) + 2 spec templates, seeded 3 real Observer Shield
+  message-contract) + 2 spec templates, seeded 3 real reference-project
   patterns + this retrospective, wrote `agents/architect.md` and
   `agents/verifier.md`, merged the root `AGENTS.md` catalog into
   `agents/INDEX.md`, populated `/osEngineer:fix` and `:feature` command
@@ -47,9 +47,9 @@
 
 ## Patterns surfaced (promoted to memory/patterns/)
 
-- `queue-declare-before-consume` — AMQP consumer-side queue declaration
-- `dual-listen-migration` — three-deploy-cycle routing key migration
-- `fail-closed-on-tls-error` — degrade-not-panic on TLS init failure
+- `queue-declare-before-consume` — AMQP consumer-side queue declaration (moved to `examples/sovereign-shield/patterns/`)
+- `dual-listen-migration` — three-deploy-cycle routing key migration (moved to `examples/sovereign-shield/patterns/`)
+- `fail-closed-on-tls-error` — degrade-not-panic on TLS init failure (moved to `examples/sovereign-shield/patterns/`)
 
 ## Open follow-ups (carried into P3+)
 

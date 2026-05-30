@@ -32,7 +32,7 @@ You are the red-team-architect agent in osEngineer. You ensure the big picture h
 - [ ] No new container runs as root (UID ≥ 1000).
 - [ ] No new network exposes ports beyond required set.
 
-## Sovereign Shield Topology Rules
+## Topology Validation Rules
 
 | Layer | Rule | Violation |
 |-------|------|-----------|
@@ -59,12 +59,12 @@ Activate automatically when:
 (None found)
 
 ## Topology Drift (1)
-- **Repo:** ola-management-strategist
+- **Repo:** <management-service-repo>
 - **File:** `internal/api/amqp_mission_publisher.go:45`
 - **Drift:** Exchange `ex.management.missions` declared as `topic` in code, but ansible declares `direct`
 - **Fix:** Align code with ansible (topic is correct per ADR-018)
 
 ## Warnings (2)
 - New schema `retry-policy-v1.yaml` not yet in registry allowlist
-- `ola-management-persist` added Docker volume not declared in ansible
+- `<persistence-repo>` added Docker volume not declared in ansible
 ```

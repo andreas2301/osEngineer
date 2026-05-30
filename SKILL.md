@@ -3,7 +3,7 @@
 **Version:** 0.2.0  
 **Scope:** Cross-repo, cross-SDLC, cross-session engineering  
 **Project-Agnostic:** Yes — discovers repos, ADRs, and topology from any project root  
-**Primary Target:** Sovereign Shield (28 repos) as reference implementation  
+**Primary Target:** Any multi-repo project (ships with a Sovereign Shield reference overlay in `examples/`)  
 **License:** MIT
 
 ---
@@ -102,17 +102,14 @@ When osEngineer starts on a new project:
 
 ---
 
-## Sovereign Shield Reference Mapping
+## Project Discovery
 
-For Sovereign Shield specifically, osEngineer knows these repo categories:
+osEngineer does not hardcode any repo list. During `install.sh` or `/osEngineer:init`, the skill:
 
-| Category | Repos |
-|----------|-------|
-| **Management Layer** | `ola-management-strategist`, `ola-management-supervisor`, `ola-management-guardian`, `ola-management-metronome`, `ola-management-persist`, `ola-management-registry`, `ola-management-accountant`, `ola-management-witness`, `ola-management-operator`, `ola-management-oracle`, `ola-management-gatekeeper`, `ola-management-wand`, `ola-management-scribe` |
-| **Fleet Layer** | `ola-fleet-chameleon`, `ola-fleet-executor`, `ola-fleet-executor-core`, `ola-fleet-ex-hermes`, `ola-fleet-ex-jcode`, `ola-fleet-ex-opencode`, `ola-fleet-routine` |
-| **Host / Config** | `ola-host-engineer-config`, `ola-management-wizard-config`, `ola-management-universal-agent` |
-| **Observability** | `OS-MDashboard`, `OpenSpace` |
-| **Meta / Install** | `sovereign-shield-install-guide`, `sovereign-shield-backup`, `fleet-backup` |
-| **Shared** | `ola-shared-utility` |
+1. **Asks** for the project name.
+2. **Discovers** repos by scanning for `.git` directories.
+3. **Confirms** the discovered list with the user (add/remove/rename).
+4. **Identifies** (or creates) the META repo that holds ADRs and architecture docs.
+5. **Stores** the topology in `.osengineer/workbench-config.yml`.
 
-*(This mapping is loaded from `discovery/sovereign-shield-repo-map.yml` when the project is identified as Sovereign Shield.)*
+See `examples/sovereign-shield/` for a reference implementation of how a real 28-repo platform documents its conventions, runbooks, and patterns.

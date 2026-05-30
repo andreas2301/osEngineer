@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osengineer.dev/schemas/workbench-config.schema.json",
+  "title": "Workbench Configuration",
+  "description": "Project-agnostic workbench topology generated during osEngineer install.",
+  "type": "object",
+  "required": ["schema_version", "project_name"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Contract version for this config file."
+    },
+    "project_name": {
+      "type": "string",
+      "description": "Human-readable project name."
+    },
+    "discovered_repos": {
+      "type": "array",
+      "description": "Repos found in the workbench during install.",
+      "items": {
+        "type": "object",
+        "required": ["path", "name"],
+        "properties": {
+          "path": { "type": "string", "description": "Relative path from workbench root." },
+          "name": { "type": "string" },
+          "language": { "type": "string" },
+          "classification": {
+            "type": "string",
+            "enum": ["small", "medium", "large", "specialist"]
+          },
+          "default_branch": { "type": "string" }
+        }
+      }
+    },
+    "meta_repo": {
+      "type": "object",
+      "description": "The repo that holds ADRs, plans, and architecture docs.",
+      "properties": {
+        "path": { "type": "string" },
+        "name": { "type": "string" },
+        "auto_detected": { "type": "boolean" },
+        "created_by_osengineer": { "type": "boolean" }
+      }
+    },
+    "graphify": {
+      "type": "object",
+      "properties": {
+        "installed": { "type": "boolean" },
+        "path": { "type": "string", "description": "Path to graphify binary or clone directory." },
+        "output_dir": { "type": "string", "default": "graphify-out" }
+      }
+    }
+  }
+}

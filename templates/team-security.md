@@ -38,7 +38,7 @@ PR-time pass/fail verdicts on other teams' work.
 - New HTTP egress requires an ADR amendment. Red-team-local BLOCKS PRs that
   add `http.Get` / `http.Post` / `httpx.AsyncClient` / `requests.get` without
   a matching `adr_ref` in service-manifest.yml.
-- Service-to-service HTTP is FORBIDDEN in Observer Shield. AMQP only.
+- Service-to-service HTTP may be restricted by project policy. Check the META repo ADRs.
   Red-team-architect BLOCKS PRs that introduce inter-service HTTP.
 - Secrets in env vars only, sourced from Vault. Never literal in code, ansible,
   compose, or test fixtures. Secret-scan blocks commits with literal secrets.

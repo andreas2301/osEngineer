@@ -45,7 +45,7 @@ When a change affects an existing ADR:
 
 3. Update `docs/adr/INDEX.md` or `.claude/adr-catalog/INDEX.md`.
 
-## Sovereign Shield Contracts
+## Project Contracts
 
 | Surface | Location | Schema Tool |
 |---------|----------|-------------|
@@ -61,7 +61,7 @@ When a change affects an existing ADR:
 # Contract — retry-policy-v1.yaml
 
 ## Producer
-- Repo: ola-management-strategist
+- Repo: <management-service-repo>
 - Exchange: ex.management.missions
 - Routing key: mission.request.{team_id}
 

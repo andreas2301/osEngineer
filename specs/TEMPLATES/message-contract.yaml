@@ -10,11 +10,11 @@ version: 1.2.0
 status: active
 
 producer:
-  service: ola-management-strategist
+  service: <management-service>
   team: coding
 
 consumers:
-  - service: ola-management-scribe
+  - service: <logging-service>
     consumer_group: scribe-decision-archive
   - service: OS-MDashboard
     consumer_group: mdashboard-live-feed

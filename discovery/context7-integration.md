@@ -29,11 +29,11 @@
 }
 ```
 
-## Sovereign Shield Usage
+## Example Usage
 
 Context7 is most useful for:
 - **External dependencies:** Quick docs for RabbitMQ client, Docker SDK, Vault API.
-- **Shared utilities:** `ola-shared-utility` functions used across repos.
+- **Shared utilities:** `<shared-repo>` functions used across repos.
 - **New team members:** Onboarding questions without grepping the whole codebase.
 
 ## Limitations

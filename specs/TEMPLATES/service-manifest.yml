@@ -6,11 +6,11 @@
 # against the schema on every commit.
 
 service:
-  name: ola-management-strategist
+  name: <management-service>
   language: go
-  repo: ola-management-strategist
+  repo: <management-service-repo>
   binary: ./cmd/strategist
-  container_image: ola-management-strategist:latest
+  container_image: <management-service>:latest
 
 owner_team: coding
 
@@ -41,9 +41,9 @@ metrics:
 
 tls:
   required: true
-  ca_file_env: SHIELD_TLS_CA_FILE
-  cert_file_env: SHIELD_TLS_CERT_FILE
-  key_file_env: SHIELD_TLS_KEY_FILE
+  ca_file_env: {{PROJECT_NAME}}_TLS_CA_FILE
+  cert_file_env: {{PROJECT_NAME}}_TLS_CERT_FILE
+  key_file_env: {{PROJECT_NAME}}_TLS_KEY_FILE
 
 vault_secrets:
   - path: secret/shield/strategist/api-key

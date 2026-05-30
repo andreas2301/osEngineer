@@ -22,8 +22,8 @@ Initialize osEngineer on a new project. Discovers repos, ADRs, graphs, and build
 3. Run `discovery/repo-discovery.md` protocol.
 4. Read ADR catalog (if exists).
 5. Check for `graphify-out/`.
-6. Generate `RESEARCH.md` with repo topology.
-7. If project identified as Sovereign Shield, load `discovery/sovereign-shield-repo-map.yml`.
+6. Generate `RESEARCH.md` with repo topology from `.osengineer/workbench-config.yml`.
+7. Load project-specific overlays from `examples/<project-name>/` if they exist.
 
 ## Example
 

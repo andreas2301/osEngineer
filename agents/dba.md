@@ -15,7 +15,7 @@ When activated:
 4. Ensure `ON DELETE` behavior is explicit.
 5. Flag N+1 query risks in accompanying code.
 
-## Sovereign Shield Specifics
+## Project-Specific Conventions
 
 - Migrations live in `migrations/sql/V{version}__{description}.sql`.
 - Use `IF NOT EXISTS` for idempotency.

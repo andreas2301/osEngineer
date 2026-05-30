@@ -90,7 +90,7 @@ r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 Add `_ "module/internal/metrics"` blank import in `main.go` for init-time registration.
 
-## Sovereign Shield Naming Convention
+## Metric Naming Convention
 
 - Go services: `<service_name>_<metric_name>_<unit>` (e.g., `strategist_mission_plans_published_total`)
 - Python services: `sovereign_shield_<metric_name>` (reserved prefix)

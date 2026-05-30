@@ -15,7 +15,7 @@ When activated:
 4. Flag anti-patterns (infinite scroll without pagination, modal chains > 2 deep).
 5. Suggest component reuse from existing library.
 
-## Sovereign Shield Specifics
+## Project-Specific Conventions
 
 - `OS-MDashboard` uses React + Tailwind.
 - CLI outputs use structured JSON logs (not tables).

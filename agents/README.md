@@ -51,7 +51,7 @@ For large cross-repo work, all roles fire in sequence.
 4. **Epic:** Full mandatory team + optional specialists for multi-repo phases.
 5. **Incident:** Live-System-Operator + Developer for production hotfixes.
 
-## Sovereign Shield Conventions
+## Reference Project Conventions
 
 - **Small repos** (< 5K LOC, single service): Developer handles everything; Reviewer runs on PR.
 - **Large repos** (> 20K LOC, complex topology): Full mandatory team.

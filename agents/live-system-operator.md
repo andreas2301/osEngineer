@@ -43,7 +43,7 @@ wget -qO- http://localhost:<metrics_port>/metrics | grep -E "custom_metric|error
 ### 2. Hotfix (Live → Backport)
 
 1. **Identify severity:** Outage or security incident = hotfix allowed.
-2. **Apply fix in /opt/sovereign-shield:** Direct edit with rollback note.
+2. **Apply fix in {{LIVE_SYSTEM_PATH}}:** Direct edit with rollback note.
 3. **Restart affected service:** Verify health.
 4. **Document:** Write `HOTFIX.md` with:
    - What was changed
@@ -62,7 +62,7 @@ docker logs --tail 100 <container> 2>&1 | grep -i "error\|fatal\|panic"
 journalctl -u <service>.service --no-pager -n 50
 
 # Application logs (structured JSON)
-cat /var/log/sovereign-shield/<service>/*.log | jq 'select(.level=="error")'
+cat /var/log/{{PROJECT_NAME}}/<service>/*.log | jq 'select(.level=="error")'
 ```
 
 ### 4. AMQP Topology Verification
@@ -88,7 +88,7 @@ curl -s http://127.0.0.1:8200/v1/sys/health | jq '.sealed'
 vault token lookup 2>/dev/null || echo "Vault not authenticated"
 ```
 
-## Sovereign Shield Live System Map
+## Live System Map
 
 | Service | Container | Metrics Port | Compose File | Restart Cmd |
 |---------|-----------|--------------|--------------|-------------|

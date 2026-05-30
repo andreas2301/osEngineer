@@ -64,6 +64,48 @@ function findOsEngineerRoot(cwd) {
   return null;
 }
 
+function readWorkbenchConfig(workbenchRoot) {
+  const p = path.join(workbenchRoot, '.osengineer', 'workbench-config.yml');
+  if (!fs.existsSync(p)) return null;
+  const raw = fs.readFileSync(p, 'utf8');
+  const config = {};
+  let currentArray = null;
+  let currentArrayKey = null;
+  let indentStack = [];
+  for (const line of raw.split('\n')) {
+    if (/^\s*#/.test(line) || line.trim() === '') continue;
+    const topKey = line.match(/^(\w+):\s*(.*)$/);
+    if (topKey && !line.startsWith(' ') && !line.startsWith('-')) {
+      currentArray = null;
+      config[topKey[1]] = topKey[2].trim().replace(/^["']|["']$/g, '');
+      if (topKey[2].trim() === '') {
+        // Might be an object or array starting on next lines
+        config[topKey[1]] = [];
+        currentArray = config[topKey[1]];
+        currentArrayKey = topKey[1];
+      }
+      continue;
+    }
+    const arrayItem = line.match(/^\s+- (\w+):\s*(.*)$/);
+    if (arrayItem && currentArray) {
+      currentArray.push({ [arrayItem[1]]: arrayItem[2].trim().replace(/^["']|["']$/g, '') });
+      continue;
+    }
+    const nestedKey = line.match(/^\s+(\w+):\s*(.*)$/);
+    if (nestedKey && currentArray && currentArray.length > 0) {
+      const last = currentArray[currentArray.length - 1];
+      if (typeof last === 'object') {
+        last[nestedKey[1]] = nestedKey[2].trim().replace(/^["']|["']$/g, '');
+      }
+    }
+  }
+  // Fix: if top-level keys were mistakenly turned into arrays, restore scalar values
+  for (const k of Object.keys(config)) {
+    if (Array.isArray(config[k]) && config[k].length === 0) delete config[k];
+  }
+  return config;
+}
+
 function readStateMap(repoRoot) {
   const p = path.join(repoRoot, '.osengineer', 'state.yml');
   if (!fs.existsSync(p)) return null;

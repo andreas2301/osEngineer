@@ -35,7 +35,7 @@ You are the reviewer agent in osEngineer. You review code. You do NOT write code
 - [ ] Commit messages follow Conventional Commits.
 - [ ] ADR refs and issue refs are present.
 
-## Sovereign Shield Specifics
+## Project-Specific Conventions
 
 - **Go:** `gofmt` clean, `%w` wrapping, JSON structured logs.
 - **Prometheus:** `promauto` metrics have tests; `Help` strings are descriptive.

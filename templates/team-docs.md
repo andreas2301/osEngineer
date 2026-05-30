@@ -33,7 +33,7 @@ is written that uses it.
   and the contract doesn't exist, the developer agent STOPS and routes to this team.
 - Contracts are append-only-optional: adding fields is safe, removing or renaming
   fields breaks downstream tooling. Red-team-architect BLOCKS PRs that violate this.
-- For Observer Shield: service-to-service comms are AMQP-only. The doc-first
+- For this project: service-to-service comms are configured in the META repo ADRs. The doc-first
   artifact for inter-service is `message-contract.yaml`, NOT OpenAPI.
   OpenAPI applies to the small HTTP surface (/metrics, /healthz) only.
 - Every new exchange / routing key / queue declared in install-guide ansible

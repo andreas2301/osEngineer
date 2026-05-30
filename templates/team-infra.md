@@ -24,7 +24,7 @@ matches actual producer/consumer behaviour.
 ## Escalates to
 
 - **coding** — when an ansible declaration depends on code that doesn't exist yet
-  (Observer Shield rule: "Install-guide ahead of services" — declaring topology
+  (Best practice: "Infrastructure ahead of services" — declaring topology
   without deployed service code is a silent 100% non-functional install)
 - **security** — when adding new secrets, new ports, or new privileged operations
 - **docs** — when a service-manifest.yml change requires an ADR amendment

@@ -41,27 +41,22 @@ ls .claude/contracts/ specs/ schemas/ 2>/dev/null && echo "has contracts" || ech
 Output YAML structure:
 
 ```yaml
-project: sovereign-shield
-repo_count: 28
+project: <project-name>
+repo_count: <n>
 repos:
-  ola-management-strategist:
-    branch: master
-    language: go
-    size_loc: ~15000
-    classification: large
-    has_graphify: true
-    has_adrs: true
-    has_contracts: true
+  <repo-name>:
+    branch: <default-branch>
+    language: <dominant-language>
+    size_loc: ~<approx>
+    classification: small | medium | large
+    has_graphify: true | false
+    has_adrs: true | false
+    has_contracts: true | false
     dependencies:
-      - ola-shared-utility
-      - ola-management-registry
-  ola-fleet-chameleon:
-    branch: master
-    language: go
-    size_loc: ~8000
-    classification: medium
-    ...
+      - <other-repo-name>
 ```
+
+The actual repo list is read from `.osengineer/workbench-config.yml` (created during `install.sh`), not hardcoded.
 
 ### 4. Identify Gaps
 

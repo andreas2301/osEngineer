@@ -29,7 +29,7 @@ Some gates can be bypassed under specific conditions:
 - **Revert:** Reverting a bad merge does NOT require full planning cycle.
 - **Docs-only:** ADR amendments that are purely editorial (no decision change) skip HITL.
 
-## Sovereign Shield Specifics
+## Project-Specific Conventions
 
 - **Production deploy:** Always requires human approval (ansible-playbook --check first).
 - **Vault policy changes:** Always requires human approval (security-critical).
