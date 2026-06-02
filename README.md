@@ -110,6 +110,14 @@ Runs verification protocol: tests, e2e tracer bullets, cost recalibration.
 
 Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto-nudges you with 3 improvement options. You select one, skip, or propose your own. Accepted proposals are appended to `memory/patterns/`.
 
+### Sandbox (containerized local testing)
+
+```
+/osEngineer:sandbox start specs/TEMPLATES/mission-test.json --clean
+```
+
+Spins up an isolated local container cluster (RabbitMQ, Vault) to run and test Sovereign Shield swarm missions locally.
+
 ### Explain (built-in help)
 
 ```
@@ -162,6 +170,7 @@ Every directory has a `README.md` (human-readable) and `INDEX.md` (bot-navigable
 | **Cert Monitor** | Expiry tracking, renewal scripts |
 | **Health Verifier** | Container health, metrics endpoints |
 | **Scope Manager** | Context window optimization for large workbenches |
+| **Sandbox Provisioner** | Swarm testbed setup, unsealing mock secrets, metrics |
 
 ### Optional (compacted; loaded on demand)
 

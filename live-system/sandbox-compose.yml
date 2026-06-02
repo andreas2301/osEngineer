@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  # Mock RabbitMQ Broker
+  sandbox-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: SS-sandbox-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP protocol port
+      - "15672:15672" # Management UI portal
+    networks:
+      - net-secure-sandbox
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Mock HashiCorp Vault Secrets Manager
+  sandbox-vault:
+    image: hashicorp/vault:latest
+    container_name: SS-sandbox-vault
+    ports:
+      - "8200:8200"   # Vault HTTP API port
+    networks:
+      - net-secure-sandbox
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "root-dev-token"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+networks:
+  net-secure-sandbox:
+    name: net-secure-sandbox
+    driver: bridge

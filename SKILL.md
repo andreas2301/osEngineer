@@ -33,6 +33,7 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 5. **Verify:** Run `/osEngineer:verify <phase>` to validate deliverables.
 6. **Evolve:** Run `/osEngineer:evolve` to improve the skill itself (HITL, auto-nudge at 5 phases).
 7. **Explain:** Run `/osEngineer:explain [topic]` to learn how osEngineer works, what artifacts it creates, and which commands are available.
+8. **Sandbox:** Run `/osEngineer:sandbox start <path>` to spin up containerized testbeds for mission tests.
 
 ---
 
@@ -56,6 +57,7 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 - `agents/cert-monitor.md` — expiry tracking, renewal scripts
 - `agents/health-verifier.md` — container health, metrics endpoints
 - `agents/scope-manager.md` — context window optimization for large workbenches
+- `agents/sandbox-provisioner.md` — swarm sandbox & mission provisioner
 - `planning/PROTOCOL.md` — osEngineer phase lifecycle
 - `discovery/repo-discovery.md` — auto-discover project repos
 - `trust/circuit-breakers.md` — token budget & abort rules

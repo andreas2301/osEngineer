@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "osEngineer Mission Test Specification Schema",
+  "description": "Validates the JSON metadata file loaded by /osEngineer:sandbox to provision and run swarm mission testbeds.",
+  "type": "OBJECT",
+  "properties": {
+    "mission_id": {
+      "type": "STRING",
+      "pattern": "^MS-\\d+$"
+    },
+    "description": {
+      "type": "STRING"
+    },
+    "components": {
+      "type": "ARRAY",
+      "items": {
+        "type": "STRING"
+      }
+    },
+    "triggers": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "exchange": {
+            "type": "STRING"
+          },
+          "routing_key": {
+            "type": "STRING"
+          },
+          "payload": {
+            "type": "OBJECT"
+          }
+        },
+        "required": ["exchange", "routing_key", "payload"]
+      }
+    },
+    "assertions": {
+      "type": "OBJECT",
+      "properties": {
+        "expected_queues": {
+          "type": "ARRAY",
+          "items": {
+            "type": "STRING"
+          }
+        },
+        "max_latency_ms": {
+          "type": "INTEGER",
+          "minimum": 0
+        },
+        "vault_path": {
+          "type": "STRING"
+        }
+      },
+      "required": ["expected_queues"]
+    }
+  },
+  "required": ["mission_id", "components", "triggers", "assertions"]
+}

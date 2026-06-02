@@ -39,7 +39,69 @@ MANDATORY_AGENTS=(
   live-system-operator.md metrics-onboarding.md
   topology-validator.md cert-monitor.md
   health-verifier.md scope-manager.md
+  sandbox-provisioner.md
 )
+
+# Global variables for interactive setup
+RUNTIMES="claude"
+ATLASSIAN_CLOUD_ID=""
+VAULT_ADDR=""
+VAULT_TOKEN=""
+
+collect_interactive_inputs() {
+  # If not in an interactive terminal or inside a non-interactive/CI run, skip prompting
+  if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ "${OSE_NONINTERACTIVE:-}" = "1" ]; then
+    RUNTIMES="claude"
+    ATLASSIAN_CLOUD_ID="${ATLASSIAN_CLOUD_ID:-}"
+    VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8200}"
+    VAULT_TOKEN="${VAULT_TOKEN:-}"
+    return 0
+  fi
+
+  echo "=========================================================="
+  echo "        osEngineer Skill Setup & Initialization"
+  echo "=========================================================="
+  echo ""
+  echo "For which AI assistant runtimes do you want to configure osEngineer hooks and MCPs?"
+  echo "Choose by entering the numbers separated by spaces (e.g., 1 2 3):"
+  echo "  [1] Claude Code (wires .claude/settings.json)"
+  echo "  [2] Kimi CLI (wires .kimi/settings.json)"
+  echo "  [3] Codex CLI (wires .codex/settings.json)"
+  printf "Selections [default: 1]: "
+  
+  local selections
+  read -r selections
+  selections="${selections:-1}"
+  
+  RUNTIMES=""
+  for choice in $selections; do
+    case "$choice" in
+      1) RUNTIMES="$RUNTIMES claude" ;;
+      2) RUNTIMES="$RUNTIMES kimi" ;;
+      3) RUNTIMES="$RUNTIMES codex" ;;
+    esac
+  done
+  # Fallback to claude if empty or invalid selection
+  RUNTIMES="${RUNTIMES#"${RUNTIMES%%[! ]*}"}" # trim leading whitespace
+  RUNTIMES="${RUNTIMES:-claude}"
+
+  echo ""
+  echo "── MCP Configuration Credentials ──"
+  echo "Sensitive credentials will be written locally to gitignored config files"
+  echo "and NOT committed to public version control."
+  echo ""
+  
+  printf "Enter Atlassian Cloud ID (leave blank to configure later): "
+  read -r ATLASSIAN_CLOUD_ID
+  
+  printf "Enter HashiCorp Vault Address [default: http://127.0.0.1:8200]: "
+  read -r VAULT_ADDR
+  VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8200}"
+  
+  printf "Enter HashiCorp Vault Token (leave blank to configure later): "
+  read -r -s VAULT_TOKEN
+  echo "" # print newline after hidden token input
+}
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -145,19 +207,45 @@ YAML
     warn "$repo/.git/hooks does not exist — git hooks not installed"
   fi
 
-  # 3. Agent files
-  mkdir -p "$repo/.claude/agents"
-  local copied=0
-  for agent in "${MANDATORY_AGENTS[@]}"; do
-    if [ -f "$AGENTS_DIR/$agent" ]; then
-      cp "$AGENTS_DIR/$agent" "$repo/.claude/agents/$agent"
-      copied=$((copied + 1))
-    fi
+  # 3. Agent files for each chosen runtime
+  for runtime in $RUNTIMES; do
+    mkdir -p "$repo/.$runtime/agents"
+    local copied=0
+    for agent in "${MANDATORY_AGENTS[@]}"; do
+      if [ -f "$AGENTS_DIR/$agent" ]; then
+        cp "$AGENTS_DIR/$agent" "$repo/.$runtime/agents/$agent"
+        copied=$((copied + 1))
+      fi
+    done
+    log "  + $copied agent files → .$runtime/agents/"
   done
-  log "  + $copied agent files → .claude/agents/"
 
-  # 4. .claude/settings.json — merge (never overwrite)
-  install_claude_settings "$repo"
+  # 4. Settings — merge (never overwrite)
+  install_assistant_settings "$repo"
+
+  # Write secrets.env if any credentials provided
+  if [ -n "$ATLASSIAN_CLOUD_ID" ] || [ -n "$VAULT_TOKEN" ]; then
+    local env_file="$repo/.osengineer/secrets.env"
+    cat > "$env_file" <<EOF
+# osEngineer local environment secrets — gitignored
+export ATLASSIAN_CLOUD_ID="$ATLASSIAN_CLOUD_ID"
+export VAULT_ADDR="$VAULT_ADDR"
+export VAULT_TOKEN="$VAULT_TOKEN"
+EOF
+    chmod 600 "$env_file"
+    log "  + .osengineer/secrets.env created (restricted read permissions)"
+  fi
+
+  # Gitignore .osengineer/ secrets
+  local gitignore="$repo/.gitignore"
+  if [ -f "$gitignore" ]; then
+    if ! grep -q '\.osengineer/secrets\.env' "$gitignore"; then
+      echo "" >> "$gitignore"
+      echo "# osEngineer sensitive local secrets" >> "$gitignore"
+      echo ".osengineer/secrets.env" >> "$gitignore"
+      log "  + added .osengineer/secrets.env to .gitignore"
+    fi
+  fi
 
   # 5. git safe.directory (idempotent)
   git config --global --add safe.directory "$repo" 2>/dev/null || true
@@ -285,19 +373,31 @@ EOF
   chmod +x "$dst"
 }
 
-install_claude_settings() {
+install_assistant_settings() {
   local repo="$1"
-  local cfg="$repo/.claude/settings.json"
-  mkdir -p "$(dirname "$cfg")"
 
-  # Inline Node script merges osEngineer hook entries without overwriting user config.
-  OSE_HOOKS_DIR="$HOOKS_DIR" OSE_VERSION="$VERSION" OSE_SETTINGS_PATH="$cfg" node <<'NODE'
+  for runtime in $RUNTIMES; do
+    local cfg="$repo/.$runtime/settings.json"
+    mkdir -p "$(dirname "$cfg")"
+
+    # Inline Node script merges osEngineer hook entries without overwriting user config.
+    OSE_HOOKS_DIR="$HOOKS_DIR" \
+    OSE_VERSION="$VERSION" \
+    OSE_SETTINGS_PATH="$cfg" \
+    OSE_RUNTIME="$runtime" \
+    OSE_REPO_PATH="$repo" \
+    OSE_ATLASSIAN_CLOUD_ID="$ATLASSIAN_CLOUD_ID" \
+    OSE_VAULT_ADDR="$VAULT_ADDR" \
+    OSE_VAULT_TOKEN="$VAULT_TOKEN" \
+    node <<'NODE'
 const fs = require('fs');
 const path = require('path');
 
 const hooksDir = process.env.OSE_HOOKS_DIR;
 const settingsPath = process.env.OSE_SETTINGS_PATH;
 const version = process.env.OSE_VERSION;
+const runtime = process.env.OSE_RUNTIME;
+const repo = process.env.OSE_REPO_PATH;
 
 function cmd(file) {
   return `node "${path.join(hooksDir, file)}"`;
@@ -331,7 +431,7 @@ const oseEntries = {
 let existing = {};
 if (fs.existsSync(settingsPath)) {
   try { existing = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); }
-  catch (e) { console.error('osEngineer: settings.json malformed, leaving as-is'); process.exit(0); }
+  catch (e) { console.error(`osEngineer: ${runtime} settings.json malformed, leaving as-is`); process.exit(0); }
 }
 
 existing.hooks = existing.hooks || {};
@@ -360,9 +460,64 @@ existing.env = existing.env || {};
 existing.env.OSENGINEER_HOME = path.resolve(hooksDir, '..');
 existing.env.OSENGINEER_VERSION = version;
 
+// ── MCP Auto-Wiring ──
+const defaultMcpServers = {
+  "context7": {
+    "command": "npx",
+    "args": ["-y", "@upstash/context7-mcp@latest"]
+  },
+  "playwright": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-playwright"]
+  }
+};
+
+const openSpacePath = path.resolve(repo, '../OpenSpace');
+if (fs.existsSync(openSpacePath)) {
+  defaultMcpServers["openspace"] = {
+    "command": "python",
+    "args": ["-m", "openspace.mcp_server"],
+    "env": {
+      "PYTHONPATH": openSpacePath
+    }
+  };
+}
+
+if (process.env.OSE_ATLASSIAN_CLOUD_ID) {
+  defaultMcpServers["atlassian"] = {
+    "command": "npx",
+    "args": ["-y", "@atlassian/mcp-server-atlassian"],
+    "env": {
+      "ATLASSIAN_CLOUD_ID": process.env.OSE_ATLASSIAN_CLOUD_ID,
+      "ATLASSIAN_SITE_URL": "https://observershield.atlassian.net",
+      "ATLASSIAN_PROJECT_KEYS": "OSP",
+      "ATLASSIAN_SPACE_KEYS": "OSP"
+    }
+  };
+}
+
+if (process.env.OSE_VAULT_ADDR && process.env.OSE_VAULT_TOKEN) {
+  defaultMcpServers["hashicorp-vault"] = {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-vault"],
+    "env": {
+      "VAULT_ADDR": process.env.OSE_VAULT_ADDR,
+      "VAULT_TOKEN": process.env.OSE_VAULT_TOKEN
+    }
+  };
+}
+
+existing.mcpServers = existing.mcpServers || {};
+for (const [serverName, config] of Object.entries(defaultMcpServers)) {
+  if (!existing.mcpServers[serverName]) {
+    existing.mcpServers[serverName] = config;
+  }
+}
+
 fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n');
-console.log('  + .claude/settings.json merged');
+console.log(`  + .${runtime}/settings.json merged`);
 NODE
+  done
 }
 
 # ── Repo classification helpers ────────────────────────────────────────────
@@ -404,6 +559,12 @@ init_workbench() {
   log "workbench root: $root"
   mkdir -p "$root/.osengineer/handoffs"
   touch "$root/.osengineer/handoffs/.gitkeep"
+
+  # Check and clone OpenSpace if missing
+  if [ ! -d "$root/OpenSpace" ]; then
+    log "OpenSpace repo not found in workbench — cloning it from https://github.com/andreas2301/OpenSpace.git..."
+    git clone https://github.com/andreas2301/OpenSpace.git "$root/OpenSpace" || warn "Failed to clone OpenSpace repo automatically. You will need to clone it manually."
+  fi
 
   # ── 1. Project name ───────────────────────────────────────────────────────
   local project_name
@@ -836,6 +997,9 @@ init_global_hooks() {
 
 ensure_git
 ensure_node
+
+# Collect inputs once at start
+collect_interactive_inputs
 
 if [ $# -eq 0 ]; then
   cat <<USAGE
