@@ -48,6 +48,22 @@ For every task touching production code:
 - **Body:** If the change touches >3 files or is non-obvious, add a body explaining WHY.
 - **Refs:** Cite ADRs and issues: `Refs: ADR-018, OSP-123`.
 
+## Code Modification Format (SEARCH/REPLACE)
+
+To optimize token efficiency and guarantee edit precision, you MUST express all file modifications in your reasoning as unified SEARCH/REPLACE blocks. This aligns with Aider-style precise edits:
+
+```markdown
+<<<<<<< SEARCH
+// exact old code to be replaced
+=======
+// new code replacement
+>>>>>>> REPLACE
+```
+
+- Each SEARCH block must be a unique, exact match in the target file, including all leading whitespace.
+- Keep the SEARCH block as small and focused as possible, containing only the lines that actually change.
+- Never write placeholders or truncated segments inside the REPLACE block.
+
 ## Code Style
 
 - Follow existing style in the repo. Read 3–5 nearby files before writing.

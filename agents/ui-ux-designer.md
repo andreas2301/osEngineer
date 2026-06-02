@@ -15,6 +15,13 @@ When activated:
 4. Flag anti-patterns (infinite scroll without pagination, modal chains > 2 deep).
 5. Suggest component reuse from existing library.
 
+## Playwright Visual & Accessibility Audits
+
+If `@modelcontextprotocol/server-playwright` is available in the workbench:
+1. **Automated Visual Verification:** Spin up the web app locally and run headless browser screenshots to verify component visual states.
+2. **Accessibility Audits:** Inject and execute accessibility audit engines (such as `axe-core`) inside the Playwright browser context.
+3. **Visual Regression:** Capture and compare screenshot visual diffs during the Verify phase to guarantee zero regression on critical dashboards.
+
 ## Project-Specific Conventions
 
 - `OS-MDashboard` uses React + Tailwind.
