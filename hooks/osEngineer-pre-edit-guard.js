@@ -40,6 +40,24 @@ function readLiveSystemPath(cwd) {
   return null;
 }
 
+function readValidationProfile(cwd) {
+  let dir = cwd;
+  while (dir) {
+    const p = path.join(dir, '.osengineer', 'workbench-config.yml');
+    if (fs.existsSync(p)) {
+      try {
+        const raw = fs.readFileSync(p, 'utf8');
+        const m = raw.match(/validation_profile:\s*"(.*)"/) || raw.match(/validation_profile:\s*(.*)/);
+        if (m) return m[1].trim().replace(/^["']|["']$/g, '');
+      } catch {}
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return 'hybrid';
+}
+
 function readStateMap(cwd) {
   const p = path.join(cwd, '.osengineer', 'state.yml');
   if (!fs.existsSync(p)) return null;
@@ -112,6 +130,32 @@ process.stdin.on('end', () => {
 
     const state = readStateMap(cwd);
     if (!state) process.exit(0); // not an osEngineer repo
+
+    // Profile-specific rules
+    const profile = readValidationProfile(cwd);
+    const relPath = path.relative(cwd, filePath).replace(/\\/g, '/');
+    
+    // If validation profile is infra, enforce strict constraints on system configs
+    if (profile === 'infra' && !/^(planning|\.osengineer|ansible|docker|scripts)[/\\]/.test(relPath) && (relPath.endsWith('.yml') || relPath.endsWith('.yaml') || relPath.endsWith('.json'))) {
+      if (state.phase === 'discuss' || state.phase === 'plan') {
+        process.stdout.write(JSON.stringify({
+          decision: 'block',
+          reason: `osEngineer: [Infra Profile] Editing configuration file ${relPath} is forbidden during ${state.phase} phase to prevent configuration drift. Focus on playbooks/scripts in planning directories first.`,
+        }));
+        process.exit(0);
+      }
+    }
+
+    // If validation profile is frontend, add visual asset warnings or guard against editing critical assets directly
+    if (profile === 'frontend' && (relPath.includes('assets/') || relPath.endsWith('.png') || relPath.endsWith('.jpg') || relPath.endsWith('.svg'))) {
+      if (state.phase === 'execute' && !state.current_team) {
+        process.stdout.write(JSON.stringify({
+          decision: 'block',
+          reason: `osEngineer: [Frontend Profile] Editing visual asset ${relPath} requires an active team context (e.g., UI/UX designer) to ensure design system consistency. Set current team first.`,
+        }));
+        process.exit(0);
+      }
+    }
 
     // Block edits during discuss/plan phases
     if (state.phase === 'discuss' || state.phase === 'plan') {

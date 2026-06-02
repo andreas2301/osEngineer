@@ -50,6 +50,11 @@ ATLASSIAN_KEYS=""
 VAULT_ADDR=""
 VAULT_TOKEN=""
 LIVE_SYSTEM_PATH=""
+IS_MULTI_HARNESS="n"
+ORCHESTRATOR_MODEL=""
+WORKER_MODEL=""
+VALIDATOR_MODEL=""
+VALIDATION_PROFILE=""
 
 collect_interactive_inputs() {
   # If not in an interactive terminal or inside a non-interactive/CI run, skip prompting
@@ -61,6 +66,11 @@ collect_interactive_inputs() {
     VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8200}"
     VAULT_TOKEN="${VAULT_TOKEN:-}"
     LIVE_SYSTEM_PATH="${LIVE_SYSTEM_PATH:-}"
+    IS_MULTI_HARNESS="${IS_MULTI_HARNESS:-n}"
+    ORCHESTRATOR_MODEL="${ORCHESTRATOR_MODEL:-gemini-3.5-pro}"
+    WORKER_MODEL="${WORKER_MODEL:-gemini-3.5-flash}"
+    VALIDATOR_MODEL="${VALIDATOR_MODEL:-gemini-3.5-flash}"
+    VALIDATION_PROFILE="${VALIDATION_PROFILE:-backend}"
     return 0
   fi
 
@@ -68,30 +78,87 @@ collect_interactive_inputs() {
   echo "        osEngineer Skill Setup & Initialization"
   echo "=========================================================="
   echo ""
-  echo "For which AI assistant runtimes do you want to configure osEngineer hooks and MCPs?"
-  echo "Choose by entering the numbers separated by spaces (e.g., 1 2 3):"
-  echo "  [1] Claude Code (wires .claude/settings.json)"
-  echo "  [2] Kimi CLI (wires .kimi/settings.json)"
-  echo "  [3] Codex CLI (wires .codex/settings.json)"
-  printf "Selections [default: 1]: "
   
-  local selections
-  read -r selections
-  selections="${selections:-1}"
+  printf "Is this a multi-harness setup? (e.g. using multiple runtimes like Claude Code, Kimi, Codex) [y/N]: "
+  read -r IS_MULTI_HARNESS
+  IS_MULTI_HARNESS="${IS_MULTI_HARNESS:-n}"
   
-  RUNTIMES=""
-  for choice in $selections; do
-    case "$choice" in
-      1) RUNTIMES="$RUNTIMES claude" ;;
-      2) RUNTIMES="$RUNTIMES kimi" ;;
-      3) RUNTIMES="$RUNTIMES codex" ;;
-    esac
-  done
-  # Fallback to claude if empty or invalid selection
-  RUNTIMES="${RUNTIMES#"${RUNTIMES%%[! ]*}"}" # trim leading whitespace
-  RUNTIMES="${RUNTIMES:-claude}"
+  if [[ "$IS_MULTI_HARNESS" =~ ^[Yy]$ ]]; then
+    echo "For which AI assistant runtimes do you want to configure osEngineer hooks and MCPs?"
+    echo "Choose by entering the numbers separated by spaces (e.g., 1 2 3):"
+    echo "  [1] Claude Code (wires .claude/settings.json)"
+    echo "  [2] Kimi CLI (wires .kimi/settings.json)"
+    echo "  [3] Codex CLI (wires .codex/settings.json)"
+    printf "Selections [default: 1]: "
+    
+    local selections
+    read -r selections
+    selections="${selections:-1}"
+    
+    RUNTIMES=""
+    for choice in $selections; do
+      case "$choice" in
+        1) RUNTIMES="$RUNTIMES claude" ;;
+        2) RUNTIMES="$RUNTIMES kimi" ;;
+        3) RUNTIMES="$RUNTIMES codex" ;;
+      esac
+    done
+    RUNTIMES="${RUNTIMES#"${RUNTIMES%%[! ]*}"}" # trim leading whitespace
+    RUNTIMES="${RUNTIMES:-claude}"
+  else
+    RUNTIMES="claude"
+  fi
 
   echo ""
+  echo "── Droid Whispering (Model Allocation Routing) ──"
+  echo "Configure which models to allocate to each core osEngineer role."
+  echo ""
+  printf "Enter Orchestrator model [default: gemini-3.5-pro]: "
+  read -r ORCHESTRATOR_MODEL
+  ORCHESTRATOR_MODEL="${ORCHESTRATOR_MODEL:-gemini-3.5-pro}"
+
+  printf "Enter Worker model [default: gemini-3.5-flash]: "
+  read -r WORKER_MODEL
+  WORKER_MODEL="${WORKER_MODEL:-gemini-3.5-flash}"
+
+  printf "Enter Validator model (unbiased instruction follower) [default: gemini-3.5-flash]: "
+  read -r VALIDATOR_MODEL
+  VALIDATOR_MODEL="${VALIDATOR_MODEL:-gemini-3.5-flash}"
+
+  # Test connections
+  echo ""
+  echo "── Connection testing ──"
+  for runtime in $RUNTIMES; do
+    log "Testing connection to runtime: $runtime..."
+    if command -v "$runtime" >/dev/null 2>&1; then
+      log "  + $runtime CLI detected in PATH."
+    elif [ "$runtime" = "claude" ] && command -v npx >/dev/null 2>&1; then
+      log "  + claude command not directly found, but npx is available to trigger @anthropic-ai/claude-code."
+    else
+      warn "  - $runtime CLI not found in PATH. You may need to install it later."
+    fi
+  done
+
+  echo ""
+  echo "── Validation Discovery Session ──"
+  echo "Choose the primary validation workload profile for this project:"
+  echo "  [1] Infrastructure / Configuration (Ansible on Linux, Docker compose, local shell checks)"
+  echo "  [2] Frontend / Web Application (HTML, React, Playwright E2E browser tests)"
+  echo "  [3] Backend / API Microservices (Go modules, AMQP routing, REST API schemas)"
+  echo "  [4] Hybrid / Full Stack"
+  printf "Selection [default: 3]: "
+  read -r VALIDATION_PROFILE
+  VALIDATION_PROFILE="${VALIDATION_PROFILE:-3}"
+  case "$VALIDATION_PROFILE" in
+    1) VALIDATION_PROFILE="infra" ;;
+    2) VALIDATION_PROFILE="frontend" ;;
+    3) VALIDATION_PROFILE="backend" ;;
+    4) VALIDATION_PROFILE="hybrid" ;;
+    *) VALIDATION_PROFILE="backend" ;;
+  esac
+  log "Validation profile set to: $VALIDATION_PROFILE"
+  echo ""
+
   echo "── MCP Configuration Credentials ──"
   echo "Sensitive credentials will be written locally to gitignored config files"
   echo "and NOT committed to public version control."
@@ -867,6 +934,11 @@ OVERVIEW
 schema_version: 1
 project_name: "$project_name"
 live_system_path: "$LIVE_SYSTEM_PATH"
+validation_profile: "$VALIDATION_PROFILE"
+droid_whispering:
+  orchestrator_model: "$ORCHESTRATOR_MODEL"
+  worker_model: "$WORKER_MODEL"
+  validator_model: "$VALIDATOR_MODEL"
 YAML
 
   if [ ${#repos[@]} -gt 0 ]; then

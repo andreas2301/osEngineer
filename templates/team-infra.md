@@ -40,3 +40,4 @@ matches actual producer/consumer behaviour.
   `.git/*` to the outer-dir owner or the container-UID reader silently breaks.
 - New egress / HTTP client call requires `adr_ref` in service-manifest.yml.
   Red-team-local BLOCKS PRs that introduce egress without the ADR.
+- All cross-team handoffs from the infra team MUST use the scenario-specific `planning/TEMPLATES/HANDOFF.md` template, populating the **Infrastructure Profile** section with dry-run playbook syntax, compose instructions, and container performance metrics.
