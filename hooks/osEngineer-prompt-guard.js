@@ -10,12 +10,13 @@
 //   - `/osEngineer:execute` when no PHASE_PLAN.md exists for the active phase
 //   - any prompt when state.phase === 'blocked' (advisory, not block — user can override)
 //
-// Honours OSE_BYPASS=1. Always exits 0 on parse failure (never breaks the user).
+// Honors OSE_BYPASS=1. Always exits 0 on parse failure (never breaks the user).
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const STDIN_TIMEOUT_MS = 3000;
 
@@ -96,11 +97,83 @@ process.stdin.on('end', () => {
       }
     }
 
+    // Debounced and Incremental State Injection
+    const sessionId = data.session_id || 'default';
+    let additionalContext = '';
+    const stateStr = buildContext(state, openHandoffs);
+    
+    if (sessionId && !/[/\\]|\.\./.test(sessionId)) {
+      // 1. Read token remaining capacity to assess risk of compaction amnesia
+      let remainingPercent = 100;
+      const metricsPath = path.join(os.tmpdir(), `claude-ctx-${sessionId}.json`);
+      if (fs.existsSync(metricsPath)) {
+        try {
+          const metrics = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
+          if (metrics.remaining_percentage != null) {
+            remainingPercent = metrics.remaining_percentage;
+          }
+        } catch {}
+      }
+
+      const bridgePath = path.join(os.tmpdir(), `claude-ose-prompt-${sessionId}.json`);
+      let sessionData = { lastStateString: '', turnCounter: 0 };
+      if (fs.existsSync(bridgePath)) {
+        try { sessionData = JSON.parse(fs.readFileSync(bridgePath, 'utf8')); } catch {}
+      }
+      
+      if (remainingPercent <= 40) {
+        // Enforce Amnesia Guard to keep critical guidelines and active plans in active memory
+        const activePhases = fs.existsSync(path.join(cwd, 'planning', 'active'))
+          ? fs.readdirSync(path.join(cwd, 'planning', 'active'))
+              .filter(d => fs.statSync(path.join(cwd, 'planning', 'active', d)).isDirectory())
+          : [];
+        let planSummary = 'No active PHASE_PLAN.md found.';
+        for (const phaseDir of activePhases) {
+          const planPath = path.join(cwd, 'planning', 'active', phaseDir, 'PHASE_PLAN.md');
+          if (fs.existsSync(planPath)) {
+            try {
+              // Read first 15 lines of the active plan to preserve high-level goals without wasting tokens
+              const planLines = fs.readFileSync(planPath, 'utf8').split('\n').slice(0, 15).join('\n');
+              planSummary = `Active Phase Plan (${phaseDir}):\n${planLines}`;
+              break;
+            } catch {}
+          }
+        }
+
+        additionalContext = [
+          `⚠️ osEngineer CONTEXT DEGRADATION WARNING: Claude context remaining: ${remainingPercent}%.`,
+          `High-frequency turns have triggered auto-compaction. Core instructions and targets have been injected into active memory to prevent cognitive drift.`,
+          `Current State: ${stateStr}`,
+          planSummary,
+          `CRITICAL WORKER CONSTRAINTS:`,
+          `1. Commit format: type(scope): subject (Conventional Commits).`,
+          `2. Enforce TDD: Write the failing test FIRST in a 'red' commit, then implementation in a 'green' commit.`,
+          `3. Non-interactive Git: All git commands must run with '--no-edit' or 'git -c core.editor=true' to bypass text editor prompts.`,
+          `4. Phase Gate: Editing outside 'planning/' or '.osengineer/' is strictly read-only during 'discuss' or 'plan' phases.`,
+          `5. Owns Paths: Edits to a path outside the active team's owns_paths list are blocked.`
+        ].join('\n');
+        
+        // Reset turn counter when forcing Amnesia Guard
+        sessionData.turnCounter = 0;
+      } else if (sessionData.lastStateString === stateStr && sessionData.turnCounter < 5) {
+        sessionData.turnCounter += 1;
+        additionalContext = 'osEngineer state: active (unchanged)';
+      } else {
+        sessionData.lastStateString = stateStr;
+        sessionData.turnCounter = 0;
+        additionalContext = stateStr;
+      }
+      
+      try { fs.writeFileSync(bridgePath, JSON.stringify(sessionData)); } catch {}
+    } else {
+      additionalContext = stateStr;
+    }
+
     // Inject state into context
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'UserPromptSubmit',
-        additionalContext: buildContext(state, openHandoffs),
+        additionalContext: additionalContext,
       },
     }));
   } catch { process.exit(0); }

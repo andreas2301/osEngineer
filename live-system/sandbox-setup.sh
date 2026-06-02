@@ -22,6 +22,60 @@ if [ -f "$SECRETS_FILE" ]; then
   log "Loaded secure secrets from .osengineer/secrets.env"
 fi
 
+# Resilient query_url function using curl or Node.js HTTP fallback
+query_url() {
+  local method="$1"
+  local url="$2"
+  local token="${3:-}"
+  local json_data="${4:-}"
+
+  if command -v curl >/dev/null 2>&1; then
+    local curl_opts=("-s" "-X" "$method")
+    [ -n "$token" ] && curl_opts+=("-H" "X-Vault-Token: $token")
+    if [ -n "$json_data" ]; then
+      curl_opts+=("-H" "Content-Type: application/json" "-d" "$json_data")
+    fi
+    curl "${curl_opts[@]}" "$url"
+  else
+    # Node.js HTTP fallback (since Node is guaranteed to be present in osEngineer workspace)
+    node -e "
+const http = require('http');
+const parsed = new URL('$url');
+const options = {
+  hostname: parsed.hostname,
+  port: parsed.port || 80,
+  path: parsed.pathname + parsed.search,
+  method: '$method',
+  headers: {}
+};
+if ('$token') options.headers['X-Vault-Token'] = '$token';
+if ('$json_data') {
+  options.headers['Content-Type'] = 'application/json';
+  options.headers['Content-Length'] = Buffer.byteLength('$json_data');
+}
+const req = http.request(options, res => {
+  let data = '';
+  res.on('data', c => data += c);
+  res.on('end', () => {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      process.stdout.write(data);
+      process.exit(0);
+    } else {
+      process.exit(res.statusCode);
+    }
+  });
+});
+req.on('error', () => process.exit(1));
+req.setTimeout(5000, () => {
+  req.destroy();
+  process.exit(1);
+});
+if ('$json_data') req.write('$json_data');
+req.end();
+"
+  fi
+}
+
 start_sandbox() {
   local clean="${1:-}"
   
@@ -50,7 +104,7 @@ start_sandbox() {
   log "Waiting for HashiCorp Vault to start..."
   retries=10
   while [ $retries -gt 0 ]; do
-    if curl -s http://127.0.0.1:8200/v1/sys/health >/dev/null 2>&1; then
+    if query_url GET "http://127.0.0.1:8200/v1/sys/health" >/dev/null 2>&1; then
       log "  + Vault is ready!"
       break
     fi
@@ -64,17 +118,10 @@ start_sandbox() {
   local vault_token="${VAULT_TOKEN:-root-dev-token}"
   
   # Enable kv-v2 engine if not already enabled
-  curl -s -H "X-Vault-Token: $vault_token" \
-       -X POST \
-       -d '{"type":"kv-v2"}' \
-       http://127.0.0.1:8200/v1/sys/mounts/secret >/dev/null || true
+  query_url POST "http://127.0.0.1:8200/v1/sys/mounts/secret" "$vault_token" '{"type":"kv-v2"}' >/dev/null || true
 
   # Write mock mission secrets
-  curl -s -H "X-Vault-Token: $vault_token" \
-       -H "Content-Type: application/json" \
-       -X POST \
-       -d '{"data":{"mission_id":"MS-088","clearance_level":"secret","vault_key":"mock-auth-secret-12345"}}' \
-       http://127.0.0.1:8200/v1/secret/data/clearance/keys >/dev/null
+  query_url POST "http://127.0.0.1:8200/v1/secret/data/clearance/keys" "$vault_token" '{"data":{"mission_id":"MS-088","clearance_level":"secret","vault_key":"mock-auth-secret-12345"}}' >/dev/null
 
   log "Local Vault successfully seeded with mock credentials."
   log "Sandbox is fully operational."

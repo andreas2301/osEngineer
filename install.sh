@@ -337,6 +337,17 @@ EOF
   # 5. git safe.directory (idempotent)
   git config --global --add safe.directory "$repo" 2>/dev/null || true
 
+  # Configure local git non-interactive safeguards
+  if [ -d "$repo/.git" ]; then
+    (
+      cd "$repo"
+      git config --local core.editor true 2>/dev/null || true
+      git config --local core.askpass true 2>/dev/null || true
+      git config --local core.terminalPrompt false 2>/dev/null || true
+    )
+    log "  + configured non-interactive local git core controls"
+  fi
+
   # 6. AGENTS.md — auto-detect teams + populate the frontmatter
   if [ ! -f "$repo/AGENTS.md" ]; then
     # Auto-detect folder→team mapping; this ALSO writes .osengineer/teams/*.json
