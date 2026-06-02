@@ -266,9 +266,6 @@ case "$1" in
   --all)
     uninstall_workbench
     uninstall_global_hooks
-    if [ -d "/opt/sovereign-shield" ]; then
-      uninstall_repo "/opt/sovereign-shield"
-    fi
     ;;
   -h|--help)
     cat <<USAGE

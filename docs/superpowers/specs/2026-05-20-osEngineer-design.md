@@ -1,7 +1,7 @@
 # osEngineer — Real-Enforcement, Per-Team, Multi-Repo Engineering Skill
 
 **Status:** Approved design — 2026-05-20
-**Owner:** Andreas
+**Owner:** [Your Name]
 **Scope:** osEngineer skill — full design covering all 7 platform-quality layers with runtime enforcement
 **Supersedes:** Implicit scaffolding intent in `SKILL.md` v0.1.0
 

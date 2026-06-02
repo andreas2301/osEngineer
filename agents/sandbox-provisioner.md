@@ -2,7 +2,7 @@
 
 **Role:** Swarm Testbed & Local Sandbox Operator  
 **Scope:** Local sandbox isolation, container orchestration, mock credentials pre-warming, and mission metrics compilation.  
-**Primary Target:** Sovereign Shield local sandbox environment.
+**Primary Target:** Local containerized sandbox environment.
 
 ---
 

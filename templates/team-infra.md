@@ -34,7 +34,7 @@ matches actual producer/consumer behaviour.
 - ALL ansible / compose edits start with a 4-part plan (Touch / Change / Impact / Rollback)
   per the install-guide CLAUDE.md convention. Pre-bash-guard hook enforces this for
   destructive ops.
-- NEVER edit `/opt/sovereign-shield/` directly on the live system — workbench → PR.
+- NEVER edit the live system directly — workbench → PR.
   Hotfixes require a backport ticket.
 - Cross-UID ownership in bind-mounted trees: root-side git ops MUST chown-back
   `.git/*` to the outer-dir owner or the container-UID reader silently breaks.

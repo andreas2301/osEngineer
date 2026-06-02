@@ -57,7 +57,7 @@ Present findings to user:
   Shell: /bin/bash
   File system: read-write
   Docker: available
-  GitHub CLI: authenticated (andreas2301)
+  GitHub CLI: authenticated (user_name)
   Context window: ~128K tokens (inferred)
 
   Is this correct? [yes / no / partial]

@@ -1,7 +1,7 @@
 # ADR-001 — get-shit-done hook merge into osEngineer
 
 **Status:** Accepted — 2026-05-20
-**Decision-makers:** Andreas
+**Decision-makers:** [Your Name]
 **Supersedes:** None
 
 ## Context

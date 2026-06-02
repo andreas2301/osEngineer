@@ -19,6 +19,27 @@ const path = require('path');
 
 const STDIN_TIMEOUT_MS = 3000;
 
+function readLiveSystemPath(cwd) {
+  let dir = cwd;
+  while (dir) {
+    const p = path.join(dir, '.osengineer', 'workbench-config.yml');
+    if (fs.existsSync(p)) {
+      try {
+        const raw = fs.readFileSync(p, 'utf8');
+        const m = raw.match(/live_system_path:\s*"(.*)"/) || raw.match(/live_system_path:\s*(.*)/);
+        if (m) {
+          const val = m[1].trim().replace(/^["']|["']$/g, '');
+          if (val !== 'none' && val !== '') return val;
+        }
+      } catch {}
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 function readStateMap(cwd) {
   const p = path.join(cwd, '.osengineer', 'state.yml');
   if (!fs.existsSync(p)) return null;
@@ -79,11 +100,12 @@ process.stdin.on('end', () => {
     const cwd = data.cwd || process.cwd();
     const filePath = data.tool_input?.file_path || data.tool_input?.path || '';
 
-    // Always block live-system edits
-    if (filePath.includes('/opt/sovereign-shield/') || filePath.startsWith('/opt/sovereign-shield')) {
+    // Always block live-system edits if configured
+    const liveSystemPath = readLiveSystemPath(cwd);
+    if (liveSystemPath && (filePath.includes(liveSystemPath) || filePath.startsWith(liveSystemPath))) {
       process.stdout.write(JSON.stringify({
         decision: 'block',
-        reason: 'osEngineer: edits to /opt/sovereign-shield/ are forbidden — that path is the live system. Edit in workbench and deploy via install-guide. Bypass with OSE_BYPASS=1 if absolutely necessary.',
+        reason: `osEngineer: edits to ${liveSystemPath} are forbidden — that path is the live system. Edit in workbench and deploy via normal project workflow. Bypass with OSE_BYPASS=1 if absolutely necessary.`,
       }));
       process.exit(0);
     }

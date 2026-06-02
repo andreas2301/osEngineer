@@ -30,10 +30,10 @@ adaptations:
   auto_commit: null        # false for terminal_server/ide, true for daemon
   notify_on_complete: null # true for daemon, false for interactive
 
-# Live system access (filled if /opt/sovereign-shield/ is reachable)
+# Live system access (filled if the live system is reachable)
 live_system:
   reachable: false
-  path: "/opt/sovereign-shield"
+  path: ""
   docker_access: false
   vault_access: false
   user: "engineer"

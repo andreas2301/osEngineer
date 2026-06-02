@@ -20,7 +20,7 @@ Search in this order:
 adr_id: ADR-018
 status: Accepted | Proposed | Superseded
 date: 2026-05-10
-authors: [Andreas Greger]
+authors: [Your Name]
 tags: [amqp, topology, v3.6]
 supersedes: ADR-NNN  # optional
 superseded_by: ADR-NNN  # optional

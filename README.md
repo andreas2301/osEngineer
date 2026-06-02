@@ -116,7 +116,7 @@ Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto
 /osEngineer:sandbox start specs/TEMPLATES/mission-test.json --clean
 ```
 
-Spins up an isolated local container cluster (RabbitMQ, Vault) to run and test Sovereign Shield swarm missions locally.
+Spins up an isolated local container cluster (RabbitMQ, Vault) to run and test swarm missions locally.
 
 ### Explain (built-in help)
 

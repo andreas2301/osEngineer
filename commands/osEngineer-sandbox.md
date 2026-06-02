@@ -10,7 +10,7 @@
 
 ## 1. Description
 
-Spins up an isolated, containerized local sandbox stack running RabbitMQ, HashiCorp Vault, and data layers to execute and test a Sovereign Shield mission end-to-end against local branch code modifications.
+Spins up an isolated, containerized local sandbox stack running RabbitMQ, HashiCorp Vault, and data layers to execute and test a swarm mission end-to-end against local branch code modifications.
 
 ---
 

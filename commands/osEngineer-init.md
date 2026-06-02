@@ -28,7 +28,7 @@ Initialize osEngineer on a new project. Discovers repos, ADRs, graphs, and build
 ## Example
 
 ```
-/osEngineer:init /opt/sovereign-shield
+/osEngineer:init /path/to/project-root
 ```
 
 Output:
