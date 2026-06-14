@@ -1,0 +1,53 @@
+---
+name: osEngineer:{{NAME}}
+description: >-
+  TODO: one-paragraph description. Must include "Use when …" and
+  "Don't use when …" verbs — see templates/frontmatter-pattern.md for the
+  convention.
+phase_allowed: [{{PHASE_ALLOWED}}]
+phase_after: {{PHASE_AFTER}}
+---
+
+# /osEngineer:{{NAME}}
+
+**Syntax:** `/osEngineer:{{NAME}} <args>`
+**Role:** TODO: which agent fires (developer | planner | verifier | architect | etc.)
+**Output:** TODO: what the command produces (PHASE_PLAN.md | VERIFICATION.md | atomic commits | etc.)
+
+---
+
+## Description
+
+TODO: 1–2 paragraphs on what this command does. Be concrete about preconditions (state, files), what it mutates, and what it leaves alone.
+
+## Preconditions
+
+TODO: what must be true before this command can run.
+
+- `.osengineer/state.yml` phase ∈ {{PHASE_ALLOWED}}
+- TODO
+
+## Steps
+
+1. TODO
+2. TODO
+3. TODO
+
+## Example
+
+```
+/osEngineer:{{NAME}} TODO
+```
+
+Output:
+```
+TODO: paste the expected stdout shape
+```
+
+## Failure handling
+
+TODO: describe what happens if preconditions fail or a step errors.
+
+## What this command deliberately does not do
+
+TODO: list the things the user might expect this command to do that it explicitly does not. Cross-link to the command(s) that DO each of those things.

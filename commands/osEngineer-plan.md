@@ -1,3 +1,16 @@
+---
+name: osEngineer:plan
+description: >-
+  Creates a PHASE_PLAN.md with numbered tasks, dependencies, acceptance
+  criteria, token estimates, rollback path, and risk flags. Transitions
+  phase from `discuss` to `plan`. Use when discuss-phase output is
+  complete and scope is clarified. Don't use to revise an in-flight plan
+  (use /osEngineer:fix to amend during execute), and don't use without a
+  goal statement — the planner agent will refuse an unscoped invocation.
+phase_allowed: [discuss, plan]
+phase_after: plan
+---
+
 # /osEngineer:plan
 
 **Syntax:** `/osEngineer:plan <goal-description>`  

@@ -1,3 +1,16 @@
+---
+name: osEngineer:fix
+description: >-
+  Executes a bugfix phase plan. Dispatches the developer agent to apply
+  tasks in dependency order with atomic TDD commits (red → green → refactor)
+  and rollback paths. Use when a PHASE_PLAN.md exists and is classified as
+  a bugfix (single root cause, additive change). Don't use for new features
+  (use /osEngineer:feature) or refactors (use /osEngineer:refactor); don't
+  use without a PHASE_PLAN.md — the prompt-guard will block.
+phase_allowed: [execute]
+phase_after: verify
+---
+
 # /osEngineer:fix
 
 **Syntax:** `/osEngineer:fix <ticket-id-or-phase-id>`

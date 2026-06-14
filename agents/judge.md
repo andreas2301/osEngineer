@@ -1,3 +1,17 @@
+---
+name: judge
+role: merge-gate
+scope: repo
+description: >-
+  Final merge gate before a PR lands. Verifies architectural alignment, ADR
+  compliance, denylist contract observance, and acceptance criteria from the
+  active PHASE_PLAN.md. Produces a BLOCK / FLAG / PASS verdict. Use when the
+  developer + reviewer have signed off and the PR is ready to merge. Don't use
+  during execute phase — the developer is still working; don't use as a
+  reviewer substitute (judge is final, reviewer is iterative).
+escalates_to: user
+---
+
 # Judge Agent
 
 **Role:** Merge gate. Architectural alignment, ADR compliance, cost review.  

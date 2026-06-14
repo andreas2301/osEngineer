@@ -1,3 +1,17 @@
+---
+name: osEngineer:init
+description: >-
+  Initialises osEngineer wiring on a single repo or a workbench. Runs
+  install.sh, detects folder→team mapping (proposes a draft AGENTS.md the
+  user confirms), copies agents into .claude/agents/, installs the 10
+  enforcement hooks, and seeds .osengineer/state.yml. Use when starting
+  osEngineer on a new repo, when re-initialising after a skill update, or
+  when adding a new repo to an existing workbench. Don't use during an
+  active phase (transition to idle first), and don't use to update an
+  existing AGENTS.md — edit it directly.
+phase_allowed: [idle]
+---
+
 # /osEngineer:init
 
 **Syntax:** `/osEngineer:init <project-root>`  

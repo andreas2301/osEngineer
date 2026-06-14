@@ -1,3 +1,16 @@
+---
+name: osEngineer:verify
+description: >-
+  Runs the verification protocol against a completed phase. Executes tests,
+  collects tracer-bullet evidence, recalibrates token cost (estimated vs.
+  actual), and produces VERIFICATION.md. Use after execute phase completes
+  and the PR is ready for the judge. Don't use mid-execute (tasks may still
+  be in flight) and don't use to skip the judge — verify produces evidence,
+  the judge makes the merge decision.
+phase_allowed: [execute, verify]
+phase_after: accepted
+---
+
 # /osEngineer:verify
 
 **Syntax:** `/osEngineer:verify <phase-id>`  

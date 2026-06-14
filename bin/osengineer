@@ -799,6 +799,93 @@ function cmdEvolve(args) {
   process.exit(1);
 }
 
+// ── Scaffold ───────────────────────────────────────────────────────────────
+//
+// Materialises a new agent or command file from templates/. Inspired by the
+// google/skills `generate-skill.md` meta-skill: a single command lowers the
+// bar for adding new role agents in P6+ while enforcing the frontmatter
+// convention documented in templates/frontmatter-pattern.md.
+
+function cmdScaffold(args) {
+  const sub = args[0];
+  if (sub === 'agent') return cmdScaffoldAgent(args.slice(1));
+  if (sub === 'command') return cmdScaffoldCommand(args.slice(1));
+  console.error('Usage: osengineer scaffold (agent|command) <name> [flags]');
+  process.exit(1);
+}
+
+function cmdScaffoldAgent(args) {
+  const name = args[0];
+  if (!name) {
+    console.error('Usage: osengineer scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>] [--out <path>]');
+    process.exit(1);
+  }
+  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+    console.error('osengineer: agent name must be lowercase-with-hyphens, e.g. "my-agent"');
+    process.exit(1);
+  }
+  const flags = parseFlags(args.slice(1), ['role', 'scope', 'escalates-to', 'out']);
+  const template = path.join(SCRIPT_DIR, 'templates', 'agent.md.tmpl');
+  if (!fs.existsSync(template)) {
+    console.error(`osengineer: template missing — ${template}`);
+    process.exit(1);
+  }
+  const title = name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  const out = fs.readFileSync(template, 'utf8')
+    .replace(/{{NAME}}/g, name)
+    .replace(/{{TITLE}}/g, title)
+    .replace(/{{ROLE}}/g, flags.role || 'implementer')
+    .replace(/{{SCOPE}}/g, flags.scope || 'team')
+    .replace(/{{ESCALATES_TO}}/g, flags['escalates-to'] || 'architect');
+
+  const dst = flags.out || path.join(SCRIPT_DIR, 'agents', `${name}.md`);
+  if (fs.existsSync(dst)) {
+    console.error(`osengineer: ${dst} already exists — refusing to overwrite. Use --out to redirect.`);
+    process.exit(1);
+  }
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  fs.writeFileSync(dst, out);
+  process.stdout.write(`scaffolded ${path.relative(SCRIPT_DIR, dst)}\n`);
+  process.stdout.write(`Next steps:\n`);
+  process.stdout.write(`  1. Fill in the TODO sections in ${path.basename(dst)} (description verbs, mandate, protocol).\n`);
+  process.stdout.write(`  2. If this agent should ship to every initialised repo, add "${name}.md" to MANDATORY_AGENTS in install.sh.\n`);
+  process.stdout.write(`  3. Add a one-line entry under the right section of agents/INDEX.md.\n`);
+}
+
+function cmdScaffoldCommand(args) {
+  const name = args[0];
+  if (!name) {
+    console.error('Usage: osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>] [--out <path>]');
+    process.exit(1);
+  }
+  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+    console.error('osengineer: command name must be lowercase-with-hyphens');
+    process.exit(1);
+  }
+  const flags = parseFlags(args.slice(1), ['phase-allowed', 'phase-after', 'out']);
+  const template = path.join(SCRIPT_DIR, 'templates', 'command.md.tmpl');
+  if (!fs.existsSync(template)) {
+    console.error(`osengineer: template missing — ${template}`);
+    process.exit(1);
+  }
+  const out = fs.readFileSync(template, 'utf8')
+    .replace(/{{NAME}}/g, name)
+    .replace(/{{PHASE_ALLOWED}}/g, flags['phase-allowed'] || 'execute')
+    .replace(/{{PHASE_AFTER}}/g, flags['phase-after'] || 'null');
+
+  const dst = flags.out || path.join(SCRIPT_DIR, 'commands', `osEngineer-${name}.md`);
+  if (fs.existsSync(dst)) {
+    console.error(`osengineer: ${dst} already exists — refusing to overwrite. Use --out to redirect.`);
+    process.exit(1);
+  }
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  fs.writeFileSync(dst, out);
+  process.stdout.write(`scaffolded ${path.relative(SCRIPT_DIR, dst)}\n`);
+  process.stdout.write(`Next steps:\n`);
+  process.stdout.write(`  1. Fill in the TODO sections in ${path.basename(dst)} (description verbs, steps, example).\n`);
+  process.stdout.write(`  2. Add a one-line entry under commands/INDEX.md.\n`);
+}
+
 function cmdExplain(args) {
   const topic = args[0] || 'overview';
   const messages = {
@@ -831,6 +918,13 @@ function cmdExplain(args) {
       '  osengineer handoff open --from <A> --to <B> --slug <s> --closes-when "<text>"\n' +
       'and the architect agent watches the directory. Verify-phase transitions\n' +
       'are blocked while any handoff is open.\n',
+    scaffold:
+      'Materialise a new agent or command file from templates/:\n' +
+      '  osengineer scaffold agent <name> --role <r> --scope <s> --escalates-to <list>\n' +
+      '  osengineer scaffold command <name> --phase-allowed <list> --phase-after <p>\n' +
+      'Refuses to overwrite existing files. Templates live in templates/agent.md.tmpl\n' +
+      'and templates/command.md.tmpl. Both enforce the frontmatter convention\n' +
+      'documented in templates/frontmatter-pattern.md.\n',
     evolution:
       'Evolution loop: the post-commit hook increments\n' +
       '.osengineer/evolution-counter.yml; at >= 5 the session-start banner\n' +
@@ -867,8 +961,12 @@ function usage() {
     '                                          Promote proposal to memory/patterns/<s>.md; reset counter\n' +
     '  osengineer evolve reject <id> --reason "<text>"\n' +
     '                                          Log rejection; reset counter\n' +
+    '  osengineer scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>]\n' +
+    '                                          Materialise a new agent file from template\n' +
+    '  osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]\n' +
+    '                                          Materialise a new command file from template\n' +
     '  osengineer version                      Print osEngineer version\n' +
-    '  osengineer explain [topic]              overview|phases|hooks|teams|handoffs\n'
+    '  osengineer explain [topic]              overview|phases|hooks|teams|handoffs|scaffold\n'
   );
 }
 
@@ -892,6 +990,8 @@ switch (sub) {
     cmdDiscoverAdrs(rest); break;
   case 'evolve':
     cmdEvolve(rest); break;
+  case 'scaffold':
+    cmdScaffold(rest); break;
   case 'explain':
     cmdExplain(rest); break;
   case undefined:

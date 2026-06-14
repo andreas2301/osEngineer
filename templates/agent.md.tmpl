@@ -1,0 +1,57 @@
+---
+name: {{NAME}}
+role: {{ROLE}}
+scope: {{SCOPE}}
+description: >-
+  TODO: one-paragraph description of what this agent does. Must include
+  "Use when …" and "Don't use when …" verbs — see
+  templates/frontmatter-pattern.md for the convention.
+escalates_to: {{ESCALATES_TO}}
+---
+
+# {{TITLE}} Agent
+
+**Role:** TODO: one-line role summary.
+**Context budget:** TODO: high | medium | low — describe what files this agent typically loads.
+**Output:** TODO: atomic commits | a markdown report | a JSON contract | etc.
+
+---
+
+## Mandate
+
+TODO: 1–3 paragraphs on what this agent is responsible for and what it explicitly is NOT responsible for. Reference other agents by name where they hand off.
+
+## Protocol
+
+TODO: step-by-step process the agent follows. Number the steps. Each step should be observable from the outside (e.g. produces a file, runs a command, transitions phase state).
+
+1. TODO
+2. TODO
+3. TODO
+
+## Inputs
+
+TODO: enumerate the files / state / context this agent reads before acting.
+
+- `.osengineer/state.yml` — phase + current_team
+- TODO
+
+## Outputs
+
+TODO: enumerate what this agent produces.
+
+- TODO
+
+## Abort conditions
+
+TODO: list specific conditions where this agent stops and hands off. Each condition should name the receiving party.
+
+- TODO → escalate to TODO
+
+## Bypass
+
+If this agent's behaviour blocks legitimate work, the user can:
+
+- Set `OSE_BYPASS=1` in the env (logged to `.osengineer/bypass-log.jsonl`)
+- Write a 4-part plan to `.osengineer/current-plan.md` (Touch / Change / Impact / Rollback)
+- Open a handoff: `osengineer handoff open --from {{NAME}} --to <team> --slug <s>`

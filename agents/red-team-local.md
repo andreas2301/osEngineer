@@ -1,3 +1,17 @@
+---
+name: red-team-local
+role: security-scanner
+scope: repo
+description: >-
+  Per-PR adversarial scan. SAST, secret leak detection, denylist-pattern
+  audit, dependency-introduction check. Use before every merge as a required
+  status check; use when a PR introduces new dependencies, new HTTP egress,
+  or new schema fields. Don't use as a substitute for runtime monitoring
+  (red-team-local is static-analysis only); don't use during discuss/plan
+  phases — nothing to scan yet.
+escalates_to: judge, red-team-architect
+---
+
 # Red Team (Local) Agent
 
 **Role:** Per-PR adversarial scan.  

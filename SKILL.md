@@ -77,17 +77,21 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 
 ---
 
-## External Skill Integrations
+## Standalone — no external skill dependencies
 
-osEngineer integrates patterns from these external skills but is **completely standalone**:
+osEngineer is **completely standalone**. It pulls **zero npm packages** (`package.json` has no `dependencies` or `devDependencies`); hooks and CLI use only Node built-ins (`fs`, `path`, `os`, `child_process`, `node:test`). The supply-chain attack surface is the Node runtime itself plus git and bash.
 
-| External Skill | Role in osEngineer | Location |
-|----------------|-------------------|----------|
-| **GSD** (get-shit-done) | Phase lifecycle protocol, planning templates, slash commands | `planning/`, `commands/` |
+Optional MCP integrations enrich the skill when available but are never required:
+
+| Optional MCP | Role | Location |
+|---|---|---|
 | **Context7** | Code documentation MCP, rules engine | `discovery/context7-integration.md` |
-| **AgentMemory** | Session recovery, cross-session context, memory backend protocol | `memory/` |
-| **Spec Kit** | Spec-driven development templates, contract schemas | `specs/` |
-| **UI UX Pro Max** | Optional UI/UX reasoning rules (compacted) | `agents/ui-ux-designer.md` |
+| **Atlassian** | Jira / Confluence cross-references | `integrations/confluence-mcp.md` |
+| **Vault** | Secret retrieval at runtime | `integrations/vault-mcp.md` |
+| **Playwright** | Browser end-to-end testing | `integrations/playwright-mcp.md` |
+| **OpenSpace** | Workflow orchestration | `integrations/openspace-mcp.md` |
+
+Historical provenance of ported code is recorded in `docs/adr/ADR-001-gsd-merge.md` (the runtime-enforcement hooks were adapted from `get-shit-done` and renamed — no live coupling remains).
 
 ---
 

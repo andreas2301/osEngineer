@@ -1,6 +1,6 @@
 # osEngineer Phase Lifecycle Protocol
 
-Phase lifecycle adapted from [get-shit-done] (GSD)(https://github.com/gsd-build/get-shit-done). Integrated into osEngineer for cross-repo, multi-session engineering.
+Cross-repo, multi-session phase lifecycle. State persists in `.osengineer/state.yml` per repo and workbench; transitions are gated by the runtime hooks listed in `hooks/INDEX.md`. Historical provenance of the underlying state-machine pattern is recorded in `docs/adr/ADR-001-gsd-merge.md`.
 
 ---
 
