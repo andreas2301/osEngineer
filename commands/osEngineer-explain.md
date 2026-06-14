@@ -1,3 +1,16 @@
+---
+name: osEngineer:explain
+description: >-
+  Built-in self-documentation — prints the osEngineer overview or a
+  scoped topic (artifacts, commands, lifecycle, agents, install,
+  trust) to chat. Use when a user asks how osEngineer works, what
+  files it creates, what command to run next, or which agent owns a
+  responsibility. Don't use to investigate a codebase symptom (use
+  /osEngineer:investigate); don't use to plan or execute work; don't
+  use to modify any artifact — explain is strictly read-only output.
+phase_allowed: [idle, discuss, plan, execute, verify, accepted]
+---
+
 # /osEngineer:explain
 
 **Syntax:** `/osEngineer:explain [topic]`  

@@ -1,3 +1,17 @@
+---
+name: cert-monitor
+role: monitor
+scope: workbench
+description: >-
+  Scans `{{LIVE_SYSTEM_PATH}}/certs` for TLS certificate expiry, checks for
+  renewal scripts and cron entries, and emits CERT_STATUS_REPORT.md with
+  severity tiers. Use during /osEngineer:init, on a daily cron, or when an
+  outage hypothesis points at cert expiry. Don't use for in-repo code
+  cert pinning checks (route to red-team-local) and don't use without a
+  configured `LIVE_SYSTEM_PATH` — the scan will return empty.
+escalates_to: live-system-operator, architect
+---
+
 # Cert Monitor Agent
 
 **Role:** Tracks certificate expiry and renewal status.  

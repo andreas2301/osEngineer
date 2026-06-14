@@ -1,3 +1,18 @@
+---
+name: sync-agent
+role: monitor
+scope: workbench
+description: >-
+  Detects and reconciles drift between the live system tree
+  (`{{LIVE_SYSTEM_PATH}}`) and the workbench checkout — uncommitted
+  changes on the live side, workbench-behind-origin, and cross-tree
+  commit-hash divergence. Emits SYNC_STATUS.md. Use during
+  /osEngineer:init, explicit reconciliation passes, or a daemon
+  scheduled check. Don't use for in-repo file edits (route to developer)
+  and don't use as a deploy mechanism (route to live-system-operator).
+escalates_to: architect, live-system-operator
+---
+
 # Sync Agent (Optional)
 
 **Role:** Manages live system ↔ workbench synchronization.  

@@ -1,3 +1,18 @@
+---
+name: reviewer
+role: reviewer
+scope: repo
+description: >-
+  Per-PR code reviewer — verifies correctness against PHASE_PLAN.md tasks,
+  error paths, race-condition handling, resource cleanup, test coverage
+  parity with production changes, atomic Conventional Commits, and repo
+  style. Use when the developer has pushed a commit ready for sign-off
+  inside an active execute or verify phase. Don't use as the merge gate
+  (route to judge — reviewer is iterative, judge is final); don't use
+  during discuss/plan — there's no diff yet.
+escalates_to: judge, architect
+---
+
 # Reviewer Agent
 
 **Role:** Per-PR code review. Correctness, style, test coverage.  

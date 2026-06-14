@@ -1,3 +1,18 @@
+---
+name: osEngineer:investigate
+description: >-
+  Researcher-driven symptom investigation — queries graphify for
+  related components, reads relevant ADRs, walks recent commits in
+  affected repos, samples logs (journalctl, docker, app), forms a
+  hypothesis, and appends to RESEARCH.md with recommended next steps.
+  Use when an error or unknown behaviour appears and the root cause is
+  not obvious. Don't use to write a PHASE_PLAN.md (use /osEngineer:plan
+  once the symptom is understood), don't use to execute a fix (use
+  /osEngineer:fix once a plan exists), and don't use for routine
+  "how does X work" questions (use /osEngineer:explain).
+phase_allowed: [idle, discuss]
+---
+
 # /osEngineer:investigate
 
 **Syntax:** `/osEngineer:investigate <symptom>`  

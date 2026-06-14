@@ -1,3 +1,17 @@
+---
+name: budget-tracker
+role: monitor
+scope: repo
+description: >-
+  Tracks actual token spend vs the PHASE_PLAN.md estimate, calculates
+  variance, and appends the result to VERIFICATION.md. Use during
+  /osEngineer:verify or auto-append on phase complete when a token_budget
+  block exists in the plan. Don't use during discuss/plan (no actual spend
+  yet) and don't use as a quality gate — the verifier and judge make
+  pass/fail decisions; budget-tracker only reports.
+escalates_to: verifier
+---
+
 # Budget Tracker Agent (Optional)
 
 **Role:** Tracks actual token spend vs estimates per phase.  

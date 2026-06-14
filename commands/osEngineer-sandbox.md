@@ -1,3 +1,19 @@
+---
+name: osEngineer:sandbox
+description: >-
+  Spins up the isolated local stack (RabbitMQ, Vault, data layers)
+  from `live-system/sandbox-compose.yml`, seeds mock credentials,
+  builds containers from workbench branch code, injects the mission
+  payload, and emits MISSION_TEST_REPORT.md. Use during verify phase
+  for cross-service tracer bullets (AMQP topology change, Vault
+  policy change, schema migration) or when the verifier needs an
+  isolated end-to-end run. Don't use against the live system (use
+  /osEngineer:fix with live-system-operator); don't use for
+  single-repo unit tests (the dockertest suite is cheaper); don't use
+  without a validated mission-test JSON — the provisioner refuses.
+phase_allowed: [execute, verify]
+---
+
 # /osEngineer:sandbox
 
 **Syntax:** `/osEngineer:sandbox start <mission-plan-path> [--clean] [--duration <secs>]`  

@@ -1,3 +1,18 @@
+---
+name: osEngineer:evolve
+description: >-
+  Meta-command for skill self-improvement — surfaces, accepts, or
+  rejects improvement proposals authored after at least 5 phases have
+  landed. On accept, promotes the proposal to
+  `memory/patterns/<slug>.md` in the osEngineer skill repo; on reject,
+  appends to `.osengineer/evolution-rejections.jsonl`. Use when the
+  session-start banner nudges or when you have a pattern worth
+  durable across installs. Don't use as an auto-apply path — evolve
+  is HITL only; don't use to revise PHASE_PLAN.md (use /osEngineer:fix
+  to amend) and don't use mid-phase (transition to idle first).
+phase_allowed: [idle]
+---
+
 # /osEngineer:evolve
 
 **Syntax:** `/osEngineer:evolve [status | propose | accept | reject]`

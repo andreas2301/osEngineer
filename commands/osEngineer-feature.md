@@ -1,3 +1,20 @@
+---
+name: osEngineer:feature
+description: >-
+  Executes a `feature`-classified phase end-to-end — activates the full
+  mandatory team plus red-team-architect for cross-cutting integrity,
+  and enforces contract-first via tech-writer before any production
+  code is written. Use when a PHASE_PLAN.md introduces a new service
+  capability, a new AMQP exchange/routing key, a new API surface, a
+  cross-repo coordinated change, or any change requiring an ADR
+  amendment. Don't use for single-root-cause bugfixes (use
+  /osEngineer:fix), refactors (use /osEngineer:refactor), or
+  investigations (use /osEngineer:investigate); don't use without a
+  PHASE_PLAN.md — the prompt-guard will block.
+phase_allowed: [execute]
+phase_after: verify
+---
+
 # /osEngineer:feature
 
 **Syntax:** `/osEngineer:feature <ticket-id-or-phase-id>`

@@ -1,3 +1,17 @@
+---
+name: qa
+role: reviewer
+scope: repo
+description: >-
+  Test strategy and edge-case analysis — reviews test plans for nil/empty/
+  max/race coverage, integration tests on contract surfaces, load-test
+  plans where performance is claimed, and flaky-test patterns. Use when
+  test coverage is < 80%, when business logic is complex, or when a phase
+  introduces a performance claim. Don't use for the per-PR review pass
+  (route to reviewer) and don't use as a merge gate (route to judge).
+escalates_to: reviewer, architect
+---
+
 # QA Agent (Optional)
 
 **Role:** Test strategy, edge-case analysis, load testing.  

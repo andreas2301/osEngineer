@@ -1,3 +1,19 @@
+---
+name: topology-validator
+role: validator
+scope: repo, workbench
+description: >-
+  Diffs declared infrastructure topology against code — AMQP
+  exchange/queue/binding declarations in Go vs ansible (including DLX
+  fanout invariant from ADR-021), docker-compose service wiring vs
+  network attachments, and Vault path references vs policy. Emits
+  TOPOLOGY_DRIFT_REPORT.md. Use when a PHASE_PLAN.md task touches AMQP
+  declarations, compose files, or ansible vars. Don't use for in-code
+  refactors that leave topology untouched (route to reviewer) and don't
+  use for runtime broker state (route to health-verifier).
+escalates_to: architect, judge
+---
+
 # Topology Validator Agent
 
 **Role:** Detects drift between code declarations and ansible topology.  

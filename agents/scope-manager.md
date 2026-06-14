@@ -1,3 +1,19 @@
+---
+name: scope-manager
+role: planner
+scope: workbench
+description: >-
+  Decides which repos enter the context window for the current phase by
+  parsing the goal, walking the dependency graph in
+  `.osengineer/workbench-config.yml`, and applying token-budget tiers
+  (full repo / key files / contracts only). Emits SCOPE.yaml. Use at the
+  start of /osEngineer:plan, /osEngineer:fix, or /osEngineer:feature on a
+  workbench with > 3 repos. Don't use on a single-repo install (the
+  developer already has the right scope); don't use to load contracts
+  themselves — that's the researcher's job.
+escalates_to: architect, researcher
+---
+
 # Scope Manager Agent
 
 **Role:** Narrows context window to only relevant repos for a phase.  

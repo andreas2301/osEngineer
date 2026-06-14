@@ -1,3 +1,18 @@
+---
+name: health-verifier
+role: validator
+scope: workbench
+description: >-
+  Verifies running services are actually healthy — checks container
+  `(healthy)` status, custom Prometheus metrics presence, AMQP consumer
+  attachment, and queue depth steady-state. Emits HEALTH_REPORT.md. Use
+  post-deploy, during /osEngineer:verify, or when a tracer-bullet needs a
+  liveness baseline. Don't use as a substitute for the verifier agent (the
+  verifier owns PHASE_PLAN acceptance criteria); don't use for static
+  scans (route to red-team-local).
+escalates_to: verifier, live-system-operator
+---
+
 # Health Verifier Agent
 
 **Role:** Verifies running services are actually healthy, not just "Up".  

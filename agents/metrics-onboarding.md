@@ -1,3 +1,19 @@
+---
+name: metrics-onboarding
+role: implementer
+scope: repo
+description: >-
+  Scans each in-scope repo for missing or broken Prometheus metrics
+  packages, an absent `/metrics` endpoint, or legacy `init() +
+  MustRegister` patterns, and generates `internal/metrics/metrics.go`,
+  `metrics_test.go`, and the wired handler. Use during /osEngineer:init
+  on a repo with no metrics package, or explicitly when adding metrics
+  to a new service. Don't use to modify existing promauto registrations
+  (route to developer) and don't use as a runtime metrics validator
+  (route to health-verifier).
+escalates_to: developer, reviewer
+---
+
 # Metrics Onboarding Agent
 
 **Role:** Scans repos for missing/broken metrics and auto-generates promauto metrics.  

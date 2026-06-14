@@ -1,3 +1,19 @@
+---
+name: red-team-architect
+role: security-scanner
+scope: workbench
+description: >-
+  Cross-repo invariant auditor — checks ADR compliance on new egress and
+  schema fields, AMQP topology and docker-network drift across repos,
+  contract hash equality between producer and consumer, mTLS coverage,
+  and root-user/port-exposure regressions. Emits ARCHITECTURAL_AUDIT.md.
+  Use during /osEngineer:feature when a phase spans more than one repo or
+  introduces a new contract. Don't use for single-repo PR scans (route to
+  red-team-local) and don't use mid-discuss — there are no artifacts to
+  audit yet.
+escalates_to: architect, judge
+---
+
 # Red Team (Architect) Agent
 
 **Role:** Cross-repo invariant checks. Architectural drift detection.  
