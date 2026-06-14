@@ -298,9 +298,18 @@ YAML
   for runtime in $RUNTIMES; do
     mkdir -p "$repo/.$runtime/agents"
     local copied=0
+    # P6.2: source layout is agents/<role>/AGENT.md (dir-style). Fall back to
+    # flat agents/<role>.md for any agent that wasn't split. Destination is
+    # always flat — Claude Code recognises only .claude/agents/<role>.md files.
     for agent in "${MANDATORY_AGENTS[@]}"; do
-      if [ -f "$AGENTS_DIR/$agent" ]; then
-        cp "$AGENTS_DIR/$agent" "$repo/.$runtime/agents/$agent"
+      local agent_name="${agent%.md}"
+      local src_dir="$AGENTS_DIR/$agent_name/AGENT.md"
+      local src_flat="$AGENTS_DIR/$agent"
+      if [ -f "$src_dir" ]; then
+        cp "$src_dir" "$repo/.$runtime/agents/$agent"
+        copied=$((copied + 1))
+      elif [ -f "$src_flat" ]; then
+        cp "$src_flat" "$repo/.$runtime/agents/$agent"
         copied=$((copied + 1))
       fi
     done

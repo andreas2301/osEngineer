@@ -45,6 +45,34 @@ this project adheres to semantic versioning.
   `.osengineer/bypass-log.jsonl` with timestamp, hook name, reason, and
   truncated command.
 
+### Added — P6.2 (agent-dir-split)
+
+- Refactored all 22 agents from flat `agents/<role>.md` into
+  `agents/<role>/{AGENT.md, references/*.md}` following the
+  `google/skills` per-product layout. Each `AGENT.md` keeps the frontmatter,
+  mandate, protocol overview, and escalation rules; heavy reference material
+  (domain specifics, command catalogs, code patterns) moved into the
+  `references/` subdirectory.
+- 17 agents got split with references (architect: 5, cert-monitor: 5,
+  developer: 6, health-verifier: 3, judge: 4, live-system-operator: 4,
+  metrics-onboarding: 4, planner: 2, red-team-architect: 4,
+  red-team-local: 3, researcher: 4, reviewer: 3, sandbox-provisioner: 3,
+  scope-manager: 5, tech-writer: 4, topology-validator: 3, verifier: 4).
+- 5 small agents kept whole (budget-tracker, dba, qa, sync-agent,
+  ui-ux-designer) — their entire body fits cleanly in `AGENT.md` and a
+  `references/` subdirectory would add ceremony without value.
+- `install.sh` MANDATORY_AGENTS copy loop now sources from
+  `agents/<role>/AGENT.md` (falls back to flat `agents/<role>.md` for
+  backward compatibility with older skill checkouts) and writes a flat
+  `<repo>/.claude/agents/<role>.md` per Claude Code's expectations. Per-
+  repo footprint stays flat-and-lean; the rich `references/` material
+  remains in the osEngineer skill home and is loaded on demand.
+- Updated `agents/INDEX.md` to reflect the new layout convention.
+
+Net effect: smaller AGENT.md token cost on every activation, while
+heavyweight references are reachable via relative links from inside the
+AGENT.md body.
+
 ### Security / supply-chain
 
 - Verified `package.json` declares zero `dependencies` and zero
