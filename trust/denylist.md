@@ -119,13 +119,62 @@ Two ways, both auditable:
 
 The 4-part plan path is preferred for any change that lasts more than one command; the env-var bypass is for emergencies (rolling back a broken deploy, etc.).
 
+## Per-team overrides
+
+Teams can soften, stiffen, or disable individual patterns without forking this file. The hook composes the effective denylist at runtime from two optional override files, in order (later wins):
+
+1. `<repo>/.osengineer/denylist-overrides.json` — repo-level overrides
+2. `<repo>/.osengineer/teams/<current_team>/denylist-overrides.json` — team-level overrides (only consulted when `state.yml`'s `current_team` is set)
+
+If neither file exists, enforcement is identical to the global denylist above. Missing or malformed override files are caught, a `parse_failure` entry is appended to `.osengineer/override-log.jsonl`, and the hook falls back to the global denylist alone — a broken override never silently disables global enforcement.
+
+### Schema (`schema_version: 1`)
+
+```json
+{
+  "schema_version": 1,
+  "team_id": "coding",
+  "disabled": ["docker rm / volume rm / system prune"],
+  "downgraded_to_warning": ["rm -rf"],
+  "added": [
+    {
+      "name": "go vet -tags=internal",
+      "regex": "\\bgo\\s+vet\\s+-tags=internal\\b",
+      "category": "tooling",
+      "rationale": "Internal-tag vet runs leak experimental code paths into static analysis output."
+    }
+  ]
+}
+```
+
+### Resolution rules
+
+- **`disabled`** — names matching one of these are treated as not-in-the-denylist for this command. The hook emits nothing and the command runs. Match is by exact string against the global pattern's `name` field. A team-level `disabled` may also remove a `repo`-level `added` pattern of the same name.
+- **`downgraded_to_warning`** — pattern still matches and the command still runs, but the hook emits an advisory `hookSpecificOutput.additionalContext` warning instead of a `block` decision. Use when a team is the legitimate owner of an otherwise risky operation (e.g. `rm -rf` in test-fixture teardown).
+- **`added`** — extra patterns appended to the effective denylist. Block (or downgrade-warn if also listed in `downgraded_to_warning` of the same file) like any other pattern. Use double-escaped backslashes in regex strings, same as the global block.
+
+Composition: repo-level loads first; team-level merges on top. `disabled` and `added` lists extend across layers; `downgraded_to_warning` likewise unions across layers.
+
+### Audit trail
+
+Every effective override is appended to `.osengineer/override-log.jsonl`:
+
+- `disabled_applied` — a global pattern that would have matched was skipped by a `disabled` entry
+- `downgraded_to_warning` — a matched pattern was emitted as a warning instead of a block
+- `added_pattern_matched` — a team-`added` pattern matched the command
+- `override_parse_failure` — an override file could not be read or parsed; global denylist used alone
+
+### Starter file
+
+See [`templates/denylist-overrides.json.tmpl`](../templates/denylist-overrides.json.tmpl) for a worked example covering all three override kinds.
+
 ## How to add a pattern
 
 Append an object to the JSON array. Use double-escaped backslashes in regex strings (`\\b` for word boundary, `\\s+` for whitespace) — the block is parsed as JSON, so single `\` must be `\\` inside string literals. Set `category` to one of the existing values or add a new one (no schema enforcement). After editing, no rebuild is needed — the hook re-reads this file on every invocation.
 
 ## How to remove a pattern
 
-Delete its object from the JSON array. Consider whether to add it to a per-team override in `.osengineer/denylist-overrides.json` instead (P7 feature, not yet implemented) so the change is local to the repo and doesn't weaken global enforcement.
+Delete its object from the JSON array. Consider whether to add it to a per-team override in `.osengineer/denylist-overrides.json` instead (see the "Per-team overrides" section above) so the change is local to the repo and doesn't weaken global enforcement for everyone else.
 
 ## Provenance
 

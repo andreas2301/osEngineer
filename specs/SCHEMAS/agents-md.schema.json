@@ -2,116 +2,228 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://osengineer.dev/schemas/agents-md.schema.json",
   "title": "AGENTS.md frontmatter",
-  "description": "Machine-parseable YAML frontmatter block of any AGENTS.md file in an osEngineer-initialised workbench / repo / team.",
+  "description": "Machine-parseable YAML frontmatter block of any AGENTS.md file in an osEngineer-initialised workbench, repo, or team folder. The top-level oneOf discriminates by the 'scope' field. Each branch allows additionalProperties so individual repos can extend the contract without false rejections from the linter.",
   "type": "object",
-  "required": ["scope", "schema_version"],
-  "properties": {
-    "scope": {
+  "oneOf": [
+    { "$ref": "#/$defs/workbenchScope" },
+    { "$ref": "#/$defs/repoScope" },
+    { "$ref": "#/$defs/teamScope" }
+  ],
+  "$defs": {
+    "semver": {
       "type": "string",
-      "enum": ["workbench", "repo", "team"],
-      "description": "Which level of the three-level osEngineer nesting this AGENTS.md operates at."
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$",
+      "description": "Semantic version string (MAJOR.MINOR.PATCH with optional pre-release / build metadata) as defined by semver.org."
     },
-    "schema_version": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "Frontmatter contract version. Bumped only on breaking changes."
-    },
-    "osengineer_version": {
+    "slug": {
       "type": "string",
-      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$"
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Lowercase-with-hyphens identifier. Used for team_id and agent slugs. Must start with a lowercase letter."
     },
-    "architect": { "type": "boolean" },
-    "project_classification": {
+    "schemaVersion": {
+      "const": 1,
+      "description": "Frontmatter contract version. Currently always 1; bumped only on breaking schema changes."
+    },
+    "pathString": {
       "type": "string",
-      "enum": ["small", "medium", "large", "specialist"]
+      "description": "Filesystem path (relative or absolute). Always a plain string; null/missing values must be omitted entirely rather than set to null."
     },
-    "meta_ref": {
+    "pathArray": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Array of path globs. Each entry is a glob pattern such as 'src/**/*.go' or 'docs/'."
+    },
+    "slugArray": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/slug" },
+      "description": "Array of slug identifiers (agent slugs or team_ids)."
+    },
+    "metaRef": {
+      "description": "Reference to the Codified Source of Truth (META) repo. May be either a plain path string or an object carrying an explicit role label.",
       "oneOf": [
-        { "type": "string" },
+        { "type": "string", "description": "Path to the META repo." },
         {
           "type": "object",
           "required": ["path"],
           "properties": {
-            "path": { "type": "string" },
-            "role": { "type": "string" }
-          }
+            "path": { "$ref": "#/$defs/pathString" },
+            "role": {
+              "type": "string",
+              "description": "What this META repo plays in the workbench (e.g. 'codified-source-of-truth', 'graphify-target')."
+            }
+          },
+          "additionalProperties": true
         }
       ]
     },
-    "phase_state_file": { "type": "string" },
-    "cross_repo_handoffs_dir": { "type": "string" },
-    "project_overview": { "type": "string", "description": "Path to PROJECT_OVERVIEW.md" },
-    "repos": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["path"],
-        "properties": {
-          "path": { "type": "string" },
-          "category": { "type": "string" }
+    "repoEntry": {
+      "type": "object",
+      "description": "Single repo entry inside a workbench-scope frontmatter's repos: list.",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/pathString",
+          "description": "Relative path to the repo root from the workbench root."
+        },
+        "category": {
+          "type": "string",
+          "description": "Sovereign Shield category (e.g. 'management', 'fleet', 'observability', 'security', 'meta')."
         }
-      }
+      },
+      "additionalProperties": true
     },
-    "teams": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["team_id"],
-        "properties": {
-          "team_id": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9-]*$"
-          },
-          "folder": { "type": ["string", "null"] },
-          "agents": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "owns_paths": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "reads_paths": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "excludes": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "escalates_to": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
+    "teamEntry": {
+      "type": "object",
+      "description": "Single team entry inside a repo-scope frontmatter's teams: list. Declares which agents serve the team, what file globs the team owns / reads / excludes, and which other teams it escalates to.",
+      "required": ["team_id"],
+      "properties": {
+        "team_id": {
+          "$ref": "#/$defs/slug",
+          "description": "Team identifier. Matches the team folder name when one exists; matches a team-* template name for glob-only teams."
+        },
+        "folder": {
+          "description": "Filesystem folder this team operates from. Null for glob-only teams (e.g. testing) that have no single owning folder.",
+          "oneOf": [
+            { "$ref": "#/$defs/pathString" },
+            { "type": "null" }
+          ]
+        },
+        "agents": {
+          "$ref": "#/$defs/slugArray",
+          "description": "Agent slugs that serve this team (e.g. 'developer', 'reviewer', 'tester')."
+        },
+        "owns_paths": {
+          "$ref": "#/$defs/pathArray",
+          "description": "Globs of paths this team owns. The pre-edit-guard blocks edits outside owns_paths during execute phase."
+        },
+        "reads_paths": {
+          "$ref": "#/$defs/pathArray",
+          "description": "Globs of paths this team may read but not edit."
+        },
+        "excludes": {
+          "$ref": "#/$defs/pathArray",
+          "description": "Globs subtracted from owns_paths. Useful when an inner folder belongs to another team."
+        },
+        "escalates_to": {
+          "$ref": "#/$defs/slugArray",
+          "description": "Team identifiers (or 'user') this team escalates to when a handoff is needed."
         }
-      }
+      },
+      "additionalProperties": true
     },
-    "team_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-    "parent_repo": { "type": "string" },
-    "agents": { "type": "array", "items": { "type": "string" } },
-    "owns_paths": { "type": "array", "items": { "type": "string" } },
-    "reads_paths": { "type": "array", "items": { "type": "string" } }
-  },
-  "allOf": [
-    {
-      "if": { "properties": { "scope": { "const": "workbench" } } },
-      "then": {
-        "required": ["repos"],
-        "not": { "anyOf": [{ "required": ["teams"] }, { "required": ["team_id"] }] }
-      }
+    "workbenchScope": {
+      "type": "object",
+      "description": "Workbench-level AGENTS.md frontmatter. Lives at the workbench root and lists which repos belong to the workbench.",
+      "required": ["scope", "schema_version", "repos"],
+      "properties": {
+        "scope": {
+          "const": "workbench",
+          "description": "Discriminator: workbench."
+        },
+        "schema_version": { "$ref": "#/$defs/schemaVersion" },
+        "osengineer_version": {
+          "$ref": "#/$defs/semver",
+          "description": "osEngineer release that produced this manifest."
+        },
+        "meta_ref": { "$ref": "#/$defs/metaRef" },
+        "repos": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/repoEntry" },
+          "description": "Inventory of repos in this workbench."
+        },
+        "cross_repo_handoffs_dir": {
+          "$ref": "#/$defs/pathString",
+          "description": "Folder under which cross-repo handoff tickets live (XR-<n>-<slug>.md)."
+        },
+        "project_overview": {
+          "$ref": "#/$defs/pathString",
+          "description": "Optional path to PROJECT_OVERVIEW.md."
+        }
+      },
+      "additionalProperties": true
     },
-    {
-      "if": { "properties": { "scope": { "const": "repo" } } },
-      "then": {
-        "not": { "anyOf": [{ "required": ["repos"] }, { "required": ["team_id"] }] }
-      }
+    "repoScope": {
+      "type": "object",
+      "description": "Repo-level AGENTS.md frontmatter. Lives at a repo root and declares the team folder map plus phase state file.",
+      "required": ["scope", "schema_version", "teams"],
+      "properties": {
+        "scope": {
+          "const": "repo",
+          "description": "Discriminator: repo."
+        },
+        "schema_version": { "$ref": "#/$defs/schemaVersion" },
+        "architect": {
+          "type": "boolean",
+          "description": "Whether this repo has its own architect agent. When true the architect is invoked for repo-scope routing; when false the workbench architect is used."
+        },
+        "osengineer_version": {
+          "$ref": "#/$defs/semver",
+          "description": "osEngineer release that produced this manifest."
+        },
+        "project_classification": {
+          "type": "string",
+          "enum": ["small", "medium", "large", "specialist"],
+          "description": "Size / shape classification used to choose default agent set and parallelism limits."
+        },
+        "teams": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/teamEntry" },
+          "description": "Per-folder team declarations for this repo."
+        },
+        "meta_ref": { "$ref": "#/$defs/metaRef" },
+        "phase_state_file": {
+          "$ref": "#/$defs/pathString",
+          "description": "Path to the YAML file tracking phase state (default: ./.osengineer/state.yml)."
+        },
+        "project_overview": {
+          "$ref": "#/$defs/pathString",
+          "description": "Optional path to PROJECT_OVERVIEW.md."
+        }
+      },
+      "additionalProperties": true
     },
-    {
-      "if": { "properties": { "scope": { "const": "team" } } },
-      "then": {
-        "required": ["team_id"],
-        "not": { "anyOf": [{ "required": ["repos"] }, { "required": ["teams"] }] }
-      }
+    "teamScope": {
+      "type": "object",
+      "description": "Team-level AGENTS.md frontmatter. Lives inside a team folder and declares per-folder ownership for the team.",
+      "required": ["scope", "schema_version", "team_id"],
+      "properties": {
+        "scope": {
+          "const": "team",
+          "description": "Discriminator: team."
+        },
+        "schema_version": { "$ref": "#/$defs/schemaVersion" },
+        "team_id": {
+          "$ref": "#/$defs/slug",
+          "description": "Team identifier (must match a team_id declared in the parent repo's teams: list)."
+        },
+        "parent_repo": {
+          "$ref": "#/$defs/pathString",
+          "description": "Relative path to the owning repo root (commonly '../')."
+        },
+        "agents": {
+          "$ref": "#/$defs/slugArray",
+          "description": "Agent slugs that serve this team."
+        },
+        "owns_paths": {
+          "$ref": "#/$defs/pathArray",
+          "description": "Globs of paths this team owns inside the parent repo."
+        },
+        "reads_paths": {
+          "$ref": "#/$defs/pathArray",
+          "description": "Globs of paths this team may read but not edit."
+        },
+        "excludes": {
+          "$ref": "#/$defs/pathArray",
+          "description": "Globs subtracted from owns_paths."
+        },
+        "escalates_to": {
+          "$ref": "#/$defs/slugArray",
+          "description": "Team identifiers (or 'user') this team escalates to when a handoff is needed."
+        }
+      },
+      "additionalProperties": true
     }
-  ]
+  }
 }

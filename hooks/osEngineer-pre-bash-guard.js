@@ -9,6 +9,10 @@
 // contract). If the file is missing or malformed, the hook falls back to a
 // hardcoded baseline so enforcement is never silently disabled.
 //
+// Per-team overrides (P7): repo and team-level JSON files can `disabled`,
+// `downgraded_to_warning`, or `added` patterns relative to the global
+// denylist. See trust/denylist.md for the schema and resolution rules.
+//
 // Honours OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl).
 
 'use strict';
@@ -92,6 +96,118 @@ function logBypass(cwd, hook, reason, cmd) {
   } catch {}
 }
 
+function logOverride(cwd, entry) {
+  try {
+    const p = path.join(cwd, '.osengineer', 'override-log.jsonl');
+    fs.appendFileSync(p, JSON.stringify(Object.assign({
+      ts: new Date().toISOString(),
+      hook: 'pre-bash-guard',
+    }, entry)) + '\n');
+  } catch {}
+}
+
+function readStateMap(cwd) {
+  const p = path.join(cwd, '.osengineer', 'state.yml');
+  if (!fs.existsSync(p)) return null;
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    const state = {};
+    for (const line of raw.split('\n')) {
+      const m = line.match(/^(\w+):\s*(.*)$/);
+      if (!m) continue;
+      const [, k, v] = m;
+      state[k] = v.trim().replace(/^["']|["']$/g, '') || null;
+    }
+    return state;
+  } catch { return null; }
+}
+
+// Parse a single override file. Returns:
+//   { disabled: [name], downgraded_to_warning: [name], added: [{name, regex, category}] }
+// or null if the file is missing, unreadable, or malformed.
+// Malformed files are logged as a parse-failure entry to override-log.jsonl.
+function loadOverrideFile(cwd, filePath, source) {
+  if (!fs.existsSync(filePath)) return null;
+  let raw;
+  try { raw = fs.readFileSync(filePath, 'utf8'); }
+  catch (e) {
+    logOverride(cwd, { event: 'override_parse_failure', source, file: filePath, error: 'read_error' });
+    return null;
+  }
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch (e) {
+    logOverride(cwd, { event: 'override_parse_failure', source, file: filePath, error: 'json_parse_error' });
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    logOverride(cwd, { event: 'override_parse_failure', source, file: filePath, error: 'not_an_object' });
+    return null;
+  }
+  const out = { disabled: [], downgraded_to_warning: [], added: [] };
+  if (Array.isArray(parsed.disabled)) {
+    out.disabled = parsed.disabled.filter(s => typeof s === 'string');
+  }
+  if (Array.isArray(parsed.downgraded_to_warning)) {
+    out.downgraded_to_warning = parsed.downgraded_to_warning.filter(s => typeof s === 'string');
+  }
+  if (Array.isArray(parsed.added)) {
+    for (const entry of parsed.added) {
+      if (!entry || typeof entry.name !== 'string' || typeof entry.regex !== 'string') continue;
+      let compiled;
+      try { compiled = new RegExp(entry.regex); }
+      catch {
+        logOverride(cwd, {
+          event: 'override_parse_failure', source, file: filePath,
+          error: 'invalid_regex', name: entry.name,
+        });
+        continue;
+      }
+      out.added.push({
+        name: entry.name,
+        regex: compiled,
+        category: entry.category || 'team-override',
+      });
+    }
+  }
+  return out;
+}
+
+// Compose effective denylist from globals + override layers.
+// Repo-level merges first, then team-level on top. Team-level disabled/added
+// extends the repo-level lists. Team disabled of a name added by repo-level
+// removes that addition. Returns:
+//   { patterns: [{name,regex,category}], downgraded: Set<name>, disabled: Set<name>,
+//     overridesApplied: { repoLoaded, teamLoaded, addedFromRepo, addedFromTeam } }
+function buildEffectiveDenylist(globals, repoOv, teamOv) {
+  const downgraded = new Set();
+  const disabledSet = new Set();
+  let added = [];
+
+  if (repoOv) {
+    for (const n of repoOv.disabled) disabledSet.add(n);
+    for (const n of repoOv.downgraded_to_warning) downgraded.add(n);
+    for (const a of repoOv.added) added.push(Object.assign({ _source: 'repo' }, a));
+  }
+  if (teamOv) {
+    for (const n of teamOv.disabled) disabledSet.add(n);
+    for (const n of teamOv.downgraded_to_warning) downgraded.add(n);
+    for (const a of teamOv.added) added.push(Object.assign({ _source: 'team' }, a));
+  }
+  // A team-level `disabled` may remove a name added at repo-level.
+  added = added.filter(a => !disabledSet.has(a.name));
+
+  // Filter globals through disabled set.
+  const effectiveGlobals = globals.filter(p => !disabledSet.has(p.name));
+
+  return {
+    patterns: effectiveGlobals.concat(added),
+    downgraded,
+    disabled: disabledSet,
+    addedNames: new Set(added.map(a => a.name)),
+  };
+}
+
 let input = '';
 const t = setTimeout(() => process.exit(0), STDIN_TIMEOUT_MS);
 process.stdin.setEncoding('utf8');
@@ -114,11 +230,80 @@ process.stdin.on('end', () => {
       process.exit(0);
     }
 
-    const patterns = loadPatterns();
-    const matched = patterns.find(p => p.regex.test(cmd));
+    const globals = loadPatterns();
+
+    // Load override layers (repo first, team on top).
+    const repoOvPath = path.join(cwd, '.osengineer', 'denylist-overrides.json');
+    const repoOv = loadOverrideFile(cwd, repoOvPath, 'repo');
+
+    let teamOv = null;
+    const state = readStateMap(cwd);
+    const currentTeam = state && state.current_team;
+    if (currentTeam) {
+      const teamOvPath = path.join(
+        cwd, '.osengineer', 'teams', currentTeam, 'denylist-overrides.json'
+      );
+      teamOv = loadOverrideFile(cwd, teamOvPath, 'team:' + currentTeam);
+    }
+
+    const effective = buildEffectiveDenylist(globals, repoOv, teamOv);
+
+    // Check the command against the effective denylist.
+    const matched = effective.patterns.find(p => p.regex.test(cmd));
+
+    // Even when there is no match, log that disabled globals were skipped so
+    // the audit trail captures "team turned off X, command ran clean". Only
+    // log disabled entries that the command would have hit, to keep noise low.
+    if (effective.disabled.size > 0) {
+      for (const name of effective.disabled) {
+        const global = globals.find(g => g.name === name);
+        if (global && global.regex.test(cmd)) {
+          logOverride(cwd, {
+            event: 'disabled_applied',
+            pattern: name,
+            team: currentTeam || null,
+            cmd: cmd.slice(0, 200),
+          });
+        }
+      }
+    }
+
     if (!matched) process.exit(0);
 
+    // Pattern matched. Decide: block / warn-downgrade / allow-as-added.
+    const isDowngraded = effective.downgraded.has(matched.name);
+    const isAdded = effective.addedNames.has(matched.name);
+
+    if (isAdded) {
+      logOverride(cwd, {
+        event: 'added_pattern_matched',
+        pattern: matched.name,
+        team: currentTeam || null,
+        cmd: cmd.slice(0, 200),
+      });
+    }
+
     if (hasFourPartPlan(cwd)) process.exit(0); // plan present — allow
+
+    if (isDowngraded) {
+      logOverride(cwd, {
+        event: 'downgraded_to_warning',
+        pattern: matched.name,
+        team: currentTeam || null,
+        cmd: cmd.slice(0, 200),
+      });
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext:
+            `osEngineer warning: command matches denylist pattern "${matched.name}"` +
+            (matched.category ? ` (category: ${matched.category})` : '') +
+            `. This pattern is downgraded-to-warning by a per-team override; ` +
+            `the command will run but the match was logged to override-log.jsonl.`,
+        },
+      }));
+      process.exit(0);
+    }
 
     process.stdout.write(JSON.stringify({
       decision: 'block',

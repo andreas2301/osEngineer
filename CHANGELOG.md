@@ -4,6 +4,56 @@ All notable changes to osEngineer are tracked here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to semantic versioning.
 
+## [0.4.0] — 2026-06-15
+
+### Added — P7 (closes spec-vs-reality gaps from P6 analysis)
+
+- **`specs/SCHEMAS/agents-md.schema.json`** — JSON Schema 2020-12 validating
+  workbench, repo, and team-scope `AGENTS.md` frontmatter. Three discriminated
+  branches via `oneOf` keyed on `scope:`; `$defs` shared between scopes
+  (semver, slug, pathArray, metaRef, teamEntry, repoEntry). `additionalProperties:
+  true` on every scope so repos can extend the contract without false rejections.
+- **`hooks/osEngineer-pre-commit.sh`** — now extracts YAML frontmatter from
+  every staged `AGENTS.md`, converts it to JSON inline via Node, and validates
+  against `agents-md.schema.json`. Missing `scope:` discriminator is a hard
+  error (blocks commit); structural-shape mismatches are warnings (the schema
+  is still maturing and we don't want to thrash existing repos). Validation
+  uses `check-jsonschema` if available, else a Node-based fallback that
+  presence-checks the discriminator and basic array typing.
+- **`hooks/osEngineer-prompt-guard.js`** — frontmatter-driven skill routing.
+  Reads all `agents/<role>/AGENT.md` + `commands/osEngineer-*.md` frontmatter
+  from `$OSENGINEER_HOME`, scores each against the user's prompt (token
+  overlap against the "Use when …" sentence, name substring bonus, "Don't
+  use when" penalty), and appends the top 3 matches with score > 0.15 as
+  `osEngineer routing hints` to `additionalContext`. State injection, amnesia
+  guard, debouncing, and execute-blocking preserved. ~50ms added latency.
+- **Per-team denylist overrides** in `hooks/osEngineer-pre-bash-guard.js`.
+  Reads `<repo>/.osengineer/denylist-overrides.json` and
+  `<repo>/.osengineer/teams/<current_team>/denylist-overrides.json` if
+  present; team-level merges on top of repo-level. Three operations:
+  `disabled` (skip a global pattern silently), `downgraded_to_warning`
+  (still emit advisory `additionalContext` but allow), `added` (extend
+  with team-specific patterns). Every effective override is logged to
+  `.osengineer/override-log.jsonl` for auditability. Malformed override
+  files are treated as missing — global denylist always remains enforced.
+- **`trust/denylist.md`** — new "Per-team overrides" section documenting
+  the schema, resolution rules, and audit-trail entries.
+- **`templates/denylist-overrides.json.tmpl`** — starter file with one
+  `disabled`, one `downgraded_to_warning`, and one `added` example.
+
+### Verified
+
+- 21/21 tests pass.
+- Schema validates 3 well-formed sample frontmatters (one per scope) and
+  rejects 4 deliberately bad samples (wrong scope, missing scope, wrong
+  schema_version, capitalised team_id) with clear errors.
+- Prompt-guard smoke test on `"I need to write a failing test for execute
+  phase task"` returns 3 routing hints (qa, topology-validator, reviewer).
+- Pre-bash-guard smoke test with a `denylist-overrides.json` containing
+  `{"disabled": ["docker rm / volume rm / system prune"]}` correctly allows
+  `docker volume rm test-vol` and logs `disabled_applied` to
+  `override-log.jsonl`.
+
 ## [0.3.0] — 2026-06-14
 
 ### Added — P6 (inspired by google/skills analysis)

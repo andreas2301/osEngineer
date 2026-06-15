@@ -53,6 +53,219 @@ function buildContext(state, openHandoffs) {
   return `osEngineer state: ${parts.join(' · ')}`;
 }
 
+const ROUTING_STOPWORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'in', 'on', 'of', 'for', 'to', 'with',
+  'when', 'this', 'that', 'and', 'or'
+]);
+
+function tokenize(text) {
+  if (!text) return [];
+  return text
+    .toLowerCase()
+    .split(/[\s\.,;:!\?\(\)\[\]\{\}'"`<>\/\\\-_=+*&^%$#@~|]+/)
+    .filter(t => t && !ROUTING_STOPWORDS.has(t));
+}
+
+function extractFrontmatter(raw) {
+  // Frontmatter: starts with --- on first line, ends with --- on its own line.
+  if (!raw.startsWith('---')) return null;
+  const lines = raw.split('\n');
+  if (lines[0].trim() !== '---') return null;
+  let endIdx = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') { endIdx = i; break; }
+  }
+  if (endIdx === -1) return null;
+  return lines.slice(1, endIdx);
+}
+
+function parseFrontmatter(raw) {
+  const fmLines = extractFrontmatter(raw);
+  if (!fmLines) return null;
+  const result = {};
+  let i = 0;
+  while (i < fmLines.length) {
+    const line = fmLines[i];
+    // Match top-level "key:" or "key: value" — keys are letter/digit/underscore/hyphen
+    const m = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (!m) { i++; continue; }
+    const key = m[1];
+    let value = m[2];
+    // Multi-line block-scalar: "key: >-" or "key: >" or "key: |" or "key: |-"
+    if (/^[>|][-+]?\s*$/.test(value.trim())) {
+      const buf = [];
+      i++;
+      while (i < fmLines.length) {
+        const next = fmLines[i];
+        // Continuation lines are indented; a new top-level key (unindented and matching the key pattern) ends the block.
+        if (/^[A-Za-z_][\w-]*:/.test(next)) break;
+        if (next.trim() === '') { buf.push(''); i++; continue; }
+        buf.push(next.replace(/^\s+/, ''));
+        i++;
+      }
+      // Folded scalar (>) joins lines with spaces; literal (|) keeps newlines.
+      // Both >-/>+/|-/|+ variants are folded the same for our purposes.
+      result[key] = buf.join(' ').replace(/\s+/g, ' ').trim();
+      continue;
+    }
+    // Single-line value (strip optional quotes)
+    result[key] = value.trim().replace(/^["']|["']$/g, '');
+    i++;
+  }
+  return result;
+}
+
+// Sentence boundary that tolerates dotted identifiers like PHASE_PLAN.md or .osengineer/state.yml.
+// Stops at a period followed by whitespace+capital or end-of-string, but not at periods inside
+// lowercase-suffixed identifiers (file extensions).
+function sentenceUntilTerminator(text) {
+  if (!text) return '';
+  // Walk char-by-char: if we see "." followed by whitespace+[A-Z] or end-of-string,
+  // that's a sentence boundary. A "." followed by a lowercase letter is part of an identifier.
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '.') {
+      // Check what comes after
+      let j = i + 1;
+      if (j >= text.length) return text.slice(0, i + 1).trim();
+      // Skip whitespace
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (j >= text.length) return text.slice(0, i + 1).trim();
+      // Boundary if next non-space is uppercase or punctuation marking new clause
+      if (/[A-Z]/.test(text[j])) return text.slice(0, i + 1).trim();
+    }
+    // Semicolons also separate clauses in Don't-use sentences
+    if (text[i] === ';') return text.slice(0, i).trim() + '.';
+    i++;
+  }
+  return text.trim();
+}
+
+function extractUseSignal(description) {
+  if (!description) return '';
+  const m = description.match(/Use when\s+(.+)$/i);
+  if (!m) return '';
+  return sentenceUntilTerminator(m[1]);
+}
+
+function extractDontUseSignal(description) {
+  if (!description) return '';
+  const m = description.match(/Don'?t use(?:\s+when)?\s+(.+)$/i)
+    || description.match(/Do not use(?:\s+when)?\s+(.+)$/i);
+  if (!m) return '';
+  return sentenceUntilTerminator(m[1]);
+}
+
+function firstSentence(description) {
+  if (!description) return '';
+  return sentenceUntilTerminator(description);
+}
+
+function loadSkillEntries(oseHome) {
+  const entries = [];
+  // Agents: <oseHome>/agents/*/AGENT.md
+  const agentsDir = path.join(oseHome, 'agents');
+  if (fs.existsSync(agentsDir)) {
+    let agentDirs = [];
+    try { agentDirs = fs.readdirSync(agentsDir); } catch { agentDirs = []; }
+    for (const dirname of agentDirs) {
+      const agentPath = path.join(agentsDir, dirname, 'AGENT.md');
+      if (!fs.existsSync(agentPath)) continue;
+      try {
+        const raw = fs.readFileSync(agentPath, 'utf8');
+        const fm = parseFrontmatter(raw);
+        if (!fm || !fm.name || !fm.description) continue;
+        entries.push({ name: fm.name, description: fm.description, type: 'agent' });
+      } catch {}
+    }
+  }
+  // Commands: <oseHome>/commands/osEngineer-*.md
+  const cmdDir = path.join(oseHome, 'commands');
+  if (fs.existsSync(cmdDir)) {
+    let cmdFiles = [];
+    try { cmdFiles = fs.readdirSync(cmdDir); } catch { cmdFiles = []; }
+    for (const fname of cmdFiles) {
+      if (!/^osEngineer-.*\.md$/.test(fname)) continue;
+      const filePath = path.join(cmdDir, fname);
+      try {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const fm = parseFrontmatter(raw);
+        if (!fm || !fm.name || !fm.description) continue;
+        entries.push({ name: fm.name, description: fm.description, type: 'command' });
+      } catch {}
+    }
+  }
+  return entries;
+}
+
+function findMatchingSkills(prompt, oseHome, maxMatches = 3) {
+  if (!oseHome) return [];
+  try {
+    if (!fs.existsSync(oseHome)) return [];
+  } catch { return []; }
+  const promptTokens = tokenize(prompt);
+  if (promptTokens.length === 0) return [];
+  const promptSet = new Set(promptTokens);
+
+  let entries;
+  try { entries = loadSkillEntries(oseHome); } catch { return []; }
+
+  const scored = [];
+  for (const e of entries) {
+    const useSignal = extractUseSignal(e.description);
+    const signalTokens = tokenize(useSignal);
+    if (signalTokens.length === 0) continue;
+    const signalSet = new Set(signalTokens);
+
+    let overlap = 0;
+    for (const t of promptSet) {
+      if (signalSet.has(t)) overlap++;
+    }
+    const denom = Math.max(promptTokens.length, signalTokens.length);
+    let score = denom > 0 ? overlap / denom : 0;
+
+    // Name bonus: any prompt token appears as a substring of the name
+    const nameLower = (e.name || '').toLowerCase();
+    if (nameLower) {
+      for (const t of promptSet) {
+        if (t.length >= 3 && nameLower.includes(t)) { score += 0.1; break; }
+      }
+    }
+
+    // Exclusion penalty: prompt tokens overlap the "Don't use when" zone
+    const dontSignal = extractDontUseSignal(e.description);
+    if (dontSignal) {
+      const dontTokens = new Set(tokenize(dontSignal));
+      for (const t of promptSet) {
+        if (dontTokens.has(t)) { score -= 0.5; break; }
+      }
+    }
+
+    if (score > 0.15) {
+      scored.push({
+        name: e.name,
+        description: e.description,
+        score: score,
+        type: e.type,
+      });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, maxMatches);
+}
+
+function formatRoutingHints(matches) {
+  if (!matches || matches.length === 0) return '';
+  const lines = ['osEngineer routing hints (high-confidence matches for this prompt):'];
+  for (const m of matches) {
+    let excerpt = firstSentence(m.description);
+    if (excerpt.length > 200) excerpt = excerpt.slice(0, 197) + '...';
+    lines.push(`- ${m.name} (score: ${m.score.toFixed(2)}) — ${excerpt}`);
+  }
+  return lines.join('\n');
+}
+
 let input = '';
 const t = setTimeout(() => process.exit(0), STDIN_TIMEOUT_MS);
 process.stdin.setEncoding('utf8');
@@ -168,6 +381,22 @@ process.stdin.on('end', () => {
     } else {
       additionalContext = stateStr;
     }
+
+    // Frontmatter-driven skill routing: append high-confidence matches as routing hints
+    try {
+      const oseHome = process.env.OSENGINEER_HOME;
+      if (oseHome && prompt) {
+        const matches = findMatchingSkills(prompt, oseHome);
+        if (matches.length > 0) {
+          const hintBlock = formatRoutingHints(matches);
+          if (hintBlock) {
+            additionalContext = additionalContext
+              ? `${additionalContext}\n\n${hintBlock}`
+              : hintBlock;
+          }
+        }
+      }
+    } catch {}
 
     // Inject state into context
     process.stdout.write(JSON.stringify({

@@ -1,0 +1,25 @@
+{
+  "_comment": "Per-team denylist overrides for the osEngineer pre-bash-guard hook. Copy to .osengineer/denylist-overrides.json (repo-level) or .osengineer/teams/<team>/denylist-overrides.json (team-level). Team-level merges on top of repo-level. See trust/denylist.md for the resolution rules.",
+  "schema_version": 1,
+  "team_id": "coding",
+
+  "_comment_disabled": "Names listed here are removed from the effective denylist. The hook emits nothing and the command runs. Match is by exact `name` against the global pattern's `name` field in trust/denylist.md.",
+  "disabled": [
+    "docker rm / volume rm / system prune"
+  ],
+
+  "_comment_downgraded_to_warning": "The pattern still matches and the command still runs, but the hook emits an advisory additionalContext warning instead of blocking. Use when the team legitimately owns the operation (e.g. rm -rf in test-fixture teardown).",
+  "downgraded_to_warning": [
+    "rm -rf"
+  ],
+
+  "_comment_added": "Team-specific extra patterns appended to the global list. Block (or downgrade-warn if also listed above) like any other pattern. Use double-escaped backslashes in regex strings.",
+  "added": [
+    {
+      "name": "go vet -tags=internal",
+      "regex": "\\bgo\\s+vet\\s+-tags=internal\\b",
+      "category": "tooling",
+      "rationale": "Internal-tag vet runs leak experimental code paths into static analysis output."
+    }
+  ]
+}
