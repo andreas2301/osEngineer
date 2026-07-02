@@ -1,4 +1,4 @@
-# {{REPO_NAME}}
+# osEngineer
 
 ## osEngineer
 
@@ -7,13 +7,10 @@ and `.osengineer/state.yml` for current phase state. Run `osengineer explain`
 for the concept overview.
 
 Key operational facts:
-
 - **Conventional Commits** are enforced by the `commit-msg` git hook.
 - **TDD** is enforced for production code: red → green → refactor, atomic commits.
-- **Destructive bash** is blocked without an active 4-part plan
-  (`.osengineer/current-plan.md` with Touch / Change / Impact / Rollback sections).
-- **Override any rule** with `OSE_BYPASS=1` — every bypass logged to
-  `.osengineer/bypass-log.jsonl`.
+- **Destructive bash** is blocked without an active 4-part plan.
+- **Override any rule** with `OSE_BYPASS=1` — every bypass logged.
 
 ## Baseline & Extended Agent Rules
 
@@ -30,18 +27,3 @@ Key operational facts:
 8. **Test Real Logic**: Ensure tests validate actual logic rather than just running to pass.
 9. **Use Checkpoints**: Utilize checkpoints for long-running, multi-step tasks.
 10. **Fail Explicitly**: Avoid silent failures that just appear successful.
-
-## graphify
-
-If `graphify-out/` exists, read `graphify-out/GRAPH_REPORT.md` for god nodes
-and community structure before grepping raw files. The
-`osEngineer-post-commit` hook auto-rebuilds graphify (AST-only) on
-default-branch commits.
-
-## graphify After clone
-
-```bash
-git config core.hooksPath .githooks
-```
-
-(If this repo uses `.githooks/` for graphify integration — adjust as needed.)

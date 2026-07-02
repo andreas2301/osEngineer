@@ -112,11 +112,12 @@ process.stdin.on('end', () => {
     if (process.env.OSE_BYPASS === '1') process.exit(0);
 
     const data = JSON.parse(input);
-    const tool = data.tool_name;
-    if (tool !== 'Write' && tool !== 'Edit' && tool !== 'NotebookEdit') process.exit(0);
+    const tool = (data.tool_name || '').toLowerCase();
+    const isEditTool = tool.includes('write') || tool.includes('edit') || tool.includes('replace');
+    if (!isEditTool) process.exit(0);
 
     const cwd = data.cwd || process.cwd();
-    const filePath = data.tool_input?.file_path || data.tool_input?.path || '';
+    const filePath = data.tool_input?.file_path || data.tool_input?.path || data.tool_input?.TargetFile || data.tool_input?.AbsolutePath || '';
 
     // Always block live-system edits if configured
     const liveSystemPath = readLiveSystemPath(cwd);

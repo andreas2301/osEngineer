@@ -363,7 +363,17 @@ process.stdin.on('end', () => {
           `2. Enforce TDD: Write the failing test FIRST in a 'red' commit, then implementation in a 'green' commit.`,
           `3. Non-interactive Git: All git commands must run with '--no-edit' or 'git -c core.editor=true' to bypass text editor prompts.`,
           `4. Phase Gate: Editing outside 'planning/' or '.osengineer/' is strictly read-only during 'discuss' or 'plan' phases.`,
-          `5. Owns Paths: Edits to a path outside the active team's owns_paths list are blocked.`
+          `5. Owns Paths: Edits to a path outside the active team's owns_paths list are blocked.`,
+          `6. Think Before Coding: State assumptions explicitly; ask if ambiguous.`,
+          `7. Simplicity First: Write minimum code; no speculative abstractions.`,
+          `8. Surgical Changes: Touch only what task requires.`,
+          `9. Goal-Driven Execution: Create tests first to reproduce issue, then loop until pass.`,
+          `10. Set Hard Token Budgets: Stop runaway iterations.`,
+          `11. Expose Conflicts: Don't average contradictory patterns.`,
+          `12. Read Before Writing: Scan existing code before making edits.`,
+          `13. Test Real Logic: Validate actual logic, not just running to pass.`,
+          `14. Use Checkpoints: For long-running, multi-step tasks.`,
+          `15. Fail Explicitly: Avoid silent failures; fail immediately and clearly.`
         ].join('\n');
         
         // Reset turn counter when forcing Amnesia Guard

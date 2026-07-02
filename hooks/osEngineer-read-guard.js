@@ -25,8 +25,9 @@ process.stdin.on('end', () => {
   clearTimeout(t);
   try {
     const data = JSON.parse(input);
-    const tool = data.tool_name;
-    if (tool !== 'Write' && tool !== 'Edit') process.exit(0);
+    const tool = (data.tool_name || '').toLowerCase();
+    const isEditTool = tool.includes('write') || tool.includes('edit') || tool.includes('replace');
+    if (!isEditTool) process.exit(0);
 
     // Claude Code enforces read-before-edit natively — skip on CC
     const isClaudeCode =
@@ -37,7 +38,7 @@ process.stdin.on('end', () => {
       process.env.CLAUDECODE;
     if (isClaudeCode) process.exit(0);
 
-    const filePath = data.tool_input?.file_path || '';
+    const filePath = data.tool_input?.file_path || data.tool_input?.path || data.tool_input?.TargetFile || data.tool_input?.AbsolutePath || '';
     if (!filePath) process.exit(0);
 
     let exists = false;
