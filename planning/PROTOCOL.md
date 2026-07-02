@@ -76,6 +76,30 @@ A phase enters **Blocked** when:
 
 ---
 
+## Micro-Phase (Lightweight Hotfix/Feature)
+
+For small changes (e.g. simple bug fixes, single-line modifications, minor documentation edits) that do not warrant the cognitive overhead of the full 5-stage lifecycle, osEngineer supports a **Micro-Phase**.
+
+### 1. State: `micro` or `hotfix`
+- Transitions directly to an active execution state without blocking code edits.
+- Allows immediate, surgical file edits.
+
+### 2. Lifecycle Flow
+Instead of `Discuss → Plan → Execute → Verify → Accepted`, the workflow is collapsed:
+```
+[Combined Discuss/Plan] → [Immediate Execute/Verify] → [Accepted]
+```
+
+### 3. Single Unified Artifact: `MICRO_PLAN.md`
+- No separate `PHASE_PLAN.md`, `RESEARCH.md`, and `VERIFICATION.md` are required.
+- A single `MICRO_PLAN.md` (instantiated from `templates/MICRO_PLAN.md` or `planning/TEMPLATES/MICRO_PLAN.md`) acts as both the lightweight plan and the verification record.
+- **Content:** Minimized target spec/plan, TDD commit list, and a verification checkbox (testing evidence).
+
+### 4. Upgrade Gate
+- If the micro-phase exceeds its scope (e.g., touches >3 files, requires cross-team handoffs, or introduces complex design decisions), it must immediately upgrade to a full phase by transitioning to `plan` state and drafting a complete `PHASE_PLAN.md`.
+
+---
+
 ## Planning Directory Conventions
 
 ```

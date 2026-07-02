@@ -172,7 +172,7 @@ process.stdin.on('end', () => {
     }
 
     // owns_paths enforcement during execute phase
-    if (state.phase === 'execute' && state.current_team) {
+    if ((state.phase === 'execute' || state.phase === 'micro' || state.phase === 'hotfix') && state.current_team) {
       const team = readTeamCache(cwd, state.current_team);
       if (team && Array.isArray(team.owns_paths) && team.owns_paths.length > 0) {
         const rel = path.relative(cwd, filePath);

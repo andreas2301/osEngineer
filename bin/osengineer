@@ -896,9 +896,10 @@ function cmdExplain(args) {
       'via git hooks + Claude hooks + this CLI + CI status checks.\n',
     phases:
       'Phase lifecycle: idle → discuss → plan → execute → verify → accepted.\n' +
+      'Micro-Phase (Hotfix): idle → micro (or hotfix) → accepted (lightweight cycle).\n' +
       '`blocked` is a side-state entered on budget overrun or hard-rule violation.\n' +
       'Transitions are gated by hooks: no execute without PHASE_PLAN.md, no\n' +
-      'verify without green test run, no merge without VERIFICATION.md.\n',
+      'verify without green test run, no merge without VERIFICATION.md (or MICRO_PLAN.md).\n',
     hooks:
       'Ten enforcement hooks live in hooks/osEngineer-*. install.sh copies\n' +
       'the git hooks into .git/hooks/ and wires the Claude hooks via\n' +

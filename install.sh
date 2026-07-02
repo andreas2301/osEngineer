@@ -305,11 +305,63 @@ YAML
       local agent_name="${agent%.md}"
       local src_dir="$AGENTS_DIR/$agent_name/AGENT.md"
       local src_flat="$AGENTS_DIR/$agent"
+      local src_file=""
       if [ -f "$src_dir" ]; then
-        cp "$src_dir" "$repo/.$runtime/agents/$agent"
-        copied=$((copied + 1))
+        src_file="$src_dir"
       elif [ -f "$src_flat" ]; then
-        cp "$src_flat" "$repo/.$runtime/agents/$agent"
+        src_file="$src_flat"
+      fi
+
+      if [ -n "$src_file" ]; then
+        local dst_file="$repo/.$runtime/agents/$agent"
+        if [ -f "$dst_file" ]; then
+          if cmp -s "$src_file" "$dst_file"; then
+            # Identical contents, skip quietly
+            copied=$((copied + 1))
+            continue
+          fi
+          
+          # Check if osEngineer additions/rules are already present to prevent infinite duplication
+          if grep -q "## osEngineer" "$dst_file" 2>/dev/null; then
+            log "  · osEngineer additions already present in $agent (skipped)"
+            copied=$((copied + 1))
+            continue
+          fi
+
+          # Contents differ! Check if interactive
+          if [ -t 0 ] && [ -z "${CI:-}" ] && [ "${OSE_NONINTERACTIVE:-}" != "1" ]; then
+            echo ""
+            log "Agent file .$runtime/agents/$agent already exists and has custom changes."
+            echo "What would you like to do?"
+            echo "  [o] Overwrite with the standard osEngineer version"
+            echo "  [a] Append osEngineer instructions to the end of the existing file"
+            echo "  [k] Keep/skip the existing file and make no changes"
+            read -r -p "Choice [o/a/K]: " choice
+            choice="${choice:-k}"
+            case "$choice" in
+              [Oo]*)
+                cp "$src_file" "$dst_file"
+                log "  · Overwrote $agent"
+                ;;
+              [Aa]*)
+                printf "\n\n## osEngineer Additions\n\n" >> "$dst_file"
+                cat "$src_file" >> "$dst_file"
+                log "  · Appended osEngineer instructions to $agent"
+                ;;
+              *)
+                log "  · Preserved custom $agent (skipped)"
+                ;;
+            esac
+          else
+            # Non-interactive mode: act as an addition (append) by default
+            printf "\n\n## osEngineer Additions\n\n" >> "$dst_file"
+            cat "$src_file" >> "$dst_file"
+            log "  + Appended osEngineer instructions to existing $agent (non-interactive)"
+          fi
+        else
+          # New file
+          cp "$src_file" "$dst_file"
+        fi
         copied=$((copied + 1))
       fi
     done

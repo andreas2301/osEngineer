@@ -30,10 +30,11 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 2. **Discovery:** Run `/osEngineer:investigate <symptom>` to understand the current state.
 3. **Plan:** Run `/osEngineer:plan <goal>` to generate a `PHASE_PLAN.md`.
 4. **Execute:** Run `/osEngineer:fix <ticket>` or `/osEngineer:feature <ticket>` to execute a planned phase.
-5. **Verify:** Run `/osEngineer:verify <phase>` to validate deliverables.
-6. **Evolve:** Run `/osEngineer:evolve` to improve the skill itself (HITL, auto-nudge at 5 phases).
-7. **Explain:** Run `/osEngineer:explain [topic]` to learn how osEngineer works, what artifacts it creates, and which commands are available.
-8. **Sandbox:** Run `/osEngineer:sandbox start <path>` to spin up containerized testbeds for mission tests.
+5. **Hotfix/Quick Change:** Run `/osEngineer:hotfix <description>` to execute a lightweight Micro-Phase (skips separate plan/execute steps, creates a combined `MICRO_PLAN.md` and goes straight to editing).
+6. **Verify:** Run `/osEngineer:verify <phase>` to validate deliverables.
+7. **Evolve:** Run `/osEngineer:evolve` to improve the skill itself (HITL, auto-nudge at 5 phases).
+8. **Explain:** Run `/osEngineer:explain [topic]` to learn how osEngineer works, what artifacts it creates, and which commands are available.
+9. **Sandbox:** Run `/osEngineer:sandbox start <path>` to spin up containerized testbeds for mission tests.
 
 ---
 
