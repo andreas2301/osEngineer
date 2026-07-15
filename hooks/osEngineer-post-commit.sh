@@ -49,7 +49,9 @@ if [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" = "$DEFAULT_BRANCH" ]; then
     fi
   done
   if [ "$ALL_IN_GRAPHIFY" = false ] && command -v graphify >/dev/null 2>&1; then
-    graphify update . --ast-only >/dev/null 2>&1 || true
+    # `graphify update` is already AST-only (no LLM); the legacy --ast-only
+    # flag was removed in graphify >=0.9 and now errors, so we don't pass it.
+    graphify update . >/dev/null 2>&1 || true
   fi
 fi
 
