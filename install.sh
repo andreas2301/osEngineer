@@ -419,7 +419,11 @@ EOF
     # Determine project classification (small/medium/large) heuristically
     local classification="medium"
     local loc
-    loc=$(find "$repo" -type f \( -name "*.go" -o -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.rs" \) -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | head -200 | wc -l)
+    # NOTE: `set +o pipefail` in this subshell prevents SIGPIPE (141) from
+    # aborting init_repo when `head` closes the pipe early on repos with >200
+    # matching files — otherwise `set -euo pipefail` bails before AGENTS.md/
+    # CLAUDE.md are written, silently half-installing on any large repo.
+    loc=$(set +o pipefail; find "$repo" -type f \( -name "*.go" -o -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.rs" \) -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | head -200 | wc -l)
     if [ "$loc" -lt 20 ]; then classification="small"
     elif [ "$loc" -gt 100 ]; then classification="large"
     fi
