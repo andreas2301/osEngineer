@@ -43,7 +43,7 @@ MANDATORY_AGENTS=(
 )
 
 # Global variables for interactive setup
-RUNTIMES="claude"
+RUNTIMES="${RUNTIMES:-claude}"
 ATLASSIAN_CLOUD_ID=""
 ATLASSIAN_SITE_URL=""
 ATLASSIAN_KEYS=""
@@ -59,7 +59,7 @@ VALIDATION_PROFILE=""
 collect_interactive_inputs() {
   # If not in an interactive terminal or inside a non-interactive/CI run, skip prompting
   if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ "${OSE_NONINTERACTIVE:-}" = "1" ]; then
-    RUNTIMES="claude"
+    RUNTIMES="${RUNTIMES:-claude}"
     ATLASSIAN_CLOUD_ID="${ATLASSIAN_CLOUD_ID:-}"
     ATLASSIAN_SITE_URL="${ATLASSIAN_SITE_URL:-https://your-site.atlassian.net}"
     ATLASSIAN_KEYS="${ATLASSIAN_KEYS:-PROJ}"
@@ -198,10 +198,6 @@ fail() { printf '[osEngineer] ERROR: %s\n' "$*" >&2; exit 1; }
 
 ensure_git() {
   command -v git >/dev/null 2>&1 || fail "git not found in PATH"
-}
-
-ensure_node() {
-  command -v node >/dev/null 2>&1 || fail "node not found in PATH (required for osEngineer Claude hooks)"
 }
 
 # ── Interactive prompts ────────────────────────────────────────────────────
@@ -414,7 +410,7 @@ EOF
     # Auto-detect folder→team mapping; this ALSO writes .osengineer/teams/*.json
     # as a side effect for the pre-edit guard to consume.
     local teams_yaml
-    teams_yaml=$(node "$SCRIPT_DIR/bin/osengineer" detect-teams "$repo" 2>/dev/null || echo "")
+    teams_yaml=$(python3 "$SCRIPT_DIR/bin/osengineer" detect-teams "$repo" 2>/dev/null || echo "")
 
     # Determine project classification (small/medium/large) heuristically
     local classification="medium"
@@ -479,7 +475,7 @@ MD
     # AGENTS.md already exists — refresh just the JSON cache so the
     # pre-edit guard's owns_paths globs stay current with any user edits.
     if [ -d "$repo/.osengineer" ]; then
-      node "$SCRIPT_DIR/bin/osengineer" detect-teams "$repo" >/dev/null 2>&1 || true
+      python3 "$SCRIPT_DIR/bin/osengineer" detect-teams "$repo" >/dev/null 2>&1 || true
       log "  · AGENTS.md preserved; .osengineer/teams/*.json refreshed"
     fi
   fi
@@ -590,6 +586,8 @@ install_assistant_settings() {
     # Inline Node script merges osEngineer hook entries without overwriting user config.
     OSE_HOOKS_DIR="$HOOKS_DIR" \
     OSE_VERSION="$VERSION" \
+    OSE_HOOKS_DIR="$HOOKS_DIR" \
+    OSE_VERSION="$VERSION" \
     OSE_SETTINGS_PATH="$cfg" \
     OSE_RUNTIME="$runtime" \
     OSE_REPO_PATH="$repo" \
@@ -598,136 +596,132 @@ install_assistant_settings() {
     OSE_ATLASSIAN_KEYS="$ATLASSIAN_KEYS" \
     OSE_VAULT_ADDR="$VAULT_ADDR" \
     OSE_VAULT_TOKEN="$VAULT_TOKEN" \
-    node <<'NODE'
-const fs = require('fs');
-const path = require('path');
+    python3 <<'PY'
+import json
+import os
+from pathlib import Path
 
-const hooksDir = process.env.OSE_HOOKS_DIR;
-const settingsPath = process.env.OSE_SETTINGS_PATH;
-const version = process.env.OSE_VERSION;
-const runtime = process.env.OSE_RUNTIME;
-const repo = process.env.OSE_REPO_PATH;
+hooks_dir = os.environ["OSE_HOOKS_DIR"]
+settings_path = os.environ["OSE_SETTINGS_PATH"]
+version = os.environ["OSE_VERSION"]
+runtime = os.environ["OSE_RUNTIME"]
+repo = os.environ["OSE_REPO_PATH"]
 
-function cmd(file) {
-  return `node "${path.join(hooksDir, file)}"`;
+def cmd(file):
+    return f'python3 "{Path(hooks_dir) / file}"'
+
+ose_entries = {
+    "UserPromptSubmit": [{
+        "hooks": [{"type": "command", "command": cmd("osEngineer-prompt-guard.py"), "description": "osEngineer phase state injection"}],
+    }],
+    "PreToolUse": [
+        {
+            "matcher": "Write|Edit|NotebookEdit",
+            "hooks": [
+                {"type": "command", "command": cmd("osEngineer-pre-edit-guard.py"), "description": "osEngineer phase-gate & owns_paths"},
+                {"type": "command", "command": cmd("osEngineer-read-guard.py"), "description": "osEngineer read-before-edit advisory"},
+            ],
+        },
+        {
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": cmd("osEngineer-pre-bash-guard.py"), "description": "osEngineer destructive-bash guard"}],
+        },
+    ],
+    "PostToolUse": [{
+        "hooks": [{"type": "command", "command": cmd("osEngineer-post-tool.py"), "description": "osEngineer context monitor + budget tracker"}],
+    }],
+    "SessionStart": [{
+        "hooks": [{"type": "command", "command": f'python3 "{Path(hooks_dir) / "osEngineer-session-start.py"}"', "description": "osEngineer banner"}],
+    }],
 }
 
-const oseEntries = {
-  UserPromptSubmit: [{
-    hooks: [{ type: 'command', command: cmd('osEngineer-prompt-guard.js'), description: 'osEngineer phase state injection' }],
-  }],
-  PreToolUse: [
-    {
-      matcher: 'Write|Edit|NotebookEdit',
-      hooks: [
-        { type: 'command', command: cmd('osEngineer-pre-edit-guard.js'), description: 'osEngineer phase-gate & owns_paths' },
-        { type: 'command', command: cmd('osEngineer-read-guard.js'), description: 'osEngineer read-before-edit advisory' },
-      ],
+existing = {}
+if os.path.exists(settings_path):
+    try:
+        with open(settings_path) as f:
+            existing = json.load(f)
+    except Exception:
+        print(f"osEngineer: {runtime} settings.json malformed, leaving as-is", file=__import__("sys").stderr)
+        raise SystemExit(0)
+
+existing.setdefault("hooks", {})
+
+def is_ose_entry(entry):
+    if not entry or not isinstance(entry.get("hooks"), list):
+        return False
+    return any(isinstance(h, dict) and isinstance(h.get("command"), str) and "osEngineer-" in h["command"] for h in entry["hooks"])
+
+for event, ose_list in ose_entries.items():
+    existing_list = [e for e in existing["hooks"].get(event, []) if not is_ose_entry(e)]
+    existing["hooks"][event] = existing_list + ose_list
+
+statusline_command = f'python3 "{Path(hooks_dir) / "osEngineer-statusline.py"}"'
+existing.setdefault("statusLine", {
+    "type": "command",
+    "command": statusline_command,
+    "padding": 0,
+})
+if isinstance(existing.get("statusLine"), dict) and isinstance(existing["statusLine"].get("command"), str) and "osEngineer-statusline" in existing["statusLine"]["command"]:
+    existing["statusLine"]["command"] = statusline_command
+
+existing.setdefault("env", {})
+existing["env"]["OSENGINEER_HOME"] = str(Path(hooks_dir).resolve().parent)
+existing["env"]["OSENGINEER_VERSION"] = version
+
+# ── MCP Auto-Wiring ──
+default_mcp_servers = {
+    "context7": {
+        "command": "npx",
+        "args": ["-y", "@upstash/context7-mcp@latest"],
     },
-    {
-      matcher: 'Bash',
-      hooks: [{ type: 'command', command: cmd('osEngineer-pre-bash-guard.js'), description: 'osEngineer destructive-bash guard' }],
+    "playwright": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-playwright"],
     },
-  ],
-  PostToolUse: [{
-    hooks: [{ type: 'command', command: cmd('osEngineer-post-tool.js'), description: 'osEngineer context monitor + budget tracker' }],
-  }],
-  SessionStart: [{
-    hooks: [{ type: 'command', command: `node "${path.join(hooksDir, 'osEngineer-session-start.js')}"`, description: 'osEngineer banner' }],
-  }],
-};
-
-let existing = {};
-if (fs.existsSync(settingsPath)) {
-  try { existing = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); }
-  catch (e) { console.error(`osEngineer: ${runtime} settings.json malformed, leaving as-is`); process.exit(0); }
 }
 
-existing.hooks = existing.hooks || {};
-
-function isOseEntry(entry) {
-  if (!entry || !Array.isArray(entry.hooks)) return false;
-  return entry.hooks.some(h => typeof h?.command === 'string' && h.command.includes('osEngineer-'));
-}
-
-for (const [event, oseList] of Object.entries(oseEntries)) {
-  const existingList = (existing.hooks[event] || []).filter(e => !isOseEntry(e));
-  existing.hooks[event] = [...existingList, ...oseList];
-}
-
-existing.statusLine = existing.statusLine || {
-  type: 'command',
-  command: `node "${path.join(hooksDir, 'osEngineer-statusline.js')}"`,
-  padding: 0,
-};
-if (existing.statusLine?.command?.includes('osEngineer-statusline')) {
-  // Already osEngineer's; refresh path in case of skill move
-  existing.statusLine.command = `node "${path.join(hooksDir, 'osEngineer-statusline.js')}"`;
-}
-
-existing.env = existing.env || {};
-existing.env.OSENGINEER_HOME = path.resolve(hooksDir, '..');
-existing.env.OSENGINEER_VERSION = version;
-
-// ── MCP Auto-Wiring ──
-const defaultMcpServers = {
-  "context7": {
-    "command": "npx",
-    "args": ["-y", "@upstash/context7-mcp@latest"]
-  },
-  "playwright": {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-playwright"]
-  }
-};
-
-const openSpacePath = path.resolve(repo, '../OpenSpace');
-if (fs.existsSync(openSpacePath)) {
-  defaultMcpServers["openspace"] = {
-    "command": "python",
-    "args": ["-m", "openspace.mcp_server"],
-    "env": {
-      "PYTHONPATH": openSpacePath
+open_space_path = Path(repo).resolve().parent / "OpenSpace"
+if open_space_path.exists():
+    default_mcp_servers["openspace"] = {
+        "command": "python",
+        "args": ["-m", "openspace.mcp_server"],
+        "env": {"PYTHONPATH": str(open_space_path)},
     }
-  };
-}
 
-if (process.env.OSE_ATLASSIAN_CLOUD_ID) {
-  const siteUrl = process.env.OSE_ATLASSIAN_SITE_URL || "https://your-site.atlassian.net";
-  const keys = process.env.OSE_ATLASSIAN_KEYS || "PROJ";
-  defaultMcpServers["atlassian"] = {
-    "command": "npx",
-    "args": ["-y", "@atlassian/mcp-server-atlassian"],
-    "env": {
-      "ATLASSIAN_CLOUD_ID": process.env.OSE_ATLASSIAN_CLOUD_ID,
-      "ATLASSIAN_SITE_URL": siteUrl,
-      "ATLASSIAN_PROJECT_KEYS": keys,
-      "ATLASSIAN_SPACE_KEYS": keys
+if os.environ.get("OSE_ATLASSIAN_CLOUD_ID"):
+    site_url = os.environ.get("OSE_ATLASSIAN_SITE_URL") or "https://your-site.atlassian.net"
+    keys = os.environ.get("OSE_ATLASSIAN_KEYS") or "PROJ"
+    default_mcp_servers["atlassian"] = {
+        "command": "npx",
+        "args": ["-y", "@atlassian/mcp-server-atlassian"],
+        "env": {
+            "ATLASSIAN_CLOUD_ID": os.environ["OSE_ATLASSIAN_CLOUD_ID"],
+            "ATLASSIAN_SITE_URL": site_url,
+            "ATLASSIAN_PROJECT_KEYS": keys,
+            "ATLASSIAN_SPACE_KEYS": keys,
+        },
     }
-  };
-}
 
-if (process.env.OSE_VAULT_ADDR && process.env.OSE_VAULT_TOKEN) {
-  defaultMcpServers["hashicorp-vault"] = {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-vault"],
-    "env": {
-      "VAULT_ADDR": process.env.OSE_VAULT_ADDR,
-      "VAULT_TOKEN": process.env.OSE_VAULT_TOKEN
+if os.environ.get("OSE_VAULT_ADDR") and os.environ.get("OSE_VAULT_TOKEN"):
+    default_mcp_servers["hashicorp-vault"] = {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-vault"],
+        "env": {
+            "VAULT_ADDR": os.environ["OSE_VAULT_ADDR"],
+            "VAULT_TOKEN": os.environ["OSE_VAULT_TOKEN"],
+        },
     }
-  };
-}
 
-existing.mcpServers = existing.mcpServers || {};
-for (const [serverName, config] of Object.entries(defaultMcpServers)) {
-  if (!existing.mcpServers[serverName]) {
-    existing.mcpServers[serverName] = config;
-  }
-}
+existing.setdefault("mcpServers", {})
+for server_name, config in default_mcp_servers.items():
+    if server_name not in existing["mcpServers"]:
+        existing["mcpServers"][server_name] = config
 
-fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2) + '\n');
-console.log(`  + .${runtime}/settings.json merged`);
-NODE
+with open(settings_path, "w") as f:
+    json.dump(existing, f, indent=2)
+    f.write("\n")
+print(f"  + .{runtime}/settings.json merged")
+PY
   done
 }
 
@@ -892,7 +886,7 @@ META_ADR
 
   # ADR catalog discovery from META repo
   if [ -n "$meta_repo" ]; then
-    node "$SCRIPT_DIR/bin/osengineer" discover-adrs "$meta_repo" \
+    python3 "$SCRIPT_DIR/bin/osengineer" discover-adrs "$meta_repo" \
       --out "$root/.osengineer/adr-catalog.yml" >/dev/null 2>&1 || true
     if [ -f "$root/.osengineer/adr-catalog.yml" ]; then
       local adr_count
@@ -1213,7 +1207,6 @@ init_global_hooks() {
 # ── Dispatch ───────────────────────────────────────────────────────────────
 
 ensure_git
-ensure_node
 
 # Collect inputs once at start
 collect_interactive_inputs

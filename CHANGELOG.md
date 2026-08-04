@@ -4,6 +4,31 @@ All notable changes to osEngineer are tracked here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to semantic versioning.
 
+## [Unreleased]
+
+### Changed
+
+- **Migrated the entire enforcement layer from Node.js to Python 3.** All
+  Claude/Kimi hooks (`osEngineer-prompt-guard`, `-pre-edit-guard`,
+  `-read-guard`, `-pre-bash-guard`, `-post-tool`, `-session-start`,
+  `-statusline`) plus the shared library (`hooks/lib/osengineer_common.py`,
+  `osengineer_git_cmd.py`, `parse_agents_frontmatter.py`,
+  `validate_agents_frontmatter.py`) are now Python 3 (stdlib only); the `.js`
+  equivalents are removed. `bin/osengineer` and the inline settings/frontmatter
+  logic in `install.sh`, `uninstall.sh`, `osEngineer-pre-commit.sh`, and
+  `osEngineer-post-commit.sh` no longer shell out to `node`. This drops the
+  Node.js runtime from the supply-chain surface — osEngineer now needs only
+  Python 3, git, and bash.
+- Test suite ported from Node to `unittest` (`test/test_osengineer.py`,
+  `test/test_git_cmd.py`); `npm test` now runs `python3 -m unittest discover`.
+
+### Fixed
+
+- `install.sh` no longer half-installs on repos with >200 source files
+  (SIGPIPE from `find | head` under `set -euo pipefail`).
+- `osEngineer-post-commit.sh` dropped the `--ast-only` flag removed in
+  graphify ≥0.9, so the post-commit graph refresh runs again.
+
 ## [0.4.0] — 2026-06-15
 
 ### Added — P7 (closes spec-vs-reality gaps from P6 analysis)

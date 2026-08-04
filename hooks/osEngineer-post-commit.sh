@@ -58,24 +58,24 @@ fi
 # 2. Increment evolution counter
 COUNTER_FILE=".osengineer/evolution-counter.yml"
 if [ -f "$COUNTER_FILE" ]; then
-  node -e "
-const fs=require('fs');
-const path='$COUNTER_FILE';
-try {
-  const content = fs.readFileSync(path, 'utf8');
-  const lines = content.split('\n');
-  let changed = false;
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^(phases_since_last_evolution:\s*)(\d+)/);
-    if (m) {
-      lines[i] = m[1] + (parseInt(m[2], 10) + 1);
-      changed = true;
-      break;
-    }
-  }
-  if (changed) fs.writeFileSync(path, lines.join('\n'));
-} catch {}
-" 2>/dev/null || true
+  python3 - "$COUNTER_FILE" <<'PY' 2>/dev/null || true
+import re, sys
+path = sys.argv[1]
+try:
+    content = open(path).read()
+    lines = content.splitlines()
+    changed = False
+    for i, line in enumerate(lines):
+        m = re.match(r"^(phases_since_last_evolution:\s*)(\d+)", line)
+        if m:
+            lines[i] = m.group(1) + str(int(m.group(2)) + 1)
+            changed = True
+            break
+    if changed:
+        open(path, "w").write("\n".join(lines))
+except Exception:
+    pass
+PY
 fi
 
 exit 0

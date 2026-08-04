@@ -11,11 +11,8 @@
     "osengineer": "./bin/osengineer"
   },
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "python3 -m unittest discover -s test -p 'test_*.py'",
     "lint": "echo 'Run: shellcheck install.sh uninstall.sh hooks/*.sh'"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   },
   "files": [
     "bin/",

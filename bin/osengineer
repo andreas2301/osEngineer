@@ -1,1007 +1,1022 @@
-#!/usr/bin/env node
-// osengineer — the osEngineer skill CLI.
-//
-// Subcommands:
-//   init <path>                       Run install.sh on a repo or workbench
-//   state                             Show current phase/team/budget
-//   state set <k> <v>                 Update a state.yml field
-//   detect-teams <path>               Auto-detect folder→team mapping
-//                                     (Go modules → coding, ansible/ → infra,
-//                                      *_test.go → testing, docs/ → docs,
-//                                      .github/codeql or security/ → security).
-//                                     Outputs YAML to stdout suitable for the
-//                                     `teams:` block of a repo AGENTS.md.
-//   handoff open --from <t> --to <t> --slug <s> [--closes-when "<text>"]
-//                                     Open a cross-team handoff ticket.
-//   handoff close <id> [--reason "<text>"]
-//                                     Close an open handoff.
-//   handoff list                      List open handoffs in cwd repo.
-//   version                           Print the osEngineer version.
-//   explain [topic]                   Print concept explanation.
-//
-// Wiring (hooks, agents) is owned by install.sh. This CLI deals with runtime
-// state, team detection, and handoff lifecycle.
+#!/usr/bin/env python3
+# osengineer — the osEngineer skill CLI (Python 3, no external dependencies).
+#
+# Subcommands:
+#   init <path>                       Run install.sh on a repo or workbench
+#   state                             Show current phase/team/budget
+#   state set <k> <v>                 Update a state.yml field
+#   detect-teams <path>               Auto-detect folder→team mapping
+#                                     (Go modules → coding, ansible/ → infra,
+#                                      *_test.go → testing, docs/ → docs,
+#                                      .github/codeql or security/ → security).
+#                                     Outputs YAML to stdout suitable for the
+#                                     `teams:` block of a repo AGENTS.md.
+#   handoff open --from <t> --to <t> --slug <s> [--closes-when "<text>"]
+#                                     Open a cross-team handoff ticket.
+#   handoff close <id> [--reason "<text>"]
+#                                     Close an open handoff.
+#   handoff list                      List open handoffs in cwd repo.
+#   discover-adrs <meta-path> [--out <file>]
+#                                     Scan a META repo for ADRs; emit YAML catalog
+#   evolve [status]                   Show counter + open/closed proposals
+#   evolve propose --title "<t>" [--body "<text>" | --body-file <f>] [--category <c>]
+#   evolve accept <id> --pattern-slug <s> [--pattern-file <f>]
+#                                     Promote proposal to memory/patterns/<s>.md; reset counter
+#   evolve reject <id> --reason "<text>"
+#                                     Log rejection; reset counter
+#   scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>]
+#                                     Materialise a new agent file from template
+#   scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]
+#                                     Materialise a new command file from template
+#   version                           Print osEngineer version
+#   explain [topic]                   overview|phases|hooks|teams|handoffs|scaffold
 
-'use strict';
+import json
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from subprocess import run
 
-const fs = require('fs');
-const path = require('path');
-const { spawnSync } = require('child_process');
+SCRIPT_DIR = Path(__file__).resolve().parent.parent
+VERSION_FILE = SCRIPT_DIR / "VERSION"
+VERSION = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "0.0.0-dev"
 
-const SCRIPT_DIR = path.resolve(__dirname, '..');
-const VERSION_FILE = path.join(SCRIPT_DIR, 'VERSION');
-const VERSION = fs.existsSync(VERSION_FILE)
-  ? fs.readFileSync(VERSION_FILE, 'utf8').trim()
-  : '0.0.0-dev';
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
-function findRepoRoot(cwd) {
-  let current = cwd;
-  for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(current, '.git'))) return current;
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  return null;
-}
+def find_repo_root(cwd=None):
+    current = Path(cwd or os.getcwd()).resolve()
+    for _ in range(8):
+        if (current / ".git").is_dir():
+            return current
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return None
 
-// Find the nearest osEngineer-initialised root walking up from cwd.
-// Returns { root, scope } where scope is 'workbench' (has .osengineer/ but
-// no .git) or 'repo' (has both). Returns null if neither found.
-function findOsEngineerRoot(cwd) {
-  let current = cwd;
-  for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(current, '.osengineer'))) {
-      const isRepo = fs.existsSync(path.join(current, '.git'));
-      return { root: current, scope: isRepo ? 'repo' : 'workbench' };
+
+def find_osengineer_root(cwd=None):
+    current = Path(cwd or os.getcwd()).resolve()
+    for _ in range(8):
+        if (current / ".osengineer").is_dir():
+            is_repo = (current / ".git").is_dir()
+            return current, "repo" if is_repo else "workbench"
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return None, None
+
+
+def read_workbench_config(workbench_root):
+    p = Path(workbench_root) / ".osengineer" / "workbench-config.yml"
+    if not p.exists():
+        return None
+    config = {}
+    current_array = None
+    for raw in p.read_text().splitlines():
+        line = raw.rstrip()
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        top_key = re.match(r"^(\w+):\s*(.*)$", line)
+        if top_key and not line.startswith(" ") and not line.startswith("-"):
+            key, val = top_key.group(1), top_key.group(2).strip()
+            val = val.strip("\"'")
+            if val == "":
+                config[key] = []
+                current_array = config[key]
+            else:
+                config[key] = val
+                current_array = None
+            continue
+        array_item = re.match(r"^\s+- (\w+):\s*(.*)$", line)
+        if array_item and current_array is not None:
+            key, val = array_item.group(1), array_item.group(2).strip().strip("\"'")
+            current_array.append({key: val})
+            continue
+        nested_key = re.match(r"^\s+(\w+):\s*(.*)$", line)
+        if nested_key and current_array and current_array and isinstance(current_array[-1], dict):
+            current_array[-1][nested_key.group(1)] = nested_key.group(2).strip().strip("\"'")
+    for k in list(config.keys()):
+        if isinstance(config[k], list) and len(config[k]) == 0:
+            del config[k]
+    return config
+
+
+def read_state_map(repo_root):
+    p = Path(repo_root) / ".osengineer" / "state.yml"
+    if not p.exists():
+        return None
+    state = {}
+    for line in p.read_text().splitlines():
+        m = re.match(r"^(\w+):\s*(.*)$", line)
+        if not m:
+            continue
+        val = m.group(2).strip().strip("\"'")
+        state[m.group(1)] = val or None
+    return state
+
+
+def write_state_field(repo_root, key, value):
+    p = Path(repo_root) / ".osengineer" / "state.yml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if not p.exists():
+        p.write_text(f"{key}: {value}\n")
+        return
+    lines = p.read_text().splitlines()
+    found = False
+    for i, line in enumerate(lines):
+        if re.match(r"^" + re.escape(key) + r":", line):
+            lines[i] = f"{key}: {value}"
+            found = True
+            break
+    if not found:
+        lines.append(f"{key}: {value}")
+    p.write_text("\n".join(lines) + "\n")
+
+
+def list_dir_safe(d):
+    try:
+        return sorted(os.listdir(d))
+    except Exception:
+        return []
+
+
+def has_any(repo, *patterns):
+    return any((Path(repo) / p).exists() for p in patterns)
+
+
+def has_dir(repo, *patterns):
+    return any((Path(repo) / p).is_dir() for p in patterns)
+
+
+def has_file_matching(repo, regex, depth=3):
+    pattern = re.compile(regex)
+    stack = [(Path(repo), 0)]
+    while stack:
+        d, ddepth = stack.pop()
+        if ddepth > depth:
+            continue
+        try:
+            for name in list_dir_safe(d):
+                if name in {".git", "node_modules", "vendor", "graphify-out", ".osengineer"}:
+                    continue
+                full = d / name
+                try:
+                    if full.is_dir():
+                        stack.append((full, ddepth + 1))
+                    elif pattern.search(name):
+                        return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return False
+
+
+# ── Subcommands ───────────────────────────────────────────────────────────────
+
+def cmd_version():
+    print(f"osengineer {VERSION}")
+
+
+def cmd_state(args):
+    repo_root = find_repo_root()
+    if args and args[0] == "set":
+        if not repo_root:
+            print("osengineer: not inside a git repo", file=sys.stderr)
+            sys.exit(1)
+        if len(args) < 3:
+            print("Usage: osengineer state set <key> <value>", file=sys.stderr)
+            sys.exit(1)
+        key = args[1]
+        value = " ".join(args[2:])
+        write_state_field(repo_root, key, value)
+        print(f"set {key} = {value}")
+        return
+    if not repo_root:
+        print("osengineer: not inside a git repo", file=sys.stderr)
+        sys.exit(1)
+    state = read_state_map(repo_root)
+    if not state:
+        print("No .osengineer/ directory. Run install.sh first.")
+        sys.exit(0)
+    for k, v in state.items():
+        print(f"{k}: {v}")
+
+
+def cmd_init(args):
+    target = Path(args[0]).resolve() if args else Path.cwd()
+    if not target.exists():
+        print(f"osengineer: {target} does not exist", file=sys.stderr)
+        sys.exit(1)
+    install_script = SCRIPT_DIR / "install.sh"
+    if not install_script.exists():
+        print(f"osengineer: install.sh not found at {install_script}", file=sys.stderr)
+        sys.exit(1)
+    is_repo = (target / ".git").is_dir()
+    install_args = [str(install_script), str(target)] if is_repo else [str(install_script), "--workbench", str(target)]
+    result = run(["bash"] + install_args)
+    sys.exit(result.returncode if result.returncode is not None else 1)
+
+
+def detect_teams(repo):
+    teams = []
+    has_go = has_any(repo, "go.mod")
+    has_python = has_any(repo, "pyproject.toml", "setup.py", "requirements.txt")
+    has_node = has_any(repo, "package.json")
+    has_rust = has_any(repo, "Cargo.toml")
+    has_ansible = has_dir(repo, "ansible", "roles", "playbooks")
+    has_compose = has_file_matching(repo, r"^docker-compose.*\.ya?ml$")
+    has_src_dir = has_dir(repo, "src", "internal", "cmd", "pkg")
+    has_tests_dir = has_dir(repo, "test", "tests", "integration", "e2e")
+    has_go_tests = has_file_matching(repo, r"^.+_test\.go$")
+    has_py_tests = has_file_matching(repo, r"^test_.+\.py$")
+    has_docs = has_dir(repo, "docs") or has_any(repo, "README.md", "README.rst")
+    has_contracts = has_dir(repo, "contracts") or has_file_matching(repo, r"^.+\.openapi\.ya?ml$")
+    has_codeql = has_dir(repo, ".github/codeql")
+    has_security_dir = has_dir(repo, "security")
+
+    coding_paths = []
+    if has_go:
+        coding_paths.extend(["internal/**", "cmd/**", "pkg/**"])
+    if has_python or has_node or has_rust:
+        coding_paths.append("src/**")
+    if has_src_dir and not coding_paths:
+        coding_paths.append("src/**")
+    if coding_paths:
+        folder = "internal/" if has_go and has_dir(repo, "internal") else ("src/" if has_dir(repo, "src") else None)
+        teams.append({
+            "team_id": "coding",
+            "folder": folder,
+            "agents": ["developer", "reviewer"],
+            "owns_paths": coding_paths,
+            "reads_paths": ["api/**", "contracts/**", "ansible/**", "docs/**"],
+            "escalates_to": ["testing", "infra", "docs", "security"],
+        })
+
+    testing_paths = []
+    if has_go_tests:
+        testing_paths.append("**/*_test.go")
+    if has_py_tests:
+        testing_paths.append("**/test_*.py")
+    if has_tests_dir:
+        testing_paths.extend(["tests/**", "test/**", "integration/**", "e2e/**"])
+    if testing_paths:
+        folder = None
+        if has_tests_dir:
+            folder = "tests/" if (Path(repo) / "tests").is_dir() else "test/"
+        teams.append({
+            "team_id": "testing",
+            "folder": folder,
+            "agents": ["qa"],
+            "owns_paths": testing_paths,
+            "reads_paths": ["internal/**", "cmd/**", "pkg/**", "src/**", "api/**", "contracts/**"],
+            "escalates_to": ["coding"],
+        })
+
+    infra_paths = []
+    if has_ansible:
+        infra_paths.extend(["ansible/**", "roles/**", "playbooks/**"])
+    if has_compose:
+        infra_paths.extend(["docker-compose*.yml", "Dockerfile*"])
+    if has_dir(repo, "scripts"):
+        infra_paths.append("scripts/**")
+    if has_dir(repo, ".github/workflows"):
+        infra_paths.append(".github/workflows/**")
+    if infra_paths:
+        teams.append({
+            "team_id": "infra",
+            "folder": "ansible/" if has_ansible else None,
+            "agents": ["topology-validator", "live-system-operator", "cert-monitor", "health-verifier"],
+            "owns_paths": infra_paths,
+            "reads_paths": ["**/*.yml", "**/Dockerfile", "service-manifest.yml", "contracts/**"],
+            "escalates_to": ["coding", "security", "docs"],
+        })
+
+    docs_paths = []
+    if has_docs:
+        docs_paths.extend(["docs/**", "README*.md"])
+    if has_contracts:
+        docs_paths.extend(["contracts/**", "**/*.openapi.yaml", "**/*.openapi.yml"])
+    docs_paths.extend(["**/*.schema.json", "service-manifest.yml", "message-contract*.yaml"])
+    teams.append({
+        "team_id": "docs",
+        "folder": "docs/" if has_dir(repo, "docs") else None,
+        "agents": ["tech-writer"],
+        "owns_paths": docs_paths,
+        "reads_paths": ["**"],
+        "escalates_to": ["coding", "infra", "security"],
+    })
+
+    security_paths = [".github/codeql/**", "security/**", ".secretscanignore", ".base64scanignore"]
+    teams.append({
+        "team_id": "security",
+        "folder": ".github/codeql/" if has_codeql else ("security/" if has_security_dir else None),
+        "agents": ["red-team-local", "red-team-architect"],
+        "owns_paths": security_paths,
+        "reads_paths": ["**"],
+        "escalates_to": ["coding", "infra", "docs"],
+    })
+
+    return teams
+
+
+def teams_to_yaml_block(teams, indent="  "):
+    lines = []
+    for t in teams:
+        folder = t["folder"] if t["folder"] is not None else "null"
+        lines.append(f"{indent}- team_id: {t['team_id']}")
+        lines.append(f"{indent}  folder: {folder}")
+        lines.append(f"{indent}  agents: [{', '.join(t['agents'])}]")
+        lines.append(f"{indent}  owns_paths:")
+        for p in t["owns_paths"]:
+            lines.append(f'{indent}    - "{p}"')
+        lines.append(f"{indent}  reads_paths:")
+        for p in t["reads_paths"]:
+            lines.append(f'{indent}    - "{p}"')
+        lines.append(f"{indent}  escalates_to: [{', '.join(t['escalates_to'])}]")
+    return "\n".join(lines)
+
+
+def cmd_detect_teams(args):
+    target = Path(args[0]).resolve() if args else Path.cwd()
+    if not target.exists():
+        print(f"osengineer: {target} does not exist", file=sys.stderr)
+        sys.exit(1)
+    teams = detect_teams(target)
+    print(teams_to_yaml_block(teams))
+    cache_dir = Path(target) / ".osengineer" / "teams"
+    if cache_dir.parent.is_dir():
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        for t in teams:
+            (cache_dir / f"{t['team_id']}.json").write_text(json.dumps(t, indent=2) + "\n")
+
+
+def parse_flags(args, allowed):
+    out = {}
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if not a.startswith("--"):
+            i += 1
+            continue
+        eq = a.find("=")
+        key = a[2:eq] if eq != -1 else a[2:]
+        if key not in allowed:
+            i += 1
+            continue
+        if eq != -1:
+            out[key] = a[eq + 1:]
+        elif i + 1 < len(args) and not args[i + 1].startswith("--"):
+            i += 1
+            out[key] = args[i]
+        else:
+            out[key] = ""
+        i += 1
+    return out
+
+
+def update_frontmatter(content, updates):
+    lines = content.splitlines()
+    start_idx = -1
+    end_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            if start_idx == -1:
+                start_idx = i
+            else:
+                end_idx = i
+                break
+    if start_idx == -1 or end_idx == -1:
+        return content
+    fm_lines = lines[start_idx + 1:end_idx]
+    for key, value in updates.items():
+        key_re = re.compile(r"^" + re.escape(key) + r":\s*")
+        idx = next((i for i, l in enumerate(fm_lines) if key_re.match(l)), -1)
+        if idx != -1:
+            fm_lines[idx] = f"{key}: {value}"
+        else:
+            fm_lines.append(f"{key}: {value}")
+    return "\n".join(lines[:start_idx + 1] + fm_lines + lines[end_idx:])
+
+
+def cmd_handoff(args):
+    ose = find_osengineer_root()
+    if not ose[0]:
+        print("osengineer: cwd is not inside an osEngineer-initialised workbench or repo", file=sys.stderr)
+        sys.exit(1)
+    root, scope = ose
+    flags = parse_flags(args, ["scope"])
+    scope = flags.get("scope", scope)
+    if scope not in {"workbench", "repo"}:
+        print(f'osengineer: invalid --scope "{scope}" (must be workbench or repo)', file=sys.stderr)
+        sys.exit(1)
+    prefix = "XR" if scope == "workbench" else "HO"
+    handoffs_dir = Path(root) / ".osengineer" / "handoffs"
+    handoffs_dir.mkdir(parents=True, exist_ok=True)
+
+    clean_args = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--scope":
+            i += 2
+            continue
+        clean_args.append(args[i])
+        i += 1
+
+    sub = clean_args[0] if clean_args else ""
+
+    if sub == "open":
+        allowed = ["from", "to", "slug", "closes-when", "from-repo", "to-repo"]
+        flags = parse_flags(clean_args[1:], allowed)
+        if not flags.get("slug"):
+            print('Usage: osengineer handoff open --slug <s> [--from <team>] [--to <team>] [--from-repo <r>] [--to-repo <r>] [--closes-when "<text>"]', file=sys.stderr)
+            sys.exit(1)
+        if scope == "repo" and (not flags.get("from") or not flags.get("to")):
+            print("repo-scope handoff requires --from <team> --to <team>", file=sys.stderr)
+            sys.exit(1)
+        if scope == "workbench" and (not flags.get("from-repo") or not flags.get("to-repo")):
+            print("workbench-scope handoff requires --from-repo <repo> --to-repo <repo>", file=sys.stderr)
+            sys.exit(1)
+        existing = [f for f in list_dir_safe(handoffs_dir) if re.match(rf"^{prefix}-\d+-", f)]
+        next_num = 1
+        for f in existing:
+            m = re.match(rf"^{prefix}-(\d+)-", f)
+            if m:
+                next_num = max(next_num, int(m.group(1)) + 1)
+        handoff_id = f"{prefix}-{str(next_num).zfill(3)}"
+        file = handoffs_dir / f"{handoff_id}-{flags['slug']}.md"
+        fm_lines = ["---", f"handoff_id: {handoff_id}", f"scope: {scope}"]
+        if scope == "repo":
+            fm_lines.append(f"from_team: {flags['from']}")
+            fm_lines.append(f"to_team: {flags['to']}")
+        else:
+            fm_lines.append(f"from_repo: {flags['from-repo']}")
+            fm_lines.append(f"to_repo: {flags['to-repo']}")
+        fm_lines.append(f"opened_at: {datetime.now(timezone.utc).isoformat()}")
+        closes = flags.get("closes-when", "")
+        fm_lines.append(f'closes_when: "{closes}"')
+        fm_lines.append("blocking_phase_transitions: [verify]")
+        fm_lines.append("---")
+        title_subject = f"{flags['from']} → {flags['to']}" if scope == "repo" else f"{flags['from-repo']} → {flags['to-repo']}"
+        body_lines = [
+            "",
+            f"# Handoff {handoff_id}: {title_subject}",
+            "",
+            f"Slug: {flags['slug']}",
+            "",
+            f"**Closes when:** {closes if closes else '(fill this in — required before close)'}",
+            "",
+        ]
+        file.write_text("\n".join(fm_lines + body_lines))
+        print(f"opened {handoff_id} → {file.relative_to(root)}")
+        return
+
+    if sub == "close":
+        if len(clean_args) < 2:
+            print('Usage: osengineer handoff close <id> [--reason "<text>"]', file=sys.stderr)
+            sys.exit(1)
+        handoff_id = clean_args[1]
+        flags = parse_flags(clean_args[2:], ["reason"])
+        files = [f for f in list_dir_safe(handoffs_dir) if f.startswith(f"{handoff_id}-") and f.endswith(".md")]
+        if not files:
+            print(f"osengineer: no handoff matching {handoff_id}", file=sys.stderr)
+            sys.exit(1)
+        if len(files) > 1:
+            print(f"osengineer: multiple handoffs match {handoff_id}: {', '.join(files)}", file=sys.stderr)
+            sys.exit(1)
+        file = handoffs_dir / files[0]
+        content = file.read_text()
+        if re.search(r"closed_at:", content):
+            print(f"{handoff_id} already closed")
+            return
+        reason = flags.get("reason", "(no reason given)")
+        updated = update_frontmatter(content, {
+            "closed_at": datetime.now(timezone.utc).isoformat(),
+            "close_reason": f'"{reason.replace(chr(34), chr(92) + chr(34))}"',
+        })
+        file.write_text(updated)
+        print(f"closed {handoff_id}")
+        return
+
+    if sub in ("list", ""):
+        files = [f for f in list_dir_safe(handoffs_dir) if re.match(r"^(HO|XR)-\d+-", f) and f.endswith(".md")]
+        if not files:
+            print("no handoffs")
+            return
+        for f in files:
+            content = (handoffs_dir / f).read_text()
+            open_mark = "○" if not re.search(r"closed_at:", content) else "●"
+            print(f"{open_mark} {f}")
+        return
+
+    print("Usage: osengineer handoff (open|close|list) ...", file=sys.stderr)
+    sys.exit(1)
+
+
+def discover_adrs(meta_path):
+    candidates = [
+        "documentation/adrs",
+        "documentation/adr",
+        "docs/adr",
+        "docs/adrs",
+        ".claude/adr-catalog",
+    ]
+    findings = []
+    for sub in candidates:
+        d = Path(meta_path) / sub
+        if not d.is_dir():
+            continue
+        for f in list_dir_safe(d):
+            m = re.match(r"^ADR-(\d{3})-(.+)\.md$", f, re.IGNORECASE)
+            if not m:
+                continue
+            title = m.group(2).replace("-", " ")
+            status = "unknown"
+            try:
+                content = (d / f).read_text()
+                title_line = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
+                if title_line:
+                    title = re.sub(r"^ADR-\d+:?\s*", "", title_line.group(1).strip())
+                sm = re.search(r"^[\*\s|]*Status[\*\s|:]+\s*([A-Za-z ✅⚠️]+)", content, re.MULTILINE)
+                if sm:
+                    status = sm.group(1).strip().lower()
+            except Exception:
+                pass
+            findings.append({
+                "id": f"ADR-{m.group(1)}",
+                "title": title,
+                "status": status,
+                "file": str(Path(sub) / f).replace("\\", "/"),
+            })
+    arc42 = Path(meta_path) / "documentation" / "09-architectural-decisions.md"
+    if arc42.exists():
+        try:
+            content = arc42.read_text()
+            blocks = re.split(r"^###\s+", content, flags=re.MULTILINE)[1:]
+            for b in blocks:
+                m = re.search(r"^ADR-(\d{3}):?\s*(.+?)$", b, re.MULTILINE)
+                if not m:
+                    continue
+                adr_id = f"ADR-{m.group(1)}"
+                if any(f["id"] == adr_id for f in findings):
+                    continue
+                status_match = re.search(r"Status[\*\s|:]+([A-Za-z ✅⚠️]+)", b)
+                status = status_match.group(1).strip().lower() if status_match else "unknown"
+                findings.append({
+                    "id": adr_id,
+                    "title": m.group(2).strip(),
+                    "status": status,
+                    "file": "documentation/09-architectural-decisions.md",
+                })
+        except Exception:
+            pass
+    findings.sort(key=lambda x: x["id"])
+    return findings
+
+
+def cmd_discover_adrs(args):
+    if not args:
+        print("Usage: osengineer discover-adrs <meta-path> [--out <file>]", file=sys.stderr)
+        sys.exit(1)
+    meta_path = Path(args[0])
+    if not meta_path.exists():
+        print(f"osengineer: {meta_path} does not exist", file=sys.stderr)
+        sys.exit(1)
+    findings = discover_adrs(meta_path)
+    flags = parse_flags(args[1:], ["out"])
+    lines = [
+        "# osEngineer ADR catalog — generated from META repo",
+        f"# Source: {meta_path}",
+        f"# Generated: {datetime.now(timezone.utc).isoformat()}",
+        "",
+        "adrs:",
+    ]
+    for a in findings:
+        lines.append(f"  - id: {a['id']}")
+        lines.append(f'    title: "{a["title"].replace(chr(34), chr(92) + chr(34))}"')
+        lines.append(f"    status: {a['status']}")
+        lines.append(f"    file: {a['file']}")
+    out = "\n".join(lines) + "\n"
+    if flags.get("out"):
+        out_path = Path(flags["out"])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(out)
+        print(f"wrote {len(findings)} ADR entries → {out_path}")
+    else:
+        print(out, end="")
+
+
+# ── Evolution loop ───────────────────────────────────────────────────────────
+
+def read_evolution_counter(repo_root):
+    p = Path(repo_root) / ".osengineer" / "evolution-counter.yml"
+    if not p.exists():
+        return {"phases_since_last_evolution": 0, "total_evolutions_accepted": 0}
+    raw = p.read_text()
+    out = {"phases_since_last_evolution": 0, "total_evolutions_accepted": 0}
+    m1 = re.search(r"^phases_since_last_evolution:\s*(\d+)", raw, re.MULTILINE)
+    m2 = re.search(r"^total_evolutions_accepted:\s*(\d+)", raw, re.MULTILINE)
+    if m1:
+        out["phases_since_last_evolution"] = int(m1.group(1))
+    if m2:
+        out["total_evolutions_accepted"] = int(m2.group(1))
+    return out
+
+
+def write_evolution_counter(repo_root, fields):
+    p = Path(repo_root) / ".osengineer" / "evolution-counter.yml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    existing = read_evolution_counter(repo_root)
+    merged = {**existing, **fields}
+    lines = [
+        "# Incremented by osEngineer-post-commit hook. Auto-nudge fires at >= 5.",
+        f"phases_since_last_evolution: {merged['phases_since_last_evolution']}",
+        f"total_evolutions_accepted: {merged['total_evolutions_accepted']}",
+    ]
+    if merged.get("last_evolution_date"):
+        lines.append(f"last_evolution_date: {merged['last_evolution_date']}")
+    p.write_text("\n".join(lines) + "\n")
+
+
+def list_proposals(repo_root):
+    d = Path(repo_root) / ".osengineer" / "evolution-proposals"
+    if not d.is_dir():
+        return []
+    return sorted([f for f in list_dir_safe(d) if re.match(r"^EP-\d+-", f) and f.endswith(".md")])
+
+
+def cmd_evolve(args):
+    repo_root = find_repo_root()
+    if not repo_root:
+        print("osengineer: not inside a git repo", file=sys.stderr)
+        sys.exit(1)
+    sub = args[0] if args else ""
+
+    if not sub or sub == "status":
+        c = read_evolution_counter(repo_root)
+        proposals = list_proposals(repo_root)
+        open_p = []
+        closed = []
+        for f in proposals:
+            content = (Path(repo_root) / ".osengineer" / "evolution-proposals" / f).read_text()
+            if re.search(r"^status:\s*(accepted|rejected)", content, re.MULTILINE):
+                closed.append(f)
+            else:
+                open_p.append(f)
+        print(f"phases_since_last_evolution: {c['phases_since_last_evolution']}")
+        print(f"total_evolutions_accepted: {c['total_evolutions_accepted']}")
+        if c["phases_since_last_evolution"] >= 5:
+            print("⚙ counter ≥ 5 — consider proposing improvements")
+        print(f"open proposals: {len(open_p)}")
+        for f in open_p:
+            print(f"  ○ {f}")
+        print(f"closed proposals: {len(closed)}")
+        for f in closed:
+            print(f"  ● {f}")
+        return
+
+    if sub == "propose":
+        flags = parse_flags(args[1:], ["title", "body-file", "body", "category"])
+        if not flags.get("title"):
+            print('Usage: osengineer evolve propose --title "<t>" [--body "<text>" | --body-file <f>] [--category <c>]', file=sys.stderr)
+            sys.exit(1)
+        d = Path(repo_root) / ".osengineer" / "evolution-proposals"
+        d.mkdir(parents=True, exist_ok=True)
+        existing = list_proposals(repo_root)
+        next_num = 1
+        for f in existing:
+            m = re.match(r"^EP-(\d+)-", f)
+            if m:
+                next_num = max(next_num, int(m.group(1)) + 1)
+        prop_id = f"EP-{str(next_num).zfill(3)}"
+        slug = re.sub(r"[^a-z0-9]+", "-", flags["title"].lower()).strip("-")[:50]
+        file = d / f"{prop_id}-{slug}.md"
+        body = flags.get("body", "")
+        if flags.get("body-file"):
+            try:
+                body = Path(flags["body-file"]).read_text()
+            except Exception:
+                print(f"osengineer: cannot read --body-file {flags['body-file']}", file=sys.stderr)
+                sys.exit(1)
+        content = [
+            "---",
+            f"proposal_id: {prop_id}",
+            f'title: "{flags["title"].replace(chr(34), chr(92) + chr(34))}"',
+            f"category: {flags.get('category', 'general')}",
+            "status: open",
+            f"opened_at: {datetime.now(timezone.utc).isoformat()}",
+            f"opened_in_repo: {repo_root.name}",
+            "---",
+            "",
+            f"# Evolution proposal {prop_id}: {flags['title']}",
+            "",
+            body if body else "(no body provided — fill this in before requesting acceptance)",
+            "",
+        ]
+        file.write_text("\n".join(content))
+        print(f"opened {prop_id} → {file.relative_to(repo_root)}")
+        return
+
+    if sub == "accept":
+        if len(args) < 2:
+            print('Usage: osengineer evolve accept <id> --pattern-slug <slug> [--pattern-file <f>]', file=sys.stderr)
+            sys.exit(1)
+        prop_id = args[1]
+        flags = parse_flags(args[2:], ["pattern-slug", "pattern-file"])
+        if not flags.get("pattern-slug"):
+            print("--pattern-slug is required", file=sys.stderr)
+            sys.exit(1)
+        d = Path(repo_root) / ".osengineer" / "evolution-proposals"
+        files = [f for f in list_dir_safe(d) if f.startswith(f"{prop_id}-") and f.endswith(".md")]
+        if not files:
+            print(f"osengineer: no proposal matching {prop_id}", file=sys.stderr)
+            sys.exit(1)
+        if len(files) > 1:
+            print(f"osengineer: multiple proposals match {prop_id}: {', '.join(files)}", file=sys.stderr)
+            sys.exit(1)
+        file = d / files[0]
+        original = file.read_text()
+        updated = update_frontmatter(original, {
+            "status": "accepted",
+            "accepted_at": datetime.now(timezone.utc).isoformat(),
+        })
+        file.write_text(updated)
+        pattern_file = SCRIPT_DIR / "memory" / "patterns" / f"{flags['pattern-slug']}.md"
+        pattern_file.parent.mkdir(parents=True, exist_ok=True)
+        if flags.get("pattern-file"):
+            try:
+                src = Path(flags["pattern-file"]).read_text()
+                pattern_file.write_text(src)
+            except Exception:
+                print(f"osengineer: cannot read --pattern-file {flags['pattern-file']}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            stub_body = re.sub(r"^---\n[\s\S]*?\n---\n", "", original, flags=re.MULTILINE)
+            stub = [
+                f"# Pattern: {flags['pattern-slug']}",
+                "",
+                f"Promoted from evolution proposal {prop_id} in repo {repo_root.name} on {datetime.now(timezone.utc).isoformat()[:10]}.",
+                "",
+                stub_body,
+            ]
+            pattern_file.write_text("\n".join(stub))
+        c = read_evolution_counter(repo_root)
+        write_evolution_counter(repo_root, {
+            "phases_since_last_evolution": 0,
+            "total_evolutions_accepted": c["total_evolutions_accepted"] + 1,
+            "last_evolution_date": datetime.now(timezone.utc).isoformat()[:10],
+        })
+        print(f"accepted {prop_id} → memory/patterns/{flags['pattern-slug']}.md")
+        print(f"counter reset to 0; total accepted = {c['total_evolutions_accepted'] + 1}")
+        return
+
+    if sub == "reject":
+        if len(args) < 2:
+            print('Usage: osengineer evolve reject <id> --reason "<text>"', file=sys.stderr)
+            sys.exit(1)
+        prop_id = args[1]
+        flags = parse_flags(args[2:], ["reason"])
+        if not flags.get("reason"):
+            print("--reason is required", file=sys.stderr)
+            sys.exit(1)
+        d = Path(repo_root) / ".osengineer" / "evolution-proposals"
+        files = [f for f in list_dir_safe(d) if f.startswith(f"{prop_id}-") and f.endswith(".md")]
+        if not files:
+            print(f"osengineer: no proposal matching {prop_id}", file=sys.stderr)
+            sys.exit(1)
+        file = d / files[0]
+        original = file.read_text()
+        updated = re.sub(r"^status:\s*open", "status: rejected", original, flags=re.MULTILINE)
+        updated = re.sub(
+            r"^(---\n[\s\S]*?)(\n---)",
+            r"\1\nrejected_at: " + datetime.now(timezone.utc).isoformat() + r"\nreject_reason: \"" + flags["reason"].replace('"', '\\"') + r"\"\2",
+            updated,
+            flags=re.MULTILINE,
+        )
+        file.write_text(updated)
+        log_path = Path(repo_root) / ".osengineer" / "evolution-rejections.jsonl"
+        entry = json.dumps({
+            "proposal_id": prop_id,
+            "rejected_at": datetime.now(timezone.utc).isoformat(),
+            "reason": flags["reason"],
+        }) + "\n"
+        with open(log_path, "a") as f:
+            f.write(entry)
+        c = read_evolution_counter(repo_root)
+        write_evolution_counter(repo_root, {
+            "phases_since_last_evolution": 0,
+            "total_evolutions_accepted": c["total_evolutions_accepted"],
+            "last_evolution_date": datetime.now(timezone.utc).isoformat()[:10],
+        })
+        print(f"rejected {prop_id} (reason logged); counter reset to 0")
+        return
+
+    print("Usage: osengineer evolve (status|propose|accept|reject) ...", file=sys.stderr)
+    sys.exit(1)
+
+
+# ── Scaffold ─────────────────────────────────────────────────────────────────
+
+def cmd_scaffold(args):
+    sub = args[0] if args else ""
+    if sub == "agent":
+        return cmd_scaffold_agent(args[1:])
+    if sub == "command":
+        return cmd_scaffold_command(args[1:])
+    print("Usage: osengineer scaffold (agent|command) <name> [flags]", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_scaffold_agent(args):
+    if not args:
+        print('Usage: osengineer scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>] [--out <path>]', file=sys.stderr)
+        sys.exit(1)
+    name = args[0]
+    if not re.match(r"^[a-z][a-z0-9-]*$", name):
+        print('osengineer: agent name must be lowercase-with-hyphens, e.g. "my-agent"', file=sys.stderr)
+        sys.exit(1)
+    flags = parse_flags(args[1:], ["role", "scope", "escalates-to", "out"])
+    template = SCRIPT_DIR / "templates" / "agent.md.tmpl"
+    if not template.exists():
+        print(f"osengineer: template missing — {template}", file=sys.stderr)
+        sys.exit(1)
+    title = " ".join(w.capitalize() for w in name.split("-"))
+    out = template.read_text()
+    out = out.replace("{{NAME}}", name)
+    out = out.replace("{{TITLE}}", title)
+    out = out.replace("{{ROLE}}", flags.get("role", "implementer"))
+    out = out.replace("{{SCOPE}}", flags.get("scope", "team"))
+    out = out.replace("{{ESCALATES_TO}}", flags.get("escalates-to", "architect"))
+    dst = Path(flags["out"]) if flags.get("out") else SCRIPT_DIR / "agents" / f"{name}.md"
+    if dst.exists():
+        print(f"osengineer: {dst} already exists — refusing to overwrite. Use --out to redirect.", file=sys.stderr)
+        sys.exit(1)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(out)
+    print(f"scaffolded {dst.relative_to(SCRIPT_DIR)}")
+    print("Next steps:")
+    print(f"  1. Fill in the TODO sections in {dst.name} (description verbs, mandate, protocol).")
+    print(f'  2. If this agent should ship to every initialised repo, add "{name}.md" to MANDATORY_AGENTS in install.sh.')
+    print("  3. Add a one-line entry under the right section of agents/INDEX.md.")
+
+
+def cmd_scaffold_command(args):
+    if not args:
+        print('Usage: osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]', file=sys.stderr)
+        sys.exit(1)
+    name = args[0]
+    if not re.match(r"^[a-z][a-z0-9-]*$", name):
+        print('osengineer: command name must be lowercase-with-hyphens', file=sys.stderr)
+        sys.exit(1)
+    flags = parse_flags(args[1:], ["phase-allowed", "phase-after", "out"])
+    template = SCRIPT_DIR / "templates" / "command.md.tmpl"
+    if not template.exists():
+        print(f"osengineer: template missing — {template}", file=sys.stderr)
+        sys.exit(1)
+    out = template.read_text()
+    out = out.replace("{{NAME}}", name)
+    out = out.replace("{{PHASE_ALLOWED}}", flags.get("phase-allowed", "execute"))
+    out = out.replace("{{PHASE_AFTER}}", flags.get("phase-after", "null"))
+    dst = Path(flags["out"]) if flags.get("out") else SCRIPT_DIR / "commands" / f"osEngineer-{name}.md"
+    if dst.exists():
+        print(f"osengineer: {dst} already exists — refusing to overwrite. Use --out to redirect.", file=sys.stderr)
+        sys.exit(1)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(out)
+    print(f"scaffolded {dst.relative_to(SCRIPT_DIR)}")
+    print("Next steps:")
+    print(f"  1. Fill in the TODO sections in {dst.name} (description verbs, steps, example).")
+    print("  2. Add a one-line entry under commands/INDEX.md.")
+
+
+def cmd_explain(args):
+    topic = args[0] if args else "overview"
+    messages = {
+        "overview": (
+            "osEngineer — a real-enforcement, multi-repo engineering skill.\n"
+            "Three-level nesting: workbench → repo → team. Each level has an\n"
+            "AGENTS.md (architect) and a .osengineer/ (state). Runtime enforcement\n"
+            "via git hooks + Claude hooks + this CLI + CI status checks."
+        ),
+        "phases": (
+            "Phase lifecycle: idle → discuss → plan → execute → verify → accepted.\n"
+            "Micro-Phase (Hotfix): idle → micro (or hotfix) → accepted (lightweight cycle).\n"
+            "`blocked` is a side-state entered on budget overrun or hard-rule violation.\n"
+            "Transitions are gated by hooks: no execute without PHASE_PLAN.md, no\n"
+            "verify without green test run, no merge without VERIFICATION.md (or MICRO_PLAN.md)."
+        ),
+        "hooks": (
+            "Ten enforcement hooks live in hooks/osEngineer-*. install.sh copies\n"
+            "the git hooks into .git/hooks/ and wires the Claude hooks via\n"
+            "absolute path in .claude/settings.json. Bypass any hook with\n"
+            "OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl)."
+        ),
+        "teams": (
+            "Five teams per repo: coding / testing / infra / docs / security.\n"
+            "install.sh auto-detects folder ownership from go.mod, ansible/,\n"
+            "*_test.go, docs/, .github/codeql etc., and writes both the YAML\n"
+            "in AGENTS.md AND a JSON cache in .osengineer/teams/<team>.json that\n"
+            "osEngineer-pre-edit-guard reads to enforce owns_paths at edit time.\n"
+            "Cross-team handoffs live in .osengineer/handoffs/HO-<n>-*.md and\n"
+            "are managed via `osengineer handoff (open|close|list)`."
+        ),
+        "handoffs": (
+            "Handoffs are filesystem-tracked tickets between teams. When team A\n"
+            "needs team B to act first, A runs:\n"
+            "  osengineer handoff open --from <A> --to <B> --slug <s> --closes-when \"<text>\"\n"
+            "and the architect agent watches the directory. Verify-phase transitions\n"
+            "are blocked while any handoff is open."
+        ),
+        "scaffold": (
+            "Materialise a new agent or command file from templates/:\n"
+            "  osengineer scaffold agent <name> --role <r> --scope <s> --escalates-to <list>\n"
+            "  osengineer scaffold command <name> --phase-allowed <list> --phase-after <p>\n"
+            "Refuses to overwrite existing files. Templates live in templates/agent.md.tmpl\n"
+            "and templates/command.md.tmpl. Both enforce the frontmatter convention\n"
+            "documented in templates/frontmatter-pattern.md."
+        ),
+        "evolution": (
+            "Evolution loop: the post-commit hook increments\n"
+            ".osengineer/evolution-counter.yml; at >= 5 the session-start banner\n"
+            "auto-nudges. Propose an improvement with\n"
+            "  osengineer evolve propose --title \"<t>\" --body \"<text>\"\n"
+            "Accept with `osengineer evolve accept <id> --pattern-slug <s>` (promotes\n"
+            "to memory/patterns/) or `osengineer evolve reject <id> --reason \"<r>\"`\n"
+            "(logged to evolution-rejections.jsonl). Either action resets the counter."
+        ),
     }
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  return null;
-}
+    msg = messages.get(topic)
+    if not msg:
+        print(f'Unknown topic "{topic}". Available: {", ".join(messages.keys())}')
+        sys.exit(1)
+    print(msg)
 
-function readWorkbenchConfig(workbenchRoot) {
-  const p = path.join(workbenchRoot, '.osengineer', 'workbench-config.yml');
-  if (!fs.existsSync(p)) return null;
-  const raw = fs.readFileSync(p, 'utf8');
-  const config = {};
-  let currentArray = null;
-  let currentArrayKey = null;
-  let indentStack = [];
-  for (const line of raw.split('\n')) {
-    if (/^\s*#/.test(line) || line.trim() === '') continue;
-    const topKey = line.match(/^(\w+):\s*(.*)$/);
-    if (topKey && !line.startsWith(' ') && !line.startsWith('-')) {
-      currentArray = null;
-      config[topKey[1]] = topKey[2].trim().replace(/^["']|["']$/g, '');
-      if (topKey[2].trim() === '') {
-        // Might be an object or array starting on next lines
-        config[topKey[1]] = [];
-        currentArray = config[topKey[1]];
-        currentArrayKey = topKey[1];
-      }
-      continue;
-    }
-    const arrayItem = line.match(/^\s+- (\w+):\s*(.*)$/);
-    if (arrayItem && currentArray) {
-      currentArray.push({ [arrayItem[1]]: arrayItem[2].trim().replace(/^["']|["']$/g, '') });
-      continue;
-    }
-    const nestedKey = line.match(/^\s+(\w+):\s*(.*)$/);
-    if (nestedKey && currentArray && currentArray.length > 0) {
-      const last = currentArray[currentArray.length - 1];
-      if (typeof last === 'object') {
-        last[nestedKey[1]] = nestedKey[2].trim().replace(/^["']|["']$/g, '');
-      }
-    }
-  }
-  // Fix: if top-level keys were mistakenly turned into arrays, restore scalar values
-  for (const k of Object.keys(config)) {
-    if (Array.isArray(config[k]) && config[k].length === 0) delete config[k];
-  }
-  return config;
-}
 
-function readStateMap(repoRoot) {
-  const p = path.join(repoRoot, '.osengineer', 'state.yml');
-  if (!fs.existsSync(p)) return null;
-  const raw = fs.readFileSync(p, 'utf8');
-  const state = {};
-  for (const line of raw.split('\n')) {
-    const m = line.match(/^(\w+):\s*(.*)$/);
-    if (!m) continue;
-    state[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
-  }
-  return state;
-}
+def usage():
+    print(
+        f"osengineer {VERSION}\n\n"
+        "Usage:\n"
+        "  osengineer init <path>                  Initialise a repo with osEngineer wiring\n"
+        "  osengineer state                        Show .osengineer/state.yml fields\n"
+        "  osengineer state set <k> <v>            Update a state.yml field\n"
+        "  osengineer detect-teams <path>          Auto-detect team→folder mapping (outputs YAML)\n"
+        "  osengineer handoff open --from <t> --to <t> --slug <s> [--closes-when \"<text>\"]\n"
+        "  osengineer handoff close <id> [--reason \"<text>\"]\n"
+        "  osengineer handoff list\n"
+        "  osengineer discover-adrs <meta-path> [--out <file>]\n"
+        "                                          Scan a META repo for ADRs; emit YAML catalog\n"
+        "  osengineer evolve [status]               Show counter + open/closed proposals\n"
+        "  osengineer evolve propose --title \"<t>\" [--body \"<text>\" | --body-file <f>] [--category <c>]\n"
+        "  osengineer evolve accept <id> --pattern-slug <s> [--pattern-file <f>]\n"
+        "                                          Promote proposal to memory/patterns/<s>.md; reset counter\n"
+        "  osengineer evolve reject <id> --reason \"<text>\"\n"
+        "                                          Log rejection; reset counter\n"
+        "  osengineer scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>]\n"
+        "                                          Materialise a new agent file from template\n"
+        "  osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]\n"
+        "                                          Materialise a new command file from template\n"
+        "  osengineer version                      Print osEngineer version\n"
+        "  osengineer explain [topic]              overview|phases|hooks|teams|handoffs|scaffold"
+    )
 
-function writeStateField(repoRoot, key, value) {
-  const p = path.join(repoRoot, '.osengineer', 'state.yml');
-  if (!fs.existsSync(p)) {
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, `${key}: ${value}\n`);
-    return;
-  }
-  const lines = fs.readFileSync(p, 'utf8').split('\n');
-  let found = false;
-  for (let i = 0; i < lines.length; i++) {
-    if (new RegExp('^' + key + ':').test(lines[i])) {
-      lines[i] = `${key}: ${value}`;
-      found = true;
-      break;
-    }
-  }
-  if (!found) lines.push(`${key}: ${value}`);
-  fs.writeFileSync(p, lines.join('\n'));
-}
 
-function listDirSafe(dir) {
-  try { return fs.readdirSync(dir); } catch { return []; }
-}
+# ── Dispatch ─────────────────────────────────────────────────────────────────
 
-function hasAny(repo, ...patterns) {
-  return patterns.some(p => fs.existsSync(path.join(repo, p)));
-}
+def main():
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("help", "--help", "-h"):
+        usage()
+        sys.exit(0 if not argv else 0)
+    sub = argv[0]
+    rest = argv[1:]
+    if sub in ("version", "--version", "-v"):
+        cmd_version()
+    elif sub == "init":
+        cmd_init(rest)
+    elif sub == "state":
+        cmd_state(rest)
+    elif sub == "detect-teams":
+        cmd_detect_teams(rest)
+    elif sub == "handoff":
+        cmd_handoff(rest)
+    elif sub == "discover-adrs":
+        cmd_discover_adrs(rest)
+    elif sub == "evolve":
+        cmd_evolve(rest)
+    elif sub == "scaffold":
+        cmd_scaffold(rest)
+    elif sub == "explain":
+        cmd_explain(rest)
+    else:
+        print(f'osengineer: unknown subcommand "{sub}"\n', file=sys.stderr)
+        usage()
+        sys.exit(1)
 
-function hasDir(repo, ...patterns) {
-  return patterns.some(p => {
-    const full = path.join(repo, p);
-    try { return fs.statSync(full).isDirectory(); }
-    catch { return false; }
-  });
-}
 
-function hasFileMatching(repo, regex, depth = 3) {
-  const stack = [{ dir: repo, depth: 0 }];
-  while (stack.length > 0) {
-    const { dir, depth: d } = stack.pop();
-    if (d > depth) continue;
-    for (const name of listDirSafe(dir)) {
-      if (name === '.git' || name === 'node_modules' || name === 'vendor' ||
-          name === 'graphify-out' || name === '.osengineer') continue;
-      const full = path.join(dir, name);
-      let stat;
-      try { stat = fs.statSync(full); } catch { continue; }
-      if (stat.isDirectory()) stack.push({ dir: full, depth: d + 1 });
-      else if (regex.test(name)) return true;
-    }
-  }
-  return false;
-}
-
-// ── Subcommands ────────────────────────────────────────────────────────────
-
-function cmdVersion() {
-  process.stdout.write(`osengineer ${VERSION}\n`);
-}
-
-function cmdState(args) {
-  const repoRoot = findRepoRoot(process.cwd());
-  if (args[0] === 'set') {
-    if (!repoRoot) { console.error('osengineer: not inside a git repo'); process.exit(1); }
-    const [, key, ...rest] = args;
-    if (!key || rest.length === 0) {
-      console.error('Usage: osengineer state set <key> <value>'); process.exit(1);
-    }
-    writeStateField(repoRoot, key, rest.join(' '));
-    process.stdout.write(`set ${key} = ${rest.join(' ')}\n`);
-    return;
-  }
-  if (!repoRoot) { console.error('osengineer: not inside a git repo'); process.exit(1); }
-  const state = readStateMap(repoRoot);
-  if (!state) {
-    process.stdout.write('No .osengineer/ directory. Run install.sh first.\n');
-    process.exit(0);
-  }
-  for (const [k, v] of Object.entries(state)) process.stdout.write(`${k}: ${v}\n`);
-}
-
-function cmdInit(args) {
-  const target = args[0] || process.cwd();
-  if (!fs.existsSync(target)) {
-    console.error(`osengineer: ${target} does not exist`); process.exit(1);
-  }
-  const installScript = path.join(SCRIPT_DIR, 'install.sh');
-  if (!fs.existsSync(installScript)) {
-    console.error(`osengineer: install.sh not found at ${installScript}`); process.exit(1);
-  }
-  // Detect workbench vs single repo: target IS a repo if it has .git/;
-  // target is a workbench if it has no .git/ but has child dirs with .git/.
-  const isRepo = fs.existsSync(path.join(target, '.git'));
-  const installArgs = isRepo ? [installScript, target] : [installScript, '--workbench', target];
-  const result = spawnSync('bash', installArgs, { stdio: 'inherit' });
-  process.exit(result.status ?? 1);
-}
-
-function detectTeams(repo) {
-  // Probes the repo for evidence of each team's relevance + suggested ownership.
-  // Returns an array of team objects matching the agents-md.schema.json `teams` shape.
-  const teams = [];
-
-  const hasGo      = hasAny(repo, 'go.mod');
-  const hasPython  = hasAny(repo, 'pyproject.toml', 'setup.py', 'requirements.txt');
-  const hasNode    = hasAny(repo, 'package.json');
-  const hasRust    = hasAny(repo, 'Cargo.toml');
-  const hasAnsible = hasDir(repo, 'ansible', 'roles', 'playbooks');
-  const hasCompose = hasFileMatching(repo, /^docker-compose.*\.ya?ml$/);
-  const hasSrcDir  = hasDir(repo, 'src', 'internal', 'cmd', 'pkg');
-  const hasTestsDir = hasDir(repo, 'test', 'tests', 'integration', 'e2e');
-  const hasGoTests = hasFileMatching(repo, /^.+_test\.go$/);
-  const hasPyTests = hasFileMatching(repo, /^test_.+\.py$/);
-  const hasDocs    = hasDir(repo, 'docs') || hasAny(repo, 'README.md', 'README.rst');
-  const hasContracts = hasDir(repo, 'contracts') || hasFileMatching(repo, /^.+\.openapi\.ya?ml$/);
-  const hasCodeQL  = hasDir(repo, '.github/codeql');
-  const hasSecurityDir = hasDir(repo, 'security');
-
-  // Coding team
-  const codingPaths = [];
-  if (hasGo) { codingPaths.push('internal/**', 'cmd/**', 'pkg/**'); }
-  if (hasPython || hasNode || hasRust) codingPaths.push('src/**');
-  if (hasSrcDir && codingPaths.length === 0) codingPaths.push('src/**');
-  if (codingPaths.length > 0) {
-    teams.push({
-      team_id: 'coding',
-      folder: hasGo && hasDir(repo, 'internal') ? 'internal/' : (hasDir(repo, 'src') ? 'src/' : null),
-      agents: ['developer', 'reviewer'],
-      owns_paths: codingPaths,
-      reads_paths: ['api/**', 'contracts/**', 'ansible/**', 'docs/**'],
-      escalates_to: ['testing', 'infra', 'docs', 'security'],
-    });
-  }
-
-  // Testing team (glob-only is common for Go)
-  const testingPaths = [];
-  if (hasGoTests) testingPaths.push('**/*_test.go');
-  if (hasPyTests) testingPaths.push('**/test_*.py');
-  if (hasTestsDir) testingPaths.push('tests/**', 'test/**', 'integration/**', 'e2e/**');
-  if (testingPaths.length > 0) {
-    teams.push({
-      team_id: 'testing',
-      folder: hasTestsDir ? (fs.existsSync(path.join(repo, 'tests')) ? 'tests/' : 'test/') : null,
-      agents: ['qa'],
-      owns_paths: testingPaths,
-      reads_paths: ['internal/**', 'cmd/**', 'pkg/**', 'src/**', 'api/**', 'contracts/**'],
-      escalates_to: ['coding'],
-    });
-  }
-
-  // Infra team
-  const infraPaths = [];
-  if (hasAnsible) infraPaths.push('ansible/**', 'roles/**', 'playbooks/**');
-  if (hasCompose) infraPaths.push('docker-compose*.yml', 'Dockerfile*');
-  if (hasDir(repo, 'scripts')) infraPaths.push('scripts/**');
-  if (hasDir(repo, '.github/workflows')) infraPaths.push('.github/workflows/**');
-  if (infraPaths.length > 0) {
-    teams.push({
-      team_id: 'infra',
-      folder: hasAnsible ? 'ansible/' : null,
-      agents: ['topology-validator', 'live-system-operator', 'cert-monitor', 'health-verifier'],
-      owns_paths: infraPaths,
-      reads_paths: ['**/*.yml', '**/Dockerfile', 'service-manifest.yml', 'contracts/**'],
-      escalates_to: ['coding', 'security', 'docs'],
-    });
-  }
-
-  // Docs team
-  const docsPaths = [];
-  if (hasDocs) docsPaths.push('docs/**', 'README*.md');
-  if (hasContracts) docsPaths.push('contracts/**', '**/*.openapi.yaml', '**/*.openapi.yml');
-  docsPaths.push('**/*.schema.json', 'service-manifest.yml', 'message-contract*.yaml');
-  teams.push({
-    team_id: 'docs',
-    folder: hasDir(repo, 'docs') ? 'docs/' : null,
-    agents: ['tech-writer'],
-    owns_paths: docsPaths,
-    reads_paths: ['**'],
-    escalates_to: ['coding', 'infra', 'security'],
-  });
-
-  // Security team (always present, owns the small SAST/secret-scan surface)
-  const securityPaths = ['.github/codeql/**', 'security/**', '.secretscanignore', '.base64scanignore'];
-  teams.push({
-    team_id: 'security',
-    folder: hasCodeQL ? '.github/codeql/' : (hasSecurityDir ? 'security/' : null),
-    agents: ['red-team-local', 'red-team-architect'],
-    owns_paths: securityPaths,
-    reads_paths: ['**'],
-    escalates_to: ['coding', 'infra', 'docs'],
-  });
-
-  return teams;
-}
-
-function teamsToYamlBlock(teams, indent = '  ') {
-  const lines = [];
-  for (const t of teams) {
-    lines.push(`${indent}- team_id: ${t.team_id}`);
-    lines.push(`${indent}  folder: ${t.folder === null ? 'null' : t.folder}`);
-    lines.push(`${indent}  agents: [${t.agents.join(', ')}]`);
-    lines.push(`${indent}  owns_paths:`);
-    for (const p of t.owns_paths) lines.push(`${indent}    - "${p}"`);
-    lines.push(`${indent}  reads_paths:`);
-    for (const p of t.reads_paths) lines.push(`${indent}    - "${p}"`);
-    lines.push(`${indent}  escalates_to: [${t.escalates_to.join(', ')}]`);
-  }
-  return lines.join('\n');
-}
-
-function cmdDetectTeams(args) {
-  const target = args[0] || process.cwd();
-  if (!fs.existsSync(target)) {
-    console.error(`osengineer: ${target} does not exist`); process.exit(1);
-  }
-  const teams = detectTeams(target);
-  process.stdout.write(teamsToYamlBlock(teams) + '\n');
-  // Also write a JSON cache for hooks (machine-friendly, no YAML parsing needed)
-  const cacheDir = path.join(target, '.osengineer', 'teams');
-  if (fs.existsSync(path.join(target, '.osengineer'))) {
-    fs.mkdirSync(cacheDir, { recursive: true });
-    for (const t of teams) {
-      fs.writeFileSync(
-        path.join(cacheDir, `${t.team_id}.json`),
-        JSON.stringify(t, null, 2) + '\n'
-      );
-    }
-  }
-}
-
-function cmdHandoff(args) {
-  // Detect scope automatically from cwd: workbench scope uses XR-* tickets,
-  // repo scope uses HO-* tickets. User can override with --scope workbench|repo.
-  const ose = findOsEngineerRoot(process.cwd());
-  if (!ose) {
-    console.error('osengineer: cwd is not inside an osEngineer-initialised workbench or repo');
-    process.exit(1);
-  }
-
-  // Allow --scope override (must consume early)
-  const scopeOverride = parseFlags(args, ['scope']).scope;
-  const scope = scopeOverride || ose.scope;
-  if (!['workbench', 'repo'].includes(scope)) {
-    console.error(`osengineer: invalid --scope "${scope}" (must be workbench or repo)`);
-    process.exit(1);
-  }
-  const prefix = scope === 'workbench' ? 'XR' : 'HO';
-  const handoffsDir = path.join(ose.root, '.osengineer', 'handoffs');
-  fs.mkdirSync(handoffsDir, { recursive: true });
-
-  // Strip --scope flag from args so subcommand parsing isn't confused
-  const cleanArgs = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--scope') { i++; continue; }
-    cleanArgs.push(args[i]);
-  }
-  const sub = cleanArgs[0];
-
-  if (sub === 'open') {
-    const allowed = ['from', 'to', 'slug', 'closes-when', 'from-repo', 'to-repo'];
-    const flags = parseFlags(cleanArgs.slice(1), allowed);
-    if (!flags.slug) {
-      console.error('Usage: osengineer handoff open --slug <s> [--from <team>] [--to <team>] [--from-repo <r>] [--to-repo <r>] [--closes-when "<text>"]');
-      process.exit(1);
-    }
-    if (scope === 'repo' && (!flags.from || !flags.to)) {
-      console.error('repo-scope handoff requires --from <team> --to <team>');
-      process.exit(1);
-    }
-    if (scope === 'workbench' && (!flags['from-repo'] || !flags['to-repo'])) {
-      console.error('workbench-scope handoff requires --from-repo <r> --to-repo <r>');
-      process.exit(1);
-    }
-    const existing = listDirSafe(handoffsDir).filter(f => new RegExp(`^${prefix}-\\d+-`).test(f));
-    let nextNum = 1;
-    for (const f of existing) {
-      const m = f.match(new RegExp(`^${prefix}-(\\d+)-`));
-      if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
-    }
-    const id = `${prefix}-${String(nextNum).padStart(3, '0')}`;
-    const file = path.join(handoffsDir, `${id}-${flags.slug}.md`);
-    const fmLines = [
-      '---',
-      `handoff_id: ${id}`,
-      `scope: ${scope}`,
-    ];
-    if (scope === 'repo') {
-      fmLines.push(`from_team: ${flags.from}`);
-      fmLines.push(`to_team: ${flags.to}`);
-    } else {
-      fmLines.push(`from_repo: ${flags['from-repo']}`);
-      fmLines.push(`to_repo: ${flags['to-repo']}`);
-    }
-    fmLines.push(`opened_at: ${new Date().toISOString()}`);
-    fmLines.push(flags['closes-when'] ? `closes_when: "${flags['closes-when']}"` : 'closes_when: ""');
-    fmLines.push('blocking_phase_transitions: [verify]');
-    fmLines.push('---');
-    fmLines.push('');
-    const titleSubject = scope === 'repo'
-      ? `${flags.from} → ${flags.to}`
-      : `${flags['from-repo']} → ${flags['to-repo']}`;
-    fmLines.push(`# Handoff ${id}: ${titleSubject}`);
-    fmLines.push('');
-    fmLines.push(`Slug: ${flags.slug}`);
-    fmLines.push('');
-    fmLines.push(flags['closes-when']
-      ? `**Closes when:** ${flags['closes-when']}`
-      : '**Closes when:** (fill this in — required before close)');
-    fmLines.push('');
-    fs.writeFileSync(file, fmLines.join('\n'));
-    process.stdout.write(`opened ${id} → ${path.relative(ose.root, file)}\n`);
-    return;
-  }
-
-  if (sub === 'close') {
-    const id = cleanArgs[1];
-    if (!id) { console.error('Usage: osengineer handoff close <id> [--reason "<text>"]'); process.exit(1); }
-    const flags = parseFlags(cleanArgs.slice(2), ['reason']);
-    const files = listDirSafe(handoffsDir).filter(f => f.startsWith(`${id}-`) && f.endsWith('.md'));
-    if (files.length === 0) { console.error(`osengineer: no handoff matching ${id}`); process.exit(1); }
-    if (files.length > 1) { console.error(`osengineer: multiple handoffs match ${id}: ${files.join(', ')}`); process.exit(1); }
-    const file = path.join(handoffsDir, files[0]);
-    const content = fs.readFileSync(file, 'utf8');
-    if (/closed_at:/.test(content)) {
-      process.stdout.write(`${id} already closed\n`); return;
-    }
-    const reason = flags.reason || '(no reason given)';
-    const updated = updateFrontmatter(content, {
-      closed_at: new Date().toISOString(),
-      close_reason: `"${reason.replace(/"/g, '\\"')}"`,
-    });
-    fs.writeFileSync(file, updated);
-    process.stdout.write(`closed ${id}\n`);
-    return;
-  }
-
-  if (sub === 'list' || !sub) {
-    const files = listDirSafe(handoffsDir).filter(f => /^(HO|XR)-\d+-/.test(f) && f.endsWith('.md'));
-    if (files.length === 0) { process.stdout.write('no handoffs\n'); return; }
-    for (const f of files) {
-      const content = fs.readFileSync(path.join(handoffsDir, f), 'utf8');
-      const open = !/closed_at:/.test(content);
-      process.stdout.write(`${open ? '○' : '●'} ${f}\n`);
-    }
-    return;
-  }
-
-  console.error('Usage: osengineer handoff (open|close|list) ...');
-  process.exit(1);
-}
-
-// Discover ADRs in a META repo by scanning known locations. Writes a YAML
-// catalog to <workbench>/.osengineer/adr-catalog.yml if cwd has an .osengineer/.
-function discoverAdrs(metaPath) {
-  const candidates = [
-    'documentation/adrs',
-    'documentation/adr',
-    'docs/adr',
-    'docs/adrs',
-    '.claude/adr-catalog',
-  ];
-  const findings = [];
-  for (const sub of candidates) {
-    const dir = path.join(metaPath, sub);
-    if (!fs.existsSync(dir)) continue;
-    for (const f of listDirSafe(dir)) {
-      const m = f.match(/^ADR-(\d{3})-(.+)\.md$/i);
-      if (!m) continue;
-      let title = m[2].replace(/-/g, ' ');
-      let status = 'unknown';
-      try {
-        const content = fs.readFileSync(path.join(dir, f), 'utf8');
-        const titleLine = content.match(/^#\s+(.+)$/m);
-        if (titleLine) title = titleLine[1].trim().replace(/^ADR-\d+:?\s*/, '');
-        const sm = content.match(/^[*\s|]*Status[*\s|:]+\s*([A-Za-z ✅⚠️]+)/m);
-        if (sm) status = sm[1].trim().toLowerCase();
-      } catch {}
-      findings.push({
-        id: `ADR-${m[1]}`,
-        title,
-        status,
-        file: path.relative(metaPath, path.join(dir, f)).replace(/\\/g, '/'),
-      });
-    }
-  }
-  // Also parse consolidated arc42 section 9 if present
-  const arc42 = path.join(metaPath, 'documentation/09-architectural-decisions.md');
-  if (fs.existsSync(arc42)) {
-    try {
-      const content = fs.readFileSync(arc42, 'utf8');
-      const blocks = content.split(/^###\s+/m).slice(1);
-      for (const b of blocks) {
-        const m = b.match(/^ADR-(\d{3}):?\s*(.+?)$/m);
-        if (!m) continue;
-        const id = `ADR-${m[1]}`;
-        if (findings.some(f => f.id === id)) continue; // prefer individual file
-        const status = (b.match(/Status[*\s|:]+([A-Za-z ✅⚠️]+)/) || [, 'unknown'])[1].trim().toLowerCase();
-        findings.push({
-          id, title: m[2].trim(), status,
-          file: 'documentation/09-architectural-decisions.md',
-        });
-      }
-    } catch {}
-  }
-  findings.sort((a, b) => a.id.localeCompare(b.id));
-  return findings;
-}
-
-function cmdDiscoverAdrs(args) {
-  const metaPath = args[0];
-  if (!metaPath) {
-    console.error('Usage: osengineer discover-adrs <meta-path> [--out <file>]');
-    process.exit(1);
-  }
-  if (!fs.existsSync(metaPath)) {
-    console.error(`osengineer: ${metaPath} does not exist`); process.exit(1);
-  }
-  const findings = discoverAdrs(metaPath);
-  const flags = parseFlags(args.slice(1), ['out']);
-  const lines = [
-    '# osEngineer ADR catalog — generated from META repo',
-    `# Source: ${metaPath}`,
-    `# Generated: ${new Date().toISOString()}`,
-    '',
-    'adrs:',
-  ];
-  for (const a of findings) {
-    lines.push(`  - id: ${a.id}`);
-    lines.push(`    title: "${a.title.replace(/"/g, '\\"')}"`);
-    lines.push(`    status: ${a.status}`);
-    lines.push(`    file: ${a.file}`);
-  }
-  const out = lines.join('\n') + '\n';
-  if (flags.out) {
-    fs.mkdirSync(path.dirname(flags.out), { recursive: true });
-    fs.writeFileSync(flags.out, out);
-    process.stdout.write(`wrote ${findings.length} ADR entries → ${flags.out}\n`);
-  } else {
-    process.stdout.write(out);
-  }
-}
-
-function parseFlags(args, allowed) {
-  const out = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (!a.startsWith('--')) continue;
-    const eq = a.indexOf('=');
-    const key = eq !== -1 ? a.slice(2, eq) : a.slice(2);
-    if (!allowed.includes(key)) continue;
-    if (eq !== -1) {
-      out[key] = a.slice(eq + 1);
-    } else if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
-      out[key] = args[++i];
-    } else {
-      out[key] = '';
-    }
-  }
-  return out;
-}
-
-// Insert or update key-value pairs inside the first YAML frontmatter block.
-function updateFrontmatter(content, updates) {
-  const lines = content.split('\n');
-  let startIdx = -1;
-  let endIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim() === '---') {
-      if (startIdx === -1) startIdx = i;
-      else { endIdx = i; break; }
-    }
-  }
-  if (startIdx === -1 || endIdx === -1) return content;
-  const fmLines = lines.slice(startIdx + 1, endIdx);
-  for (const [key, value] of Object.entries(updates)) {
-    const keyRe = new RegExp('^' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':\\s*');
-    const idx = fmLines.findIndex(l => keyRe.test(l));
-    if (idx !== -1) {
-      fmLines[idx] = `${key}: ${value}`;
-    } else {
-      fmLines.push(`${key}: ${value}`);
-    }
-  }
-  return [...lines.slice(0, startIdx + 1), ...fmLines, ...lines.slice(endIdx)].join('\n');
-}
-
-// ── Evolution loop ─────────────────────────────────────────────────────────
-//
-// `osengineer evolve` orchestrates the HITL self-improvement flow.
-// Proposals live in <repo>/.osengineer/evolution-proposals/<id>.md.
-// Accepted patterns are promoted into <osEngineer-skill>/memory/patterns/.
-// Rejections are logged to <repo>/.osengineer/evolution-rejections.jsonl.
-
-function readEvolutionCounter(repoRoot) {
-  const p = path.join(repoRoot, '.osengineer', 'evolution-counter.yml');
-  if (!fs.existsSync(p)) return { phases_since_last_evolution: 0, total_evolutions_accepted: 0 };
-  const raw = fs.readFileSync(p, 'utf8');
-  const out = { phases_since_last_evolution: 0, total_evolutions_accepted: 0 };
-  const m1 = raw.match(/^phases_since_last_evolution:\s*(\d+)/m);
-  const m2 = raw.match(/^total_evolutions_accepted:\s*(\d+)/m);
-  if (m1) out.phases_since_last_evolution = parseInt(m1[1], 10);
-  if (m2) out.total_evolutions_accepted = parseInt(m2[1], 10);
-  return out;
-}
-
-function writeEvolutionCounter(repoRoot, fields) {
-  const p = path.join(repoRoot, '.osengineer', 'evolution-counter.yml');
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  const existing = readEvolutionCounter(repoRoot);
-  const merged = { ...existing, ...fields };
-  const lines = [
-    '# Incremented by osEngineer-post-commit hook. Auto-nudge fires at >= 5.',
-    `phases_since_last_evolution: ${merged.phases_since_last_evolution}`,
-    `total_evolutions_accepted: ${merged.total_evolutions_accepted}`,
-  ];
-  if (merged.last_evolution_date) lines.push(`last_evolution_date: ${merged.last_evolution_date}`);
-  fs.writeFileSync(p, lines.join('\n') + '\n');
-}
-
-function listProposals(repoRoot) {
-  const dir = path.join(repoRoot, '.osengineer', 'evolution-proposals');
-  if (!fs.existsSync(dir)) return [];
-  return listDirSafe(dir).filter(f => /^EP-\d+-/.test(f) && f.endsWith('.md'));
-}
-
-function cmdEvolve(args) {
-  const repoRoot = findRepoRoot(process.cwd());
-  if (!repoRoot) { console.error('osengineer: not inside a git repo'); process.exit(1); }
-  const sub = args[0];
-
-  if (!sub || sub === 'status') {
-    const c = readEvolutionCounter(repoRoot);
-    const proposals = listProposals(repoRoot);
-    const open = [];
-    const closed = [];
-    for (const f of proposals) {
-      const content = fs.readFileSync(path.join(repoRoot, '.osengineer', 'evolution-proposals', f), 'utf8');
-      (content.match(/^status:\s*(accepted|rejected)/im) ? closed : open).push(f);
-    }
-    process.stdout.write(`phases_since_last_evolution: ${c.phases_since_last_evolution}\n`);
-    process.stdout.write(`total_evolutions_accepted: ${c.total_evolutions_accepted}\n`);
-    if (c.phases_since_last_evolution >= 5) {
-      process.stdout.write(`⚙ counter ≥ 5 — consider proposing improvements\n`);
-    }
-    process.stdout.write(`open proposals: ${open.length}\n`);
-    for (const f of open) process.stdout.write(`  ○ ${f}\n`);
-    process.stdout.write(`closed proposals: ${closed.length}\n`);
-    for (const f of closed) process.stdout.write(`  ● ${f}\n`);
-    return;
-  }
-
-  if (sub === 'propose') {
-    const flags = parseFlags(args.slice(1), ['title', 'body-file', 'body', 'category']);
-    if (!flags.title) {
-      console.error('Usage: osengineer evolve propose --title "<t>" [--body "<text>" | --body-file <f>] [--category <c>]');
-      process.exit(1);
-    }
-    const dir = path.join(repoRoot, '.osengineer', 'evolution-proposals');
-    fs.mkdirSync(dir, { recursive: true });
-    const existing = listProposals(repoRoot);
-    let nextNum = 1;
-    for (const f of existing) {
-      const m = f.match(/^EP-(\d+)-/);
-      if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
-    }
-    const id = `EP-${String(nextNum).padStart(3, '0')}`;
-    const slug = flags.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
-    const file = path.join(dir, `${id}-${slug}.md`);
-    let body = flags.body || '';
-    if (flags['body-file']) {
-      try { body = fs.readFileSync(flags['body-file'], 'utf8'); }
-      catch { console.error(`osengineer: cannot read --body-file ${flags['body-file']}`); process.exit(1); }
-    }
-    const content = [
-      '---',
-      `proposal_id: ${id}`,
-      `title: "${flags.title.replace(/"/g, '\\"')}"`,
-      `category: ${flags.category || 'general'}`,
-      'status: open',
-      `opened_at: ${new Date().toISOString()}`,
-      `opened_in_repo: ${path.basename(repoRoot)}`,
-      '---',
-      '',
-      `# Evolution proposal ${id}: ${flags.title}`,
-      '',
-      body || '(no body provided — fill this in before requesting acceptance)',
-      '',
-    ].join('\n');
-    fs.writeFileSync(file, content);
-    process.stdout.write(`opened ${id} → ${path.relative(repoRoot, file)}\n`);
-    return;
-  }
-
-  if (sub === 'accept') {
-    const id = args[1];
-    if (!id) { console.error('Usage: osengineer evolve accept <id> --pattern-slug <slug> [--pattern-file <f>]'); process.exit(1); }
-    const flags = parseFlags(args.slice(2), ['pattern-slug', 'pattern-file']);
-    if (!flags['pattern-slug']) { console.error('--pattern-slug is required'); process.exit(1); }
-    const dir = path.join(repoRoot, '.osengineer', 'evolution-proposals');
-    const files = listDirSafe(dir).filter(f => f.startsWith(`${id}-`) && f.endsWith('.md'));
-    if (files.length === 0) { console.error(`osengineer: no proposal matching ${id}`); process.exit(1); }
-    if (files.length > 1) { console.error(`osengineer: multiple proposals match ${id}`); process.exit(1); }
-    const file = path.join(dir, files[0]);
-
-    // Mark proposal accepted
-    const original = fs.readFileSync(file, 'utf8');
-    const updated = updateFrontmatter(original, {
-      status: 'accepted',
-      accepted_at: new Date().toISOString(),
-    });
-    fs.writeFileSync(file, updated);
-
-    // Promote a pattern file into the osEngineer skill repo
-    const patternFile = path.join(SCRIPT_DIR, 'memory', 'patterns', `${flags['pattern-slug']}.md`);
-    if (flags['pattern-file']) {
-      try {
-        const src = fs.readFileSync(flags['pattern-file'], 'utf8');
-        fs.mkdirSync(path.dirname(patternFile), { recursive: true });
-        fs.writeFileSync(patternFile, src);
-      } catch { console.error(`osengineer: cannot read --pattern-file ${flags['pattern-file']}`); process.exit(1); }
-    } else {
-      // Derive a minimal pattern stub from the proposal body
-      const stub = [
-        `# Pattern: ${flags['pattern-slug']}`,
-        '',
-        `Promoted from evolution proposal ${id} in repo ${path.basename(repoRoot)} on ${new Date().toISOString().slice(0,10)}.`,
-        '',
-        original.replace(/^---\n[\s\S]*?\n---\n/m, ''),
-      ].join('\n');
-      fs.mkdirSync(path.dirname(patternFile), { recursive: true });
-      fs.writeFileSync(patternFile, stub);
-    }
-
-    // Reset counter and bump accepted total
-    const c = readEvolutionCounter(repoRoot);
-    writeEvolutionCounter(repoRoot, {
-      phases_since_last_evolution: 0,
-      total_evolutions_accepted: c.total_evolutions_accepted + 1,
-      last_evolution_date: new Date().toISOString().slice(0, 10),
-    });
-    process.stdout.write(`accepted ${id} → memory/patterns/${flags['pattern-slug']}.md\ncounter reset to 0; total accepted = ${c.total_evolutions_accepted + 1}\n`);
-    return;
-  }
-
-  if (sub === 'reject') {
-    const id = args[1];
-    if (!id) { console.error('Usage: osengineer evolve reject <id> --reason "<text>"'); process.exit(1); }
-    const flags = parseFlags(args.slice(2), ['reason']);
-    if (!flags.reason) { console.error('--reason is required'); process.exit(1); }
-    const dir = path.join(repoRoot, '.osengineer', 'evolution-proposals');
-    const files = listDirSafe(dir).filter(f => f.startsWith(`${id}-`) && f.endsWith('.md'));
-    if (files.length === 0) { console.error(`osengineer: no proposal matching ${id}`); process.exit(1); }
-    const file = path.join(dir, files[0]);
-    const original = fs.readFileSync(file, 'utf8');
-    const updated = original.replace(/^status:\s*open/m, 'status: rejected')
-      .replace(/^(---\n[\s\S]*?)(\n---)/m, `$1\nrejected_at: ${new Date().toISOString()}\nreject_reason: "${flags.reason.replace(/"/g, '\\"')}"$2`);
-    fs.writeFileSync(file, updated);
-
-    // Append to rejections log
-    const logPath = path.join(repoRoot, '.osengineer', 'evolution-rejections.jsonl');
-    const entry = JSON.stringify({
-      proposal_id: id, rejected_at: new Date().toISOString(), reason: flags.reason,
-    }) + '\n';
-    fs.appendFileSync(logPath, entry);
-
-    // Reset counter (rejection counts toward "addressed")
-    const c = readEvolutionCounter(repoRoot);
-    writeEvolutionCounter(repoRoot, {
-      phases_since_last_evolution: 0,
-      total_evolutions_accepted: c.total_evolutions_accepted,
-      last_evolution_date: new Date().toISOString().slice(0, 10),
-    });
-    process.stdout.write(`rejected ${id} (reason logged); counter reset to 0\n`);
-    return;
-  }
-
-  console.error('Usage: osengineer evolve (status|propose|accept|reject) ...');
-  process.exit(1);
-}
-
-// ── Scaffold ───────────────────────────────────────────────────────────────
-//
-// Materialises a new agent or command file from templates/. Inspired by the
-// google/skills `generate-skill.md` meta-skill: a single command lowers the
-// bar for adding new role agents in P6+ while enforcing the frontmatter
-// convention documented in templates/frontmatter-pattern.md.
-
-function cmdScaffold(args) {
-  const sub = args[0];
-  if (sub === 'agent') return cmdScaffoldAgent(args.slice(1));
-  if (sub === 'command') return cmdScaffoldCommand(args.slice(1));
-  console.error('Usage: osengineer scaffold (agent|command) <name> [flags]');
-  process.exit(1);
-}
-
-function cmdScaffoldAgent(args) {
-  const name = args[0];
-  if (!name) {
-    console.error('Usage: osengineer scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>] [--out <path>]');
-    process.exit(1);
-  }
-  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-    console.error('osengineer: agent name must be lowercase-with-hyphens, e.g. "my-agent"');
-    process.exit(1);
-  }
-  const flags = parseFlags(args.slice(1), ['role', 'scope', 'escalates-to', 'out']);
-  const template = path.join(SCRIPT_DIR, 'templates', 'agent.md.tmpl');
-  if (!fs.existsSync(template)) {
-    console.error(`osengineer: template missing — ${template}`);
-    process.exit(1);
-  }
-  const title = name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  const out = fs.readFileSync(template, 'utf8')
-    .replace(/{{NAME}}/g, name)
-    .replace(/{{TITLE}}/g, title)
-    .replace(/{{ROLE}}/g, flags.role || 'implementer')
-    .replace(/{{SCOPE}}/g, flags.scope || 'team')
-    .replace(/{{ESCALATES_TO}}/g, flags['escalates-to'] || 'architect');
-
-  const dst = flags.out || path.join(SCRIPT_DIR, 'agents', `${name}.md`);
-  if (fs.existsSync(dst)) {
-    console.error(`osengineer: ${dst} already exists — refusing to overwrite. Use --out to redirect.`);
-    process.exit(1);
-  }
-  fs.mkdirSync(path.dirname(dst), { recursive: true });
-  fs.writeFileSync(dst, out);
-  process.stdout.write(`scaffolded ${path.relative(SCRIPT_DIR, dst)}\n`);
-  process.stdout.write(`Next steps:\n`);
-  process.stdout.write(`  1. Fill in the TODO sections in ${path.basename(dst)} (description verbs, mandate, protocol).\n`);
-  process.stdout.write(`  2. If this agent should ship to every initialised repo, add "${name}.md" to MANDATORY_AGENTS in install.sh.\n`);
-  process.stdout.write(`  3. Add a one-line entry under the right section of agents/INDEX.md.\n`);
-}
-
-function cmdScaffoldCommand(args) {
-  const name = args[0];
-  if (!name) {
-    console.error('Usage: osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>] [--out <path>]');
-    process.exit(1);
-  }
-  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
-    console.error('osengineer: command name must be lowercase-with-hyphens');
-    process.exit(1);
-  }
-  const flags = parseFlags(args.slice(1), ['phase-allowed', 'phase-after', 'out']);
-  const template = path.join(SCRIPT_DIR, 'templates', 'command.md.tmpl');
-  if (!fs.existsSync(template)) {
-    console.error(`osengineer: template missing — ${template}`);
-    process.exit(1);
-  }
-  const out = fs.readFileSync(template, 'utf8')
-    .replace(/{{NAME}}/g, name)
-    .replace(/{{PHASE_ALLOWED}}/g, flags['phase-allowed'] || 'execute')
-    .replace(/{{PHASE_AFTER}}/g, flags['phase-after'] || 'null');
-
-  const dst = flags.out || path.join(SCRIPT_DIR, 'commands', `osEngineer-${name}.md`);
-  if (fs.existsSync(dst)) {
-    console.error(`osengineer: ${dst} already exists — refusing to overwrite. Use --out to redirect.`);
-    process.exit(1);
-  }
-  fs.mkdirSync(path.dirname(dst), { recursive: true });
-  fs.writeFileSync(dst, out);
-  process.stdout.write(`scaffolded ${path.relative(SCRIPT_DIR, dst)}\n`);
-  process.stdout.write(`Next steps:\n`);
-  process.stdout.write(`  1. Fill in the TODO sections in ${path.basename(dst)} (description verbs, steps, example).\n`);
-  process.stdout.write(`  2. Add a one-line entry under commands/INDEX.md.\n`);
-}
-
-function cmdExplain(args) {
-  const topic = args[0] || 'overview';
-  const messages = {
-    overview:
-      'osEngineer — a real-enforcement, multi-repo engineering skill.\n' +
-      'Three-level nesting: workbench → repo → team. Each level has an\n' +
-      'AGENTS.md (architect) and a .osengineer/ (state). Runtime enforcement\n' +
-      'via git hooks + Claude hooks + this CLI + CI status checks.\n',
-    phases:
-      'Phase lifecycle: idle → discuss → plan → execute → verify → accepted.\n' +
-      'Micro-Phase (Hotfix): idle → micro (or hotfix) → accepted (lightweight cycle).\n' +
-      '`blocked` is a side-state entered on budget overrun or hard-rule violation.\n' +
-      'Transitions are gated by hooks: no execute without PHASE_PLAN.md, no\n' +
-      'verify without green test run, no merge without VERIFICATION.md (or MICRO_PLAN.md).\n',
-    hooks:
-      'Ten enforcement hooks live in hooks/osEngineer-*. install.sh copies\n' +
-      'the git hooks into .git/hooks/ and wires the Claude hooks via\n' +
-      'absolute path in .claude/settings.json. Bypass any hook with\n' +
-      'OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl).\n',
-    teams:
-      'Five teams per repo: coding / testing / infra / docs / security.\n' +
-      'install.sh auto-detects folder ownership from go.mod, ansible/,\n' +
-      '*_test.go, docs/, .github/codeql etc., and writes both the YAML\n' +
-      'in AGENTS.md AND a JSON cache in .osengineer/teams/<team>.json that\n' +
-      'osEngineer-pre-edit-guard reads to enforce owns_paths at edit time.\n' +
-      'Cross-team handoffs live in .osengineer/handoffs/HO-<n>-*.md and\n' +
-      'are managed via `osengineer handoff (open|close|list)`.\n',
-    handoffs:
-      'Handoffs are filesystem-tracked tickets between teams. When team A\n' +
-      'needs team B to act first, A runs:\n' +
-      '  osengineer handoff open --from <A> --to <B> --slug <s> --closes-when "<text>"\n' +
-      'and the architect agent watches the directory. Verify-phase transitions\n' +
-      'are blocked while any handoff is open.\n',
-    scaffold:
-      'Materialise a new agent or command file from templates/:\n' +
-      '  osengineer scaffold agent <name> --role <r> --scope <s> --escalates-to <list>\n' +
-      '  osengineer scaffold command <name> --phase-allowed <list> --phase-after <p>\n' +
-      'Refuses to overwrite existing files. Templates live in templates/agent.md.tmpl\n' +
-      'and templates/command.md.tmpl. Both enforce the frontmatter convention\n' +
-      'documented in templates/frontmatter-pattern.md.\n',
-    evolution:
-      'Evolution loop: the post-commit hook increments\n' +
-      '.osengineer/evolution-counter.yml; at >= 5 the session-start banner\n' +
-      'auto-nudges. Propose an improvement with\n' +
-      '  osengineer evolve propose --title "<t>" --body "<text>"\n' +
-      'Accept with `osengineer evolve accept <id> --pattern-slug <s>` (promotes\n' +
-      'to memory/patterns/) or `osengineer evolve reject <id> --reason "<r>"`\n' +
-      '(logged to evolution-rejections.jsonl). Either action resets the counter.\n',
-  };
-  const msg = messages[topic];
-  if (!msg) {
-    process.stdout.write(`Unknown topic "${topic}". Available: ${Object.keys(messages).join(', ')}\n`);
-    process.exit(1);
-  }
-  process.stdout.write(msg);
-}
-
-function usage() {
-  process.stdout.write(
-    `osengineer ${VERSION}\n\n` +
-    'Usage:\n' +
-    '  osengineer init <path>                  Initialise a repo with osEngineer wiring\n' +
-    '  osengineer state                        Show .osengineer/state.yml fields\n' +
-    '  osengineer state set <k> <v>            Update a state.yml field\n' +
-    '  osengineer detect-teams <path>          Auto-detect team→folder mapping (outputs YAML)\n' +
-    '  osengineer handoff open --from <t> --to <t> --slug <s> [--closes-when "<text>"]\n' +
-    '  osengineer handoff close <id> [--reason "<text>"]\n' +
-    '  osengineer handoff list\n' +
-    '  osengineer discover-adrs <meta-path> [--out <file>]\n' +
-    '                                          Scan a META repo for ADRs; emit YAML catalog\n' +
-    '  osengineer evolve [status]              Show counter + open/closed proposals\n' +
-    '  osengineer evolve propose --title "<t>" [--body "<text>" | --body-file <f>] [--category <c>]\n' +
-    '  osengineer evolve accept <id> --pattern-slug <s> [--pattern-file <f>]\n' +
-    '                                          Promote proposal to memory/patterns/<s>.md; reset counter\n' +
-    '  osengineer evolve reject <id> --reason "<text>"\n' +
-    '                                          Log rejection; reset counter\n' +
-    '  osengineer scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>]\n' +
-    '                                          Materialise a new agent file from template\n' +
-    '  osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]\n' +
-    '                                          Materialise a new command file from template\n' +
-    '  osengineer version                      Print osEngineer version\n' +
-    '  osengineer explain [topic]              overview|phases|hooks|teams|handoffs|scaffold\n'
-  );
-}
-
-// ── Dispatch ───────────────────────────────────────────────────────────────
-
-const [, , sub, ...rest] = process.argv;
-switch (sub) {
-  case 'version':
-  case '--version':
-  case '-v':
-    cmdVersion(); break;
-  case 'init':
-    cmdInit(rest); break;
-  case 'state':
-    cmdState(rest); break;
-  case 'detect-teams':
-    cmdDetectTeams(rest); break;
-  case 'handoff':
-    cmdHandoff(rest); break;
-  case 'discover-adrs':
-    cmdDiscoverAdrs(rest); break;
-  case 'evolve':
-    cmdEvolve(rest); break;
-  case 'scaffold':
-    cmdScaffold(rest); break;
-  case 'explain':
-    cmdExplain(rest); break;
-  case undefined:
-  case 'help':
-  case '--help':
-  case '-h':
-    usage(); break;
-  default:
-    process.stderr.write(`osengineer: unknown subcommand "${sub}"\n\n`);
-    usage();
-    process.exit(1);
-}
+if __name__ == "__main__":
+    main()

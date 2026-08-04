@@ -22,7 +22,7 @@ if [ -f "$SECRETS_FILE" ]; then
   log "Loaded secure secrets from .osengineer/secrets.env"
 fi
 
-# Resilient query_url function using curl or Node.js HTTP fallback
+# Resilient query_url function using curl or Python 3 HTTP fallback
 query_url() {
   local method="$1"
   local url="$2"
@@ -37,42 +37,24 @@ query_url() {
     fi
     curl "${curl_opts[@]}" "$url"
   else
-    # Node.js HTTP fallback (since Node is guaranteed to be present in osEngineer workspace)
-    node -e "
-const http = require('http');
-const parsed = new URL('$url');
-const options = {
-  hostname: parsed.hostname,
-  port: parsed.port || 80,
-  path: parsed.pathname + parsed.search,
-  method: '$method',
-  headers: {}
-};
-if ('$token') options.headers['X-Vault-Token'] = '$token';
-if ('$json_data') {
-  options.headers['Content-Type'] = 'application/json';
-  options.headers['Content-Length'] = Buffer.byteLength('$json_data');
-}
-const req = http.request(options, res => {
-  let data = '';
-  res.on('data', c => data += c);
-  res.on('end', () => {
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      process.stdout.write(data);
-      process.exit(0);
-    } else {
-      process.exit(res.statusCode);
-    }
-  });
-});
-req.on('error', () => process.exit(1));
-req.setTimeout(5000, () => {
-  req.destroy();
-  process.exit(1);
-});
-if ('$json_data') req.write('$json_data');
-req.end();
-"
+    # Python 3 HTTP fallback (standard library, no external deps)
+    python3 - "$method" "$url" "$token" "$json_data" <<'PY'
+import json, sys, urllib.request, urllib.error
+method, url, token, json_data = sys.argv[1:5]
+req = urllib.request.Request(url, method=method, data=json_data.encode() if json_data else None)
+if token:
+    req.add_header("X-Vault-Token", token)
+if json_data:
+    req.add_header("Content-Type", "application/json")
+try:
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        sys.stdout.write(resp.read().decode())
+        sys.exit(0 if 200 <= resp.status < 300 else resp.status)
+except urllib.error.HTTPError as e:
+    sys.exit(e.code)
+except Exception:
+    sys.exit(1)
+PY
   fi
 }
 

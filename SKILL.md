@@ -80,7 +80,7 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 
 ## Standalone — no external skill dependencies
 
-osEngineer is **completely standalone**. It pulls **zero npm packages** (`package.json` has no `dependencies` or `devDependencies`); hooks and CLI use only Node built-ins (`fs`, `path`, `os`, `child_process`, `node:test`). The supply-chain attack surface is the Node runtime itself plus git and bash.
+osEngineer is **completely standalone**. It pulls **zero npm packages** and requires **no Node.js runtime**. The CLI and Claude/Kimi hooks are written in **Python 3** and use only the standard library; the git hooks are plain bash. The supply-chain attack surface is the Python 3 runtime plus git and bash.
 
 Optional MCP integrations enrich the skill when available but are never required:
 

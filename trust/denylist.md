@@ -60,7 +60,7 @@ The JSON block must remain parseable JSON inside a single \`\`\`json … \`\`\` 
     "name": "npm install (arbitrary package)",
     "regex": "\\bnpm\\s+(install|i)\\s+(?!--?save|--?dev|--?global|$)[a-zA-Z@][^\\s]*",
     "category": "package",
-    "rationale": "Pulls a package from the npm registry — supply-chain inflow. osEngineer itself has zero npm dependencies and runs on Node built-ins only; an unplanned npm install indicates an unsanctioned dependency is being introduced."
+    "rationale": "Pulls a package from the npm registry — supply-chain inflow. osEngineer itself has zero npm dependencies and runs on Python 3 standard library only; an unplanned npm install indicates an unsanctioned dependency is being introduced."
   },
   {
     "name": "pip install (arbitrary package)",
