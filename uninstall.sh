@@ -91,12 +91,25 @@ uninstall_repo() {
       continue
     fi
 
-    # Remove osEngineer agent files
+    # Remove osEngineer agent files. Source agents may be dir-style
+    # (agents/<role>/AGENT.md) or flat (agents/<role>.md); install.sh copies
+    # either to a flat .<runtime>/agents/<role>.md, so derive the destination
+    # filenames from BOTH source layouts (the old flat-only glob missed the
+    # dir-style agents entirely and left them behind).
     if [ -d "$runtime_dir/agents" ]; then
       local removed=0
-      for agent in "$SCRIPT_DIR"/agents/*.md; do
-        local fname
-        fname="$(basename "$agent")"
+      local src fname
+      for src in "$SCRIPT_DIR"/agents/*/AGENT.md; do
+        [ -f "$src" ] || continue
+        fname="$(basename "$(dirname "$src")").md"
+        if [ -f "$runtime_dir/agents/$fname" ]; then
+          rm -f "$runtime_dir/agents/$fname"
+          removed=$((removed + 1))
+        fi
+      done
+      for src in "$SCRIPT_DIR"/agents/*.md; do
+        [ -f "$src" ] || continue
+        fname="$(basename "$src")"
         if [ -f "$runtime_dir/agents/$fname" ]; then
           rm -f "$runtime_dir/agents/$fname"
           removed=$((removed + 1))

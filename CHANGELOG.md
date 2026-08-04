@@ -28,6 +28,8 @@ this project adheres to semantic versioning.
   (SIGPIPE from `find | head` under `set -euo pipefail`).
 - `osEngineer-post-commit.sh` dropped the `--ast-only` flag removed in
   graphify ≥0.9, so the post-commit graph refresh runs again.
+- `uninstall.sh` now removes dir-style agent files (`agents/<role>/AGENT.md`);
+  the previous flat-only glob left every installed agent file behind.
 
 ## [0.4.0] — 2026-06-15
 
