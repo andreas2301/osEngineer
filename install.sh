@@ -246,6 +246,50 @@ prompt_choice() {
 
 # ── Core: per-repo init ────────────────────────────────────────────────────
 
+# Strip a leading YAML frontmatter block (--- ... ---) from $1 to stdout.
+# Used by the append path: concatenating a source AGENT.md wholesale injects a
+# SECOND frontmatter block into the middle of the destination file, where it
+# renders as inert prompt text and gives the agent two competing mandates.
+# (Observed 2026-08-04 in a consuming repo's developer.md: `---` fences at
+# lines 1/5 AND 185/197, the second carrying a duplicate name:/role:/scope:.)
+strip_frontmatter() {
+  awk 'NR==1 && $0=="---" {fm=1; next} fm==1 && $0=="---" {fm=2; next} fm!=1 {print}' "$1"
+}
+
+# Copy agents/<role>/references/*.md alongside the installed agent file.
+#
+# The destination agent file is FLAT (.claude/agents/<role>.md), so every agent
+# shares ONE references/ dir — and reference basenames COLLIDE across agents
+# (output-format.md appears in 5 of them; 66 files, 58 unique names). A naive
+# recursive copy therefore silently clobbers. Namespace the destination by role
+# and rewrite the links in the installed agent file so they still resolve.
+#
+# Without this the references/ tree is never copied at all: install.sh took only
+# agents/<role>/AGENT.md and left every `](references/x.md)` link dangling
+# (131 dead links across 17 agents in one consuming repo, 2026-08-04).
+copy_agent_references() {
+  local agent_name="$1" dest_agents_dir="$2" dst_file="$3"
+  local src_refs="$AGENTS_DIR/$agent_name/references"
+  [ -d "$src_refs" ] || return 0
+
+  local dst_refs="$dest_agents_dir/references/$agent_name"
+  mkdir -p "$dst_refs"
+  local n=0
+  for ref in "$src_refs"/*.md; do
+    [ -f "$ref" ] || continue
+    cp "$ref" "$dst_refs/" && n=$((n + 1))
+  done
+  [ "$n" -gt 0 ] || return 0
+
+  # ](references/X.md) -> ](references/<role>/X.md).
+  # Idempotent: the character class excludes '/', so an already-rewritten
+  # references/<role>/X.md cannot match a second time.
+  if [ -f "$dst_file" ]; then
+    sed -i -E "s#\]\((\./)?references/([A-Za-z0-9._-]+\.md)\)#](references/$agent_name/\2)#g" "$dst_file"
+  fi
+  log "  + $n reference(s) for $agent_name -> references/$agent_name/"
+}
+
 init_repo() {
   local repo="$1"
   local repo_name
@@ -341,7 +385,7 @@ YAML
                 ;;
               [Aa]*)
                 printf "\n\n## osEngineer Additions\n\n" >> "$dst_file"
-                cat "$src_file" >> "$dst_file"
+                strip_frontmatter "$src_file" >> "$dst_file"
                 log "  · Appended osEngineer instructions to $agent"
                 ;;
               *)
@@ -349,15 +393,19 @@ YAML
                 ;;
             esac
           else
-            # Non-interactive mode: act as an addition (append) by default
+            # Non-interactive mode: act as an addition (append) by default.
+            # strip_frontmatter, NOT cat — see its comment: a raw cat injects a
+            # second YAML block mid-body that the loader ignores but the model
+            # reads as a competing mandate.
             printf "\n\n## osEngineer Additions\n\n" >> "$dst_file"
-            cat "$src_file" >> "$dst_file"
+            strip_frontmatter "$src_file" >> "$dst_file"
             log "  + Appended osEngineer instructions to existing $agent (non-interactive)"
           fi
         else
           # New file
           cp "$src_file" "$dst_file"
         fi
+        copy_agent_references "$agent_name" "$repo/.$runtime/agents" "$dst_file"
         copied=$((copied + 1))
       fi
     done

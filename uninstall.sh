@@ -118,6 +118,18 @@ uninstall_repo() {
       if [ $removed -gt 0 ]; then
         log "  · $removed agent files removed from .$runtime/agents/"
       fi
+      # Mirror of install.sh's copy_agent_references: remove only the per-role
+      # subdirs we created under agents/references/, never the whole tree — a
+      # repo may keep its own references/ content there.
+      if [ -d "$runtime_dir/agents/references" ]; then
+        local role
+        for src in "$SCRIPT_DIR"/agents/*/references; do
+          [ -d "$src" ] || continue
+          role="$(basename "$(dirname "$src")")"
+          rm -rf "${runtime_dir:?}/agents/references/${role:?}"
+        done
+        rmdir "$runtime_dir/agents/references" 2>/dev/null || true
+      fi
       rmdir "$runtime_dir/agents" 2>/dev/null || true
     fi
 
