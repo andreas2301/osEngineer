@@ -141,6 +141,7 @@ uninstall_repo() {
       | grep -v '/evolution-proposals/' \
       | grep -v '/evolution-rejections\.jsonl$' \
       | grep -v '/\.gitignore$' \
+      | grep -v '/\.state\.lock$' \
       | grep -v '/bin/osengineer$' \
       | head -1)" ]; then
       has_user_data=true

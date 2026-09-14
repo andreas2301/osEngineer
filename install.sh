@@ -451,6 +451,9 @@ EOF
   # 4. Settings — merge (never overwrite)
   install_assistant_settings "$repo"
 
+  # 5. Slash commands — verbatim copies into each chosen runtime's dir
+  install_commands "$repo"
+
   # Write secrets.env if any credentials provided
   if [ -n "$ATLASSIAN_CLOUD_ID" ] || [ -n "$VAULT_TOKEN" ]; then
     local env_file="$repo/.osengineer/secrets.env"
@@ -769,6 +772,41 @@ PY
     cp "$repo/AGENTS.md" "$repo/.kimi-code/AGENTS.md"
     log "  + .kimi-code/AGENTS.md"
   fi
+}
+
+# Install the commands/osEngineer-*.md slash commands for each chosen runtime.
+# Claude reads .claude/commands/<ns>/<verb>.md; Kimi discovers
+# .kimi-code/skills/<verb>/SKILL.md. Files are copied VERBATIM — no templating
+# or interpolation: a plain copy cannot introduce $ARGUMENTS into a backtick or
+# `!` shell injection, which would bypass pre-bash-guard.
+install_commands() {
+  local repo="$1"
+  local n=0 src verb
+  for src in "$SCRIPT_DIR/commands"/osEngineer-*.md; do
+    [ -f "$src" ] || continue
+    # Frontmatter `name:` (osEngineer:<verb>) inside the leading --- block.
+    verb="$(awk '
+      NR == 1 && $0 == "---" { fm = 1; next }
+      fm == 1 && $0 == "---" { exit }
+      fm == 1 && sub(/^name:[[:space:]]*osEngineer:/, "") {
+        gsub(/[[:space:]]+$/, "")
+        print
+        exit
+      }
+    ' "$src")"
+    [ -n "$verb" ] || continue
+
+    if has_runtime claude; then
+      mkdir -p "$repo/.claude/commands/osEngineer"
+      cp "$src" "$repo/.claude/commands/osEngineer/$verb.md"
+    fi
+    if has_runtime kimi; then
+      mkdir -p "$repo/.kimi-code/skills/$verb"
+      cp "$src" "$repo/.kimi-code/skills/$verb/SKILL.md"
+    fi
+    n=$((n + 1))
+  done
+  log "  + $n slash commands installed"
 }
 
 install_assistant_settings() {

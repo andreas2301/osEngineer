@@ -547,6 +547,39 @@ def cmd_discover_adrs(args):
         print(out, end="")
 
 
+def cmd_render(args):
+    if not args:
+        print("Usage: osengineer render <verb> [arguments...]", file=sys.stderr)
+        sys.exit(1)
+    verb = args[0]
+    home = Path(os.environ.get("OSENGINEER_HOME") or SCRIPT_DIR)
+    commands_dir = home / "commands"
+    match = None
+    for f in sorted(commands_dir.glob("osEngineer-*.md")):
+        try:
+            content = f.read_text()
+        except Exception:
+            continue
+        m = re.search(r"^name:\s*(\S+)", content, re.MULTILINE)
+        if m and m.group(1) == f"osEngineer:{verb}":
+            match = content
+            break
+    if match is None:
+        print(f'osengineer: unknown command verb "{verb}" (no commands/osEngineer-*.md with name: osEngineer:{verb})', file=sys.stderr)
+        sys.exit(1)
+    lines = match.splitlines()
+    start_idx = next((i for i, l in enumerate(lines) if l.strip() == "<!-- ose:body:start -->"), None)
+    end_idx = next((i for i, l in enumerate(lines) if l.strip() == "<!-- ose:body:end -->"), None)
+    if start_idx is not None and end_idx is not None and end_idx > start_idx:
+        body_lines = lines[start_idx + 1:end_idx]
+    else:
+        body_lines = re.sub(r"^---\n[\s\S]*?\n---\n", "", match, flags=re.MULTILINE).splitlines()
+    out = "\n".join(body_lines).strip("\n")
+    if len(args) > 1:
+        out += "\n\nArguments: " + " ".join(args[1:])
+    print(out)
+
+
 # ── Evolution loop ───────────────────────────────────────────────────────────
 
 def read_evolution_counter(repo_root):
@@ -917,7 +950,8 @@ def usage():
         "  osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]\n"
         "                                          Materialise a new command file from template\n"
         "  osengineer version                      Print osEngineer version\n"
-        "  osengineer explain [topic]              overview|phases|hooks|teams|handoffs|scaffold"
+        "  osengineer explain [topic]              overview|phases|hooks|teams|handoffs|scaffold\n"
+        "  osengineer render <verb> [args...]      Render a command's executable body to stdout"
     )
 
 
@@ -948,6 +982,8 @@ def main():
         cmd_scaffold(rest)
     elif sub == "explain":
         cmd_explain(rest)
+    elif sub == "render":
+        cmd_render(rest)
     else:
         print(f'osengineer: unknown subcommand "{sub}"\n', file=sys.stderr)
         usage()

@@ -48,6 +48,7 @@ mid-stream, the developer agent should abort and re-route to `/osEngineer:featur
 3. Working tree is clean (no unstaged changes). The developer agent will
    abort if it isn't.
 
+<!-- ose:body:start -->
 ## Step protocol
 
 For ticket `<TICK>` referencing phase plan `phase-NNN-<slug>`:
@@ -103,3 +104,4 @@ references OSP-123:
 - `/osEngineer:feature` — same shape but with full team for larger scope.
 - `/osEngineer:plan` — produce the PHASE_PLAN.md this command consumes.
 - `/osEngineer:verify` — re-run verification on an already-executed phase.
+<!-- ose:body:end -->
