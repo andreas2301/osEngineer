@@ -38,13 +38,9 @@ rec = {
     "cwd": os.getcwd(),
     "OSE_HEADLESS": os.environ.get("OSE_HEADLESS"),
     "OSENGINEER_HOME": os.environ.get("OSENGINEER_HOME"),
-    "stdin": "",
 }
-if not sys.stdin.isatty():
-    try:
-        rec["stdin"] = sys.stdin.read()
-    except Exception:
-        pass
+# NOTE: deliberately does not read stdin. The runner passes the prompt via
+# argv (-p), and a blocking read() here hangs the whole suite.
 out = os.environ.get("FAKE_HARNESS_RECORD")
 if out:
     pathlib.Path(out).write_text(json.dumps(rec))
@@ -147,7 +143,7 @@ class TestRunInvokesHarness(HeadlessBase):
         repo = make_repo(self.tmp)
         run_cli(repo, ["run", "fix", "TICKET-1"], self.env())
         rec = self.rec()
-        blob = " ".join(rec["argv"]) + rec.get("stdin", "")
+        blob = " ".join(rec["argv"])
         self.assertTrue(blob.strip(), "harness received no prompt at all")
         self.assertIn(
             "TICKET-1", blob, "the run argument never reached the harness prompt"
