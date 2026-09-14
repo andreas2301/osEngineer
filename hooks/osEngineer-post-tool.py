@@ -10,6 +10,7 @@
 
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -114,5 +115,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"osEngineer-post-tool: {type(exc).__name__}: {exc}", file=sys.stderr)

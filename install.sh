@@ -205,7 +205,7 @@ ensure_git() {
 # Ask a question with a default. Returns the answer (or default if empty).
 prompt() {
   local question="$1"
-  local default="$2"
+  local default="${2:-}"
   if [ -n "$default" ]; then
     read -r -p "$question [$default] " answer
   else

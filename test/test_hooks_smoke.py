@@ -189,7 +189,9 @@ class TestStatuslineWritesBridgeFile(unittest.TestCase):
                 "cwd": str(repo),
                 "workspace": {"current_dir": str(repo)},
                 "model": {"display_name": "Test"},
-                "context_window": {"used_tokens": 50000, "max_tokens": 200000},
+                # The hook reads remaining_percentage specifically; without it
+                # build_context_meter returns early and writes no bridge file.
+                "context_window": {"remaining_percentage": 72},
             })
             proc = subprocess.run(
                 [sys.executable, str(statusline)],
