@@ -33,7 +33,7 @@ VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "0.0.0-dev")"
 
 # Mandatory agents — copied into every initialised repo's .claude/agents/
 # Includes the two orchestration agents (architect, verifier) introduced in
-# osEngineer 0.2.0 P2 alongside the 14 implementation roles.
+# osEngineer 0.2.0 P2 alongside the 20 implementation roles.
 MANDATORY_AGENTS=(
   architect.md verifier.md
   developer.md reviewer.md judge.md
@@ -43,6 +43,8 @@ MANDATORY_AGENTS=(
   topology-validator.md cert-monitor.md
   health-verifier.md scope-manager.md
   sandbox-provisioner.md
+  budget-tracker.md dba.md qa.md
+  sync-agent.md ui-ux-designer.md
 )
 
 # Global variables for interactive setup
@@ -324,6 +326,11 @@ YAML
   touch "$repo/.osengineer/handoffs/.gitkeep"
   touch "$repo/.osengineer/bypass-log.jsonl"
 
+  # planning/ dirs — referenced by the plan gates and planning/PROTOCOL.md
+  mkdir -p "$repo/planning/active" "$repo/planning/completed"
+  touch "$repo/planning/active/.gitkeep" "$repo/planning/completed/.gitkeep"
+  log "  + planning/active/, planning/completed/"
+
   # 2. Git hooks — copy (not symlink) for portability across OSes
   local ghooks="$repo/.git/hooks"
   if [ -d "$ghooks" ]; then
@@ -362,9 +369,21 @@ YAML
             continue
           fi
           
-          # Check if osEngineer additions/rules are already present to prevent infinite duplication
-          if grep -q "## osEngineer" "$dst_file" 2>/dev/null; then
-            log "  · osEngineer additions already present in $agent (skipped)"
+          # A previous upgrade appended an "## osEngineer Additions" block.
+          # Refresh only that block: the prefix is the user's own content, the
+          # suffix is our previously appended half. Rebuild as
+          # prefix + MARKER + current upstream body so repos keep receiving
+          # agent updates instead of freezing at the first append.
+          local MARKER='## osEngineer Additions'
+          if grep -qF "$MARKER" "$dst_file" 2>/dev/null; then
+            local prefix
+            prefix=$(awk -v marker="$MARKER" 'index($0, marker) { exit } { print }' "$dst_file")
+            {
+              printf '%s\n\n%s\n\n' "$prefix" "$MARKER"
+              strip_frontmatter "$src_file"
+            } > "$dst_file.tmp"
+            mv "$dst_file.tmp" "$dst_file"
+            log "  · refreshed osEngineer additions in $agent"
             copied=$((copied + 1))
             continue
           fi
@@ -439,6 +458,16 @@ EOF
       log "  + added .osengineer/secrets.env to .gitignore"
     fi
   fi
+
+  # .osengineer/.gitignore — always written: the root-gitignore append above
+  # no-ops in repos that have no .gitignore yet.
+  cat > "$repo/.osengineer/.gitignore" <<'EOF'
+secrets.env
+bypass-log.jsonl
+override-log.jsonl
+config.local.toml
+EOF
+  log "  + .osengineer/.gitignore"
 
   # 5. git safe.directory (idempotent)
   git config --global --add safe.directory "$repo" 2>/dev/null || true
@@ -882,7 +911,8 @@ if os.environ.get("OSE_VAULT_ADDR") and os.environ.get("OSE_VAULT_TOKEN"):
         "args": ["-y", "@modelcontextprotocol/server-vault"],
         "env": {
             "VAULT_ADDR": os.environ["OSE_VAULT_ADDR"],
-            "VAULT_TOKEN": os.environ["OSE_VAULT_TOKEN"],
+            # env reference, not the literal secret — the value must never land on disk
+            "VAULT_TOKEN": "${VAULT_TOKEN}",
         },
     }
 
