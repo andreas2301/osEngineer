@@ -39,6 +39,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from subprocess import run
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks" / "lib"))
+from osengineer_common import read_state_map, write_state_field
+
 SCRIPT_DIR = Path(__file__).resolve().parent.parent
 VERSION_FILE = SCRIPT_DIR / "VERSION"
 VERSION = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "0.0.0-dev"
@@ -69,73 +72,6 @@ def find_osengineer_root(cwd=None):
             break
         current = parent
     return None, None
-
-
-def read_workbench_config(workbench_root):
-    p = Path(workbench_root) / ".osengineer" / "workbench-config.yml"
-    if not p.exists():
-        return None
-    config = {}
-    current_array = None
-    for raw in p.read_text().splitlines():
-        line = raw.rstrip()
-        if not line.strip() or line.strip().startswith("#"):
-            continue
-        top_key = re.match(r"^(\w+):\s*(.*)$", line)
-        if top_key and not line.startswith(" ") and not line.startswith("-"):
-            key, val = top_key.group(1), top_key.group(2).strip()
-            val = val.strip("\"'")
-            if val == "":
-                config[key] = []
-                current_array = config[key]
-            else:
-                config[key] = val
-                current_array = None
-            continue
-        array_item = re.match(r"^\s+- (\w+):\s*(.*)$", line)
-        if array_item and current_array is not None:
-            key, val = array_item.group(1), array_item.group(2).strip().strip("\"'")
-            current_array.append({key: val})
-            continue
-        nested_key = re.match(r"^\s+(\w+):\s*(.*)$", line)
-        if nested_key and current_array and current_array and isinstance(current_array[-1], dict):
-            current_array[-1][nested_key.group(1)] = nested_key.group(2).strip().strip("\"'")
-    for k in list(config.keys()):
-        if isinstance(config[k], list) and len(config[k]) == 0:
-            del config[k]
-    return config
-
-
-def read_state_map(repo_root):
-    p = Path(repo_root) / ".osengineer" / "state.yml"
-    if not p.exists():
-        return None
-    state = {}
-    for line in p.read_text().splitlines():
-        m = re.match(r"^(\w+):\s*(.*)$", line)
-        if not m:
-            continue
-        val = m.group(2).strip().strip("\"'")
-        state[m.group(1)] = val or None
-    return state
-
-
-def write_state_field(repo_root, key, value):
-    p = Path(repo_root) / ".osengineer" / "state.yml"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    if not p.exists():
-        p.write_text(f"{key}: {value}\n")
-        return
-    lines = p.read_text().splitlines()
-    found = False
-    for i, line in enumerate(lines):
-        if re.match(r"^" + re.escape(key) + r":", line):
-            lines[i] = f"{key}: {value}"
-            found = True
-            break
-    if not found:
-        lines.append(f"{key}: {value}")
-    p.write_text("\n".join(lines) + "\n")
 
 
 def list_dir_safe(d):

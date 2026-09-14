@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # osengineer_common.py — shared helpers for osEngineer Python hooks.
 
+import fcntl
 import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 STDIN_TIMEOUT_MS = 3000
@@ -107,21 +109,41 @@ def path_matches_any(file_path, globs):
 
 
 def write_state_field(repo_root, key, value):
-    p = Path(repo_root) / ".osengineer" / "state.yml"
-    if not p.exists():
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(f"{key}: {value}\n")
-        return
-    lines = p.read_text().splitlines()
-    found = False
-    for i, line in enumerate(lines):
-        if re.match(r"^" + re.escape(key) + r":", line):
-            lines[i] = f"{key}: {value}"
-            found = True
-            break
-    if not found:
-        lines.append(f"{key}: {value}")
-    p.write_text("\n".join(lines) + "\n")
+    d = Path(repo_root) / ".osengineer"
+    d.mkdir(parents=True, exist_ok=True)
+    state_path = d / "state.yml"
+    lock_path = d / ".state.lock"
+    tmp_name = None
+    with open(lock_path, "a") as lock_f:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)
+        try:
+            raw = state_path.read_text() if state_path.exists() else ""
+            lines = raw.splitlines()
+            found = False
+            for i, line in enumerate(lines):
+                if re.match(r"^" + re.escape(key) + r":", line):
+                    lines[i] = f"{key}: {value}"
+                    found = True
+                    break
+            if not found:
+                lines.append(f"{key}: {value}")
+            content = "\n".join(lines) + "\n"
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=str(d), prefix=".state.", delete=False
+            ) as tmp_f:
+                tmp_name = tmp_f.name
+                tmp_f.write(content)
+                tmp_f.flush()
+                os.fsync(tmp_f.fileno())
+            os.replace(tmp_name, state_path)
+            tmp_name = None
+        finally:
+            fcntl.flock(lock_f, fcntl.LOCK_UN)
+            if tmp_name is not None:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
 
 
 def emit_json(obj):

@@ -23,6 +23,7 @@
 #  10. $KIMI_CODE_HOME/config.toml      ← [[hooks]] merged when the kimi runtime is chosen
 #  11. ~/.osengineer/repos.json         ← ledger of repos wired into the global Kimi config
 #  12. .kimi-code/AGENTS.md             ← copy of the repo AGENTS.md when kimi is chosen
+#  13. .osengineer/bin/osengineer       ← launcher so `osengineer` is invocable in the repo
 
 set -euo pipefail
 
@@ -325,6 +326,21 @@ YAML
   fi
   touch "$repo/.osengineer/handoffs/.gitkeep"
   touch "$repo/.osengineer/bypass-log.jsonl"
+
+  # Launcher so the documented `osengineer ...` commands work inside the repo.
+  # $SCRIPT_DIR is expanded at install time; OSENGINEER_HOME overrides it so CI
+  # and relocated checkouts keep working.
+  mkdir -p "$repo/.osengineer/bin"
+  cat > "$repo/.osengineer/bin/osengineer" <<EOF
+#!/usr/bin/env bash
+# osEngineer launcher — resolves the skill checkout without baking an
+# absolute path into every repo.
+set -euo pipefail
+OSENGINEER_HOME="\${OSENGINEER_HOME:-$SCRIPT_DIR}"
+exec python3 "\$OSENGINEER_HOME/bin/osengineer" "\$@"
+EOF
+  chmod +x "$repo/.osengineer/bin/osengineer"
+  log "  + .osengineer/bin/osengineer launcher"
 
   # planning/ dirs — referenced by the plan gates and planning/PROTOCOL.md
   mkdir -p "$repo/planning/active" "$repo/planning/completed"

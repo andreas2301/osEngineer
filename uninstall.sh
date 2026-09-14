@@ -140,6 +140,8 @@ uninstall_repo() {
       | grep -v '/adr-catalog\.yml$' \
       | grep -v '/evolution-proposals/' \
       | grep -v '/evolution-rejections\.jsonl$' \
+      | grep -v '/\.gitignore$' \
+      | grep -v '/bin/osengineer$' \
       | head -1)" ]; then
       has_user_data=true
     fi
