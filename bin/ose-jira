@@ -14,6 +14,8 @@ Design constraints:
   * Comments are idempotent. Jira returns comments oldest-first and paginates,
     so a first-page-only check silently duplicates on long tickets; posting is
     keyed by an `osengineer:corr` marker searched across every page.
+  * The issue key and correlation id are validated at the CLI boundary,
+    because the dispatch schema only covers the webhook path.
   * Ticket text is untrusted input: it is never passed to a shell.
 
 Environment:
@@ -29,11 +31,36 @@ Usage:
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 
 CORR_PREFIX = "osengineer:corr"
+
+# Mirror of specs/SCHEMAS/dispatch-payload.schema.json — keep them in sync.
+ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]+$")
+CORR_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+def validate_issue_key(issue):
+    """Reject anything that could rewrite the request path."""
+    if not ISSUE_KEY_RE.match(issue or ""):
+        print(
+            f"error: invalid issue key {issue!r} — expected PROJ-123",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def validate_corr(corr):
+    if corr is not None and not CORR_RE.match(corr):
+        print(
+            f"error: invalid correlation id {corr!r} — "
+            "expected [A-Za-z0-9_.:-], max 64 chars",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def credentials():
@@ -81,6 +108,12 @@ def api(method, path, body=None):
     except urllib.error.HTTPError as exc:
         print(f"error: Jira {method} {path} -> HTTP {exc.code}", file=sys.stderr)
         print(exc.read().decode(errors="replace"), file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"error: cannot reach Jira at {base}: {e.reason}", file=sys.stderr)
+        sys.exit(1)
+    except TimeoutError:
+        print(f"error: Jira request to {base} timed out", file=sys.stderr)
         sys.exit(1)
     return json.loads(raw) if raw else None
 
@@ -174,8 +207,11 @@ def main():
                 corr = extra[1]
             else:
                 usage()
+        validate_issue_key(issue)
+        validate_corr(corr)
         sys.exit(cmd_comment(issue, text, corr))
     elif verb == "transition" and len(rest) == 2:
+        validate_issue_key(rest[0])
         sys.exit(cmd_transition(rest[0], rest[1]))
     else:
         usage()

@@ -117,6 +117,31 @@ class TestCorrelationIdIsValidated(unittest.TestCase):
         )
 
 
+class TestNetworkFailuresAreClean(unittest.TestCase):
+    """CI reads stderr. A stack trace there is not an error message.
+
+    api() catches HTTPError but not URLError, so DNS failures, refused
+    connections and timeouts — the common CI failure modes — crash the client
+    instead of reporting what went wrong.
+    """
+
+    def test_connection_refused_does_not_traceback(self):
+        proc = run(["comment", "PROJ-1", "hello"])
+        self.assertNotIn(
+            "Traceback", proc.stderr,
+            "an unreachable Jira crashed the client instead of failing cleanly",
+        )
+        self.assertNotEqual(proc.returncode, 0, "unreachable Jira reported success")
+
+    def test_unresolvable_host_does_not_traceback(self):
+        proc = run(
+            ["comment", "PROJ-1", "hello"],
+            {"JIRA_BASE_URL": "http://osengineer-nonexistent.invalid"},
+        )
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertNotEqual(proc.returncode, 0)
+
+
 class TestValidationHappensBeforeNetwork(unittest.TestCase):
     def test_bad_key_does_not_attempt_a_connection(self):
         """Fail locally and fast, not as a confusing HTTP/connection error."""
