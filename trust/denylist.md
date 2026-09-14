@@ -119,6 +119,8 @@ Two ways, both auditable:
 
 The 4-part plan path is preferred for any change that lasts more than one command; the env-var bypass is for emergencies (rolling back a broken deploy, etc.).
 
+**Headless runs (`OSE_HEADLESS=1`).** When the hook process runs with `OSE_HEADLESS=1`, both escape hatches above are ignored and the denylist is absolute: the plan file does not unblock patterned commands, and `OSE_BYPASS=1` is logged but refused. With no human in the session, a file the constrained agent could have authored itself proves nothing — only an interactive human can waive the denylist.
+
 ## Per-team overrides
 
 Teams can soften, stiffen, or disable individual patterns without forking this file. The hook composes the effective denylist at runtime from two optional override files, in order (later wins):

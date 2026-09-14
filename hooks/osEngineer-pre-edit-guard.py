@@ -3,6 +3,7 @@
 #
 # Blocks edits during `discuss`/`plan` phases (planning is read-only by design).
 # Blocks edits to the configured live system at all times.
+# Blocks the agent authoring .osengineer/current-plan.md (self-authorisation guard).
 # Blocks edits to paths outside the current team's owns_paths when in `execute`
 # phase with a `current_team` set.
 #
@@ -53,6 +54,20 @@ def main():
         or ""
     )
 
+    repo_root = find_osengineer_root(cwd)
+    if repo_root:
+        # The 4-part plan is the human authorisation for denylisted commands;
+        # the constrained agent must never be able to author it.
+        target = Path(file_path)
+        if not target.is_absolute():
+            target = Path(repo_root) / target
+        if target.resolve() == (Path(repo_root) / ".osengineer" / "current-plan.md").resolve():
+            emit_block(
+                "PreToolUse",
+                "osEngineer: refusing to write .osengineer/current-plan.md — the 4-part plan is the human authorisation for denylisted commands, so the agent may not author it. Ask a human to create it, or set OSE_BYPASS=1 in the hook environment.",
+            )
+            return
+
     live_system = read_workbench_field(cwd, "live_system_path")
     if live_system and live_system not in ("none", ""):
         if live_system in file_path or file_path.startswith(live_system):
@@ -62,7 +77,6 @@ def main():
             )
             return
 
-    repo_root = find_osengineer_root(cwd)
     if not repo_root:
         return
 
