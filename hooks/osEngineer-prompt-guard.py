@@ -6,7 +6,10 @@
 # agent context as `additionalContext`.
 #
 # Also blocks certain prompts when state is incompatible:
-#   - `/osEngineer:execute` when no PHASE_PLAN.md exists for the active phase
+#   - `/osEngineer:fix` and `/osEngineer:feature` when no PHASE_PLAN.md exists
+#     for the active phase (gated verbs are declared by `plan_artifact:
+#     PHASE_PLAN` in each command's frontmatter; osEngineer:hotfix runs on a
+#     MICRO_PLAN and is not gated)
 #   - any prompt when state.phase === 'blocked' (advisory, not block)
 #
 # Honours OSE_BYPASS=1. Always exits 0 on parse failure.
@@ -187,6 +190,47 @@ def build_context(state, open_handoffs):
     return "osEngineer state: " + " · ".join(parts)
 
 
+def plan_requiring_verbs():
+    """Verbs that consume a PHASE_PLAN.md, derived from the shipped command
+    files under $OSENGINEER_HOME/commands: frontmatter declares
+    `plan_artifact: PHASE_PLAN`, the command is not the planning verb itself
+    (osEngineer:plan PRODUCES the plan), and it is allowed in the `plan`
+    phase (it executes a plan just written). Declared, never inferred from
+    prose. Falls back to the known set {fix, feature} when OSENGINEER_HOME
+    is unset or the commands dir is unreadable so the guard never silently
+    stops working."""
+    fallback = {"fix", "feature"}
+    home = os.environ.get("OSENGINEER_HOME")
+    if not home:
+        return fallback
+    cmd_dir = Path(home) / "commands"
+    if not cmd_dir.is_dir():
+        return fallback
+    verbs = set()
+    try:
+        for fname in sorted(os.listdir(cmd_dir)):
+            if not re.match(r"^osEngineer-.*\.md$", fname):
+                continue
+            try:
+                raw = (cmd_dir / fname).read_text()
+            except Exception:
+                continue
+            fm = parse_frontmatter(raw) or {}
+            name = fm.get("name") or ""
+            verb = name.split(":", 1)[1] if ":" in name else ""
+            if not verb or verb == "plan":
+                continue
+            if fm.get("plan_artifact") != "PHASE_PLAN":
+                continue
+            allowed = {v.strip() for v in (fm.get("phase_allowed") or "").strip("[]").split(",") if v.strip()}
+            if "plan" not in allowed:
+                continue
+            verbs.add(verb)
+    except Exception:
+        return fallback
+    return verbs or fallback
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -209,7 +253,9 @@ def main():
     prompt = data.get("prompt") or ""
     open_handoffs = count_handoffs(repo_root)
 
-    if re.search(r"/osEngineer:execute\b", prompt):
+    m = re.search(r"/osEngineer:([\w-]+)", prompt)
+    if m and m.group(1) in plan_requiring_verbs():
+        verb = m.group(1)
         active_dir = Path(repo_root) / "planning" / "active"
         has_plan = False
         if active_dir.is_dir():
@@ -220,7 +266,7 @@ def main():
         if not has_plan:
             emit_block(
                 "UserPromptSubmit",
-                "osEngineer: cannot /osEngineer:execute — no PHASE_PLAN.md in any planning/active/ directory. Run /osEngineer:plan first.",
+                f"osEngineer: cannot /osEngineer:{verb} — no PHASE_PLAN.md in any planning/active/ directory. Run /osEngineer:plan first.",
             )
             return
 

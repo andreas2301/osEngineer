@@ -8,6 +8,7 @@ description: >-
   Don't use for large features, database schema changes, or cross-repo work.
 phase_allowed: [idle, discuss, plan, micro, hotfix]
 phase_after: micro
+plan_artifact: MICRO_PLAN
 ---
 
 # /osEngineer:hotfix

@@ -11,8 +11,9 @@ description: >-
   /osEngineer:fix), refactors (use /osEngineer:refactor), or
   investigations (use /osEngineer:investigate); don't use without a
   PHASE_PLAN.md — the prompt-guard will block.
-phase_allowed: [execute]
+phase_allowed: [idle, plan]
 phase_after: verify
+plan_artifact: PHASE_PLAN
 ---
 
 # /osEngineer:feature

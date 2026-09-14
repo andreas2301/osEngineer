@@ -12,6 +12,7 @@ description: >-
   /osEngineer:init instead — recipes assume greenfield state).
 phase_allowed: [idle]
 phase_after: idle
+plan_artifact: none
 recipe_steps: 7
 ---
 

@@ -182,14 +182,13 @@ def main():
         return
 
     cwd = data.get("cwd") or os.getcwd()
-    if not (Path(cwd) / ".osengineer" / "state.yml").exists():
+    repo_root = find_osengineer_root(cwd)
+    if not repo_root:
         return
 
     cmd = data.get("tool_input", {}).get("command") or ""
     if not cmd:
         return
-
-    repo_root = find_osengineer_root(cwd) or Path(cwd)
 
     if os.environ.get("OSE_BYPASS") == "1":
         bypass_log(repo_root, "pre-bash-guard", "OSE_BYPASS=1")

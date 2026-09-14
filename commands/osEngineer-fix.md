@@ -7,8 +7,9 @@ description: >-
   a bugfix (single root cause, additive change). Don't use for new features
   (use /osEngineer:feature) or refactors (use /osEngineer:refactor); don't
   use without a PHASE_PLAN.md — the prompt-guard will block.
-phase_allowed: [execute]
+phase_allowed: [idle, plan]
 phase_after: verify
+plan_artifact: PHASE_PLAN
 ---
 
 # /osEngineer:fix
@@ -42,7 +43,7 @@ mid-stream, the developer agent should abort and re-route to `/osEngineer:featur
    phase first.
 2. A `planning/active/<phase>/PHASE_PLAN.md` exists and validates against
    `specs/SCHEMAS/phase-plan.schema.json`. If missing, the
-   `osEngineer-prompt-guard.js` hook blocks the prompt with a "run
+   `osEngineer-prompt-guard.py` hook blocks the prompt with a "run
    /osEngineer:plan first" message.
 3. Working tree is clean (no unstaged changes). The developer agent will
    abort if it isn't.
@@ -81,7 +82,7 @@ For ticket `<TICK>` referencing phase plan `phase-NNN-<slug>`:
 | Token spend exceeds 150% of estimate | post-tool hook flips phase to `blocked`; developer writes `.osengineer/BLOCKED.md`; user resumes via `/osEngineer:fix --resume` |
 | A new ADR is required mid-execute | developer routes to tech-writer; this phase is marked blocked pending ADR |
 | External dependency missing (Vault secret, queue) | blocked + BLOCKED.md |
-| Destructive bash needed without 4-part plan | `osEngineer-pre-bash-guard.js` blocks; user writes plan or sets OSE_BYPASS=1 |
+| Destructive bash needed without 4-part plan | `osEngineer-pre-bash-guard.py` blocks; user writes plan or sets OSE_BYPASS=1 |
 
 ## Example
 

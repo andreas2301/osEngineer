@@ -280,6 +280,36 @@ class TestCommandFrontmatterIsCoherent(unittest.TestCase):
             f"shares nothing with its own documented precondition {sorted(documented)}",
         )
 
+    def test_gated_verbs_do_not_depend_on_body_prose(self):
+        """Which verbs require a PHASE_PLAN must be declared, not inferred.
+
+        Deriving it by grepping the file body for "MICRO_PLAN" means a single
+        stray mention in prose silently un-gates a verb — a safety rule that
+        stops working with no error, which is exactly what CLAUDE.md rule 10
+        forbids. Every command must declare its plan artifact in frontmatter.
+        """
+        missing = []
+        for p, fm in all_commands().items():
+            if not fm.get("phase_after"):
+                continue
+            if fm.get("phase_after") in ("null", "none"):
+                continue
+            if not fm.get("plan_artifact"):
+                missing.append(p.name)
+        self.assertEqual(
+            missing, [],
+            "these commands consume a plan but do not declare `plan_artifact:` "
+            f"(PHASE_PLAN or MICRO_PLAN) in frontmatter: {missing}",
+        )
+
+    def test_guard_does_not_grep_body_for_plan_artifact(self):
+        src = (HOOKS / "osEngineer-prompt-guard.py").read_text()
+        self.assertNotIn(
+            '"MICRO_PLAN" in raw', src,
+            "prompt-guard infers the plan artifact by grepping the command body; "
+            "read the `plan_artifact` frontmatter key instead",
+        )
+
     def test_no_stale_js_hook_references(self):
         """The Node->Python migration left .js hook names in user-facing prose."""
         offenders = []
