@@ -33,7 +33,7 @@ prompt to route work to the right team.
 - **Phase-aware enforcement** — during `discuss` and `plan`, edits are
   read-only outside `planning/` and `.osengineer/`.
 - **owns_paths enforcement** — during `execute`, edits to a path outside
-  the active team's `owns_paths` are blocked by `osEngineer-pre-edit-guard.js`.
+  the active team's `owns_paths` are blocked by `osEngineer-pre-edit-guard.py`.
 - **Conventional Commits** — the `commit-msg` git hook enforces format.
 - **Destructive bash** (`rm -rf`, `git push --force`, etc.) is blocked
   without an active 4-part plan in `.osengineer/current-plan.md`.

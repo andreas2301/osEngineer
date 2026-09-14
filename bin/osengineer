@@ -692,6 +692,33 @@ def record_run(repo_root, verb, harness, extra_args, started_at, result):
     return run_dir
 
 
+def cmd_upgrade(args):
+    """Re-run the installer against this repo and reconcile version state.
+
+    A repo installed once had no supported way to pick up a new skill version,
+    and the two version records disagreed: state.yml pinned osengineer_version
+    at first install while settings.json rewrote it on every run.
+    """
+    root, _scope = find_osengineer_root()
+    if not root:
+        print("osengineer: cwd is not inside an osEngineer-initialised workbench or repo", file=sys.stderr)
+        sys.exit(1)
+    home = Path(os.environ.get("OSENGINEER_HOME") or SCRIPT_DIR)
+    version = (home / "VERSION").read_text().strip()
+    # Re-run the installer non-interactively against this repo.
+    env = dict(os.environ)
+    env["OSE_NONINTERACTIVE"] = "1"
+    result = subprocess.run(["bash", str(home / "install.sh"), str(root)],
+                            env=env, check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr)
+        sys.exit(1)
+    # Reconcile the pin: state.yml kept the version from first install.
+    write_state_field(root, "osengineer_version", version)
+    print(f"upgraded to osEngineer {version}")
+    return
+
+
 def cmd_render(args):
     if not args:
         print("Usage: osengineer render <verb> [arguments...]", file=sys.stderr)
@@ -1123,6 +1150,7 @@ def usage():
         f"osengineer {VERSION}\n\n"
         "Usage:\n"
         "  osengineer init <path>                  Initialise a repo with osEngineer wiring\n"
+        "  osengineer upgrade                      Re-run installer against this repo; reconcile version state\n"
         "  osengineer state                        Show .osengineer/state.yml fields\n"
         "  osengineer state set <k> <v>            Update a state.yml field\n"
         "  osengineer detect-teams <path>          Auto-detect team→folder mapping (outputs YAML)\n"
@@ -1176,6 +1204,8 @@ def main():
         cmd_scaffold(rest)
     elif sub == "explain":
         cmd_explain(rest)
+    elif sub == "upgrade":
+        cmd_upgrade(rest)
     elif sub == "run":
         cmd_run(rest)
     elif sub == "render":

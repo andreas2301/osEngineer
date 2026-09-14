@@ -1091,10 +1091,10 @@ init_workbench() {
   mkdir -p "$root/.osengineer/handoffs"
   touch "$root/.osengineer/handoffs/.gitkeep"
 
-  # Check and clone OpenSpace if missing
-  if [ ! -d "$root/OpenSpace" ]; then
-    log "OpenSpace repo not found in workbench — cloning it from https://github.com/andreas2301/OpenSpace.git..."
-    git clone https://github.com/andreas2301/OpenSpace.git "$root/OpenSpace" || warn "Failed to clone OpenSpace repo automatically. You will need to clone it manually."
+  # Opt-in OpenSpace clone: osEngineer is project-agnostic, so only clone when the user explicitly configures a repo URL.
+  if [ -n "${OSE_OPENSPACE_REPO:-}" ] && [ ! -d "$root/OpenSpace" ]; then
+    log "OpenSpace repo not found in workbench — cloning it from $OSE_OPENSPACE_REPO..."
+    git clone "$OSE_OPENSPACE_REPO" "$root/OpenSpace" || warn "Failed to clone OpenSpace repo automatically from $OSE_OPENSPACE_REPO. You will need to clone it manually."
   fi
 
   # ── 1. Project name ───────────────────────────────────────────────────────
