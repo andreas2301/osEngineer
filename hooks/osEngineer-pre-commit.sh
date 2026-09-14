@@ -70,9 +70,12 @@ for file in $(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep
       echo "[osEngineer-pre-commit] WARNING: $file frontmatter does not validate against agents-md.schema.json (non-blocking)" >&2
     rm -f "$TMP_JSON" 2>/dev/null
   else
-    FRONTMATTER_JSON="$FRONTMATTER_JSON" python3 "$OSENGINEER_HOME/hooks/lib/validate_agents_frontmatter.py" 2>&1 | while IFS= read -r line; do
+    out="$(FRONTMATTER_JSON="$FRONTMATTER_JSON" python3 "$OSENGINEER_HOME/hooks/lib/validate_agents_frontmatter.py" 2>&1)"; rc=$?
+    while IFS= read -r line; do
       [ -n "$line" ] && echo "[osEngineer-pre-commit] WARNING: $line (non-blocking)" >&2
-    done
+    done <<EOF
+$out
+EOF
   fi
 done
 

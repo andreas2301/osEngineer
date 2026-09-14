@@ -143,6 +143,7 @@ uninstall_repo() {
       | grep -v '/\.gitignore$' \
       | grep -v '/\.state\.lock$' \
       | grep -v '/bin/osengineer$' \
+      | grep -v '/hooks/' \
       | head -1)" ]; then
       has_user_data=true
     fi

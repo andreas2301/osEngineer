@@ -354,6 +354,12 @@ EOF
     install_git_hook "$HOOKS_DIR/osEngineer-pre-commit.sh"      "$ghooks/pre-commit"
     install_git_hook "$HOOKS_DIR/osEngineer-post-commit.sh"     "$ghooks/post-commit"
     log "  + git hooks: commit-msg, pre-commit, post-commit"
+    # .git/hooks is not committed, so the CI checkout can't see the validator
+    # the generated gate runs — give CI its own copy inside the repo.
+    mkdir -p "$repo/.osengineer/hooks"
+    cp "$HOOKS_DIR/osEngineer-validate-commit.sh" "$repo/.osengineer/hooks/osEngineer-validate-commit.sh"
+    chmod +x "$repo/.osengineer/hooks/osEngineer-validate-commit.sh"
+    log "  + .osengineer/hooks/osEngineer-validate-commit.sh (for CI)"
   else
     warn "$repo/.git/hooks does not exist — git hooks not installed"
   fi
@@ -453,6 +459,9 @@ EOF
 
   # 5. Slash commands — verbatim copies into each chosen runtime's dir
   install_commands "$repo"
+
+  # 5b. CI gate — generated once, never clobbered on re-runs
+  install_ci_gate "$repo"
 
   # Write secrets.env if any credentials provided
   if [ -n "$ATLASSIAN_CLOUD_ID" ] || [ -n "$VAULT_TOKEN" ]; then
@@ -807,6 +816,66 @@ install_commands() {
     n=$((n + 1))
   done
   log "  + $n slash commands installed"
+}
+
+# Drop the osEngineer CI gate workflow into the target repo. The gate runs the
+# deterministic validators (state.yml presence + Conventional Commits) on every
+# PR and merge-group, so they cannot silently no-op like the local hooks can in
+# a checkout without .osengineer/. Written ONCE: a pre-existing workflow is a
+# user's own file and is never clobbered.
+install_ci_gate() {
+  local repo="$1"
+  local wf="$repo/.github/workflows/osengineer-gate.yml"
+  [ -f "$wf" ] && return 0
+  mkdir -p "$(dirname "$wf")"
+  cat > "$wf" <<'YAML'
+name: osEngineer Gate
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+env:
+  OSE_BYPASS: "0"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: range
+        run: |
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            echo "base=${{ github.event.merge_group.base_sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.merge_group.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Conventional Commits
+        run: |
+          set -euo pipefail
+          test -f .osengineer/state.yml || {
+            echo "::error::.osengineer/state.yml missing — the commit-msg hook would no-op and this gate would pass vacuously"
+            exit 1
+          }
+          fail=0
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            f="$(mktemp)"; git log -1 --format=%B "$sha" > "$f"
+            bash .osengineer/hooks/osEngineer-validate-commit.sh "$f" || { echo "::error::$sha violates Conventional Commits"; fail=1; }
+          done < <(git rev-list "${{ steps.range.outputs.base }}..${{ steps.range.outputs.head }}")
+          exit $fail
+YAML
+  log "  + .github/workflows/osengineer-gate.yml"
 }
 
 install_assistant_settings() {
