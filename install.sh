@@ -20,6 +20,9 @@
 #   7. .claude/settings.json            ← merged (never overwritten); 6 Claude hooks wired
 #   8. AGENTS.md (root)                 ← template dropped if absent (with osEngineer frontmatter)
 #   9. CLAUDE.md (root)                 ← osEngineer section appended if absent
+#  10. $KIMI_CODE_HOME/config.toml      ← [[hooks]] merged when the kimi runtime is chosen
+#  11. ~/.osengineer/repos.json         ← ledger of repos wired into the global Kimi config
+#  12. .kimi-code/AGENTS.md             ← copy of the repo AGENTS.md when kimi is chosen
 
 set -euo pipefail
 
@@ -79,16 +82,15 @@ collect_interactive_inputs() {
   echo "=========================================================="
   echo ""
   
-  printf "Is this a multi-harness setup? (e.g. using multiple runtimes like Claude Code, Kimi, Codex) [y/N]: "
+  printf "Is this a multi-harness setup? (e.g. using multiple runtimes like Claude Code and Kimi) [y/N]: "
   read -r IS_MULTI_HARNESS
   IS_MULTI_HARNESS="${IS_MULTI_HARNESS:-n}"
   
   if [[ "$IS_MULTI_HARNESS" =~ ^[Yy]$ ]]; then
     echo "For which AI assistant runtimes do you want to configure osEngineer hooks and MCPs?"
-    echo "Choose by entering the numbers separated by spaces (e.g., 1 2 3):"
+    echo "Choose by entering the numbers separated by spaces (e.g., 1 2):"
     echo "  [1] Claude Code (wires .claude/settings.json)"
-    echo "  [2] Kimi CLI (wires .kimi/settings.json)"
-    echo "  [3] Codex CLI (wires .codex/settings.json)"
+    echo "  [2] Kimi Code (wires ~/.kimi-code/config.toml)"
     printf "Selections [default: 1]: "
     
     local selections
@@ -100,7 +102,6 @@ collect_interactive_inputs() {
       case "$choice" in
         1) RUNTIMES="$RUNTIMES claude" ;;
         2) RUNTIMES="$RUNTIMES kimi" ;;
-        3) RUNTIMES="$RUNTIMES codex" ;;
       esac
     done
     RUNTIMES="${RUNTIMES#"${RUNTIMES%%[! ]*}"}" # trim leading whitespace
@@ -600,6 +601,15 @@ Key operational facts:
 MD
     log "  + osEngineer section appended to CLAUDE.md"
   fi
+
+  # 8. Per-repo Kimi team context — Kimi reads <project root>/.kimi-code/AGENTS.md.
+  # Reuse the exact root AGENTS.md content; never a second template. Must run
+  # after the AGENTS.md step above so the copy is current on fresh installs.
+  if has_runtime kimi && [ -f "$repo/AGENTS.md" ]; then
+    mkdir -p "$repo/.kimi-code"
+    cp "$repo/AGENTS.md" "$repo/.kimi-code/AGENTS.md"
+    log "  + .kimi-code/AGENTS.md (Kimi per-repo team context)"
+  fi
 }
 
 install_git_hook() {
@@ -624,27 +634,143 @@ EOF
   chmod +x "$dst"
 }
 
+has_runtime() {
+  case " $RUNTIMES " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Wire Kimi hooks into the machine-global $KIMI_CODE_HOME/config.toml.
+#
+# Kimi resolves config ONLY from its home dir (KIMI_CODE_HOME or ~/.kimi-code)
+# and reads no settings.json, so hook wiring is machine-global, not per-repo.
+# HookDefSchema is {event, matcher, command, timeout}.strict() — Claude's
+# type/description keys are rejected outright — and the config has no env
+# block, so OSENGINEER_HOME must ride inside the command string. SessionStart
+# and PostToolUse are deliberately not wired: Kimi discards SessionStart
+# output and cannot produce the statusline bridge that PostToolUse depends on.
+wire_kimi_hooks() {
+  local repo="$1"
+
+  # Kimi Code resolves config ONLY from Kimi home (resolveConfigPath =
+  # input.configPath ?? join(resolveKimiHome(...), "config.toml")); there is no
+  # project-level config.toml and the binary never reads a settings.json, so
+  # hooks are wired into the machine-global config and repo membership is
+  # tracked in ~/.osengineer/repos.json (see the ledger below).
+  local kimi_home="${KIMI_CODE_HOME:-$HOME/.kimi-code}"
+  local cfg="$kimi_home/config.toml"
+  mkdir -p "$kimi_home"
+
+  # All values reach the heredoc via OSE_* env vars — never shell interpolation.
+  OSE_KIMI_CFG="$cfg" \
+  OSE_HOOKS_DIR="$HOOKS_DIR" \
+  OSE_REPO_PATH="$repo" \
+  OSE_LEDGER="$HOME/.osengineer/repos.json" \
+  python3 <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+cfg = Path(os.environ["OSE_KIMI_CFG"])
+hooks_dir = Path(os.environ["OSE_HOOKS_DIR"]).resolve()
+root = str(hooks_dir.parent)
+repo = Path(os.environ["OSE_REPO_PATH"]).resolve()
+ledger = Path(os.environ["OSE_LEDGER"])
+
+sys.path.insert(0, str(hooks_dir / "lib"))
+import kimi_config
+
+
+def cmd(script):
+    return f'OSENGINEER_HOME={root} python3 "{root}/hooks/{script}"'
+
+
+# SessionStart output is discarded by Kimi, and PostToolUse early-returns on a
+# statusline bridge file Kimi cannot produce, so only these four are wired.
+entries = [
+    {"event": "UserPromptSubmit",
+     "command": cmd("osEngineer-prompt-guard.py"), "timeout": 30},
+    {"event": "PreToolUse", "matcher": "Write|Edit",
+     "command": cmd("osEngineer-pre-edit-guard.py"), "timeout": 30},
+    {"event": "PreToolUse", "matcher": "Write|Edit",
+     "command": cmd("osEngineer-read-guard.py"), "timeout": 30},
+    {"event": "PreToolUse", "matcher": "Bash",
+     "command": cmd("osEngineer-pre-bash-guard.py"), "timeout": 30},
+]
+
+cfg.parent.mkdir(parents=True, exist_ok=True)
+kimi_config.apply_hooks(cfg, entries)
+print(f"  + {cfg} — {len(entries)} osEngineer hooks wired")
+
+ledger.parent.mkdir(parents=True, exist_ok=True)
+data = {"repos": []}
+if ledger.exists():
+    try:
+        data = json.loads(ledger.read_text())
+    except Exception:
+        data = {"repos": []}
+repos = [r for r in data.get("repos", []) if r != str(repo)]
+repos.append(str(repo))
+ledger.write_text(json.dumps({"repos": sorted(repos)}, indent=2) + "\n")
+PY
+
+  # Per-repo team context: Kimi reads <project root>/.kimi-code/AGENTS.md.
+  # Fresh installs generate AGENTS.md in init_repo step 6, after this function
+  # runs — init_repo step 8 mirrors it there; re-runs land here.
+  if [ -f "$repo/AGENTS.md" ]; then
+    mkdir -p "$repo/.kimi-code"
+    cp "$repo/AGENTS.md" "$repo/.kimi-code/AGENTS.md"
+    log "  + .kimi-code/AGENTS.md"
+  fi
+}
+
 install_assistant_settings() {
   local repo="$1"
 
+  # Each runtime only gets wiring where it actually reads it: Claude merges
+  # .claude/settings.json below; Kimi resolves config machine-globally from
+  # $KIMI_CODE_HOME (see wire_kimi_hooks); any other runtime is skipped.
   for runtime in $RUNTIMES; do
-    local cfg="$repo/.$runtime/settings.json"
-    mkdir -p "$(dirname "$cfg")"
+    case "$runtime" in
+      claude)
+        install_claude_settings "$repo"
+        ;;
+      kimi)
+        wire_kimi_hooks "$repo"
+        ;;
+      *)
+        ;;
+    esac
+  done
 
-    # Inline Node script merges osEngineer hook entries without overwriting user config.
-    OSE_HOOKS_DIR="$HOOKS_DIR" \
-    OSE_VERSION="$VERSION" \
-    OSE_HOOKS_DIR="$HOOKS_DIR" \
-    OSE_VERSION="$VERSION" \
-    OSE_SETTINGS_PATH="$cfg" \
-    OSE_RUNTIME="$runtime" \
-    OSE_REPO_PATH="$repo" \
-    OSE_ATLASSIAN_CLOUD_ID="$ATLASSIAN_CLOUD_ID" \
-    OSE_ATLASSIAN_SITE_URL="$ATLASSIAN_SITE_URL" \
-    OSE_ATLASSIAN_KEYS="$ATLASSIAN_KEYS" \
-    OSE_VAULT_ADDR="$VAULT_ADDR" \
-    OSE_VAULT_TOKEN="$VAULT_TOKEN" \
-    python3 <<'PY'
+  # Older installs wrote $repo/.kimi/settings.json into a void — Kimi never
+  # reads it. Remove the inert file (and the dir if nothing else is in it).
+  if [ -f "$repo/.kimi/settings.json" ]; then
+    rm -f "$repo/.kimi/settings.json"
+    rmdir "$repo/.kimi" 2>/dev/null || true
+  fi
+}
+
+install_claude_settings() {
+  local repo="$1"
+
+  local cfg="$repo/.claude/settings.json"
+  mkdir -p "$(dirname "$cfg")"
+
+  # Inline Python merges osEngineer hook entries without overwriting user config.
+  OSE_HOOKS_DIR="$HOOKS_DIR" \
+  OSE_VERSION="$VERSION" \
+  OSE_SETTINGS_PATH="$cfg" \
+  OSE_RUNTIME=claude \
+  OSE_REPO_PATH="$repo" \
+  OSE_ATLASSIAN_CLOUD_ID="$ATLASSIAN_CLOUD_ID" \
+  OSE_ATLASSIAN_SITE_URL="$ATLASSIAN_SITE_URL" \
+  OSE_ATLASSIAN_KEYS="$ATLASSIAN_KEYS" \
+  OSE_VAULT_ADDR="$VAULT_ADDR" \
+  OSE_VAULT_TOKEN="$VAULT_TOKEN" \
+  python3 <<'PY'
 import json
 import os
 from pathlib import Path
@@ -770,7 +896,6 @@ with open(settings_path, "w") as f:
     f.write("\n")
 print(f"  + .{runtime}/settings.json merged")
 PY
-  done
 }
 
 # ── Repo classification helpers ────────────────────────────────────────────
