@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osengineer.dev/schemas/dispatch-payload.schema.json",
+  "title": "osEngineer dispatch payload",
+  "description": "client_payload of a GitHub repository_dispatch that starts a headless osEngineer run. GitHub caps client_payload at 10 top-level keys, so this envelope stays small deliberately. Every value is untrusted input: it originates outside the repo and must never be interpolated into a workflow run: body or a shell command.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verb", "correlation_id"],
+  "properties": {
+    "verb": {
+      "type": "string",
+      "description": "osEngineer command verb to run, without the osEngineer: prefix.",
+      "pattern": "^[a-z][a-z0-9-]{0,40}$"
+    },
+    "args": {
+      "type": "array",
+      "description": "Arguments appended to the rendered prompt as text. Never shell-evaluated.",
+      "maxItems": 16,
+      "items": { "type": "string", "maxLength": 512 }
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Idempotency key. Echoed into the Jira comment marker so a retried run does not comment twice.",
+      "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+    },
+    "issue_key": {
+      "type": "string",
+      "description": "Jira issue this run reports back to.",
+      "pattern": "^[A-Z][A-Z0-9]*-[0-9]+$"
+    },
+    "harness": {
+      "type": "string",
+      "enum": ["claude", "kimi"]
+    },
+    "ref": {
+      "type": "string",
+      "description": "Git ref to run against.",
+      "maxLength": 255
+    }
+  }
+}

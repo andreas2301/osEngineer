@@ -20,6 +20,10 @@
 #   7. .claude/settings.json            ← merged (never overwritten); 6 Claude hooks wired
 #   8. AGENTS.md (root)                 ← template dropped if absent (with osEngineer frontmatter)
 #   9. CLAUDE.md (root)                 ← osEngineer section appended if absent
+#  10. $KIMI_CODE_HOME/config.toml      ← [[hooks]] merged when the kimi runtime is chosen
+#  11. ~/.osengineer/repos.json         ← ledger of repos wired into the global Kimi config
+#  12. .kimi-code/AGENTS.md             ← copy of the repo AGENTS.md when kimi is chosen
+#  13. .osengineer/bin/osengineer       ← launcher so `osengineer` is invocable in the repo
 
 set -euo pipefail
 
@@ -30,7 +34,7 @@ VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "0.0.0-dev")"
 
 # Mandatory agents — copied into every initialised repo's .claude/agents/
 # Includes the two orchestration agents (architect, verifier) introduced in
-# osEngineer 0.2.0 P2 alongside the 14 implementation roles.
+# osEngineer 0.2.0 P2 alongside the 20 implementation roles.
 MANDATORY_AGENTS=(
   architect.md verifier.md
   developer.md reviewer.md judge.md
@@ -40,6 +44,8 @@ MANDATORY_AGENTS=(
   topology-validator.md cert-monitor.md
   health-verifier.md scope-manager.md
   sandbox-provisioner.md
+  budget-tracker.md dba.md qa.md
+  sync-agent.md ui-ux-designer.md
 )
 
 # Global variables for interactive setup
@@ -79,16 +85,15 @@ collect_interactive_inputs() {
   echo "=========================================================="
   echo ""
   
-  printf "Is this a multi-harness setup? (e.g. using multiple runtimes like Claude Code, Kimi, Codex) [y/N]: "
+  printf "Is this a multi-harness setup? (e.g. using multiple runtimes like Claude Code and Kimi) [y/N]: "
   read -r IS_MULTI_HARNESS
   IS_MULTI_HARNESS="${IS_MULTI_HARNESS:-n}"
   
   if [[ "$IS_MULTI_HARNESS" =~ ^[Yy]$ ]]; then
     echo "For which AI assistant runtimes do you want to configure osEngineer hooks and MCPs?"
-    echo "Choose by entering the numbers separated by spaces (e.g., 1 2 3):"
+    echo "Choose by entering the numbers separated by spaces (e.g., 1 2):"
     echo "  [1] Claude Code (wires .claude/settings.json)"
-    echo "  [2] Kimi CLI (wires .kimi/settings.json)"
-    echo "  [3] Codex CLI (wires .codex/settings.json)"
+    echo "  [2] Kimi Code (wires ~/.kimi-code/config.toml)"
     printf "Selections [default: 1]: "
     
     local selections
@@ -100,7 +105,6 @@ collect_interactive_inputs() {
       case "$choice" in
         1) RUNTIMES="$RUNTIMES claude" ;;
         2) RUNTIMES="$RUNTIMES kimi" ;;
-        3) RUNTIMES="$RUNTIMES codex" ;;
       esac
     done
     RUNTIMES="${RUNTIMES#"${RUNTIMES%%[! ]*}"}" # trim leading whitespace
@@ -205,7 +209,7 @@ ensure_git() {
 # Ask a question with a default. Returns the answer (or default if empty).
 prompt() {
   local question="$1"
-  local default="$2"
+  local default="${2:-}"
   if [ -n "$default" ]; then
     read -r -p "$question [$default] " answer
   else
@@ -323,6 +327,26 @@ YAML
   touch "$repo/.osengineer/handoffs/.gitkeep"
   touch "$repo/.osengineer/bypass-log.jsonl"
 
+  # Launcher so the documented `osengineer ...` commands work inside the repo.
+  # $SCRIPT_DIR is expanded at install time; OSENGINEER_HOME overrides it so CI
+  # and relocated checkouts keep working.
+  mkdir -p "$repo/.osengineer/bin"
+  cat > "$repo/.osengineer/bin/osengineer" <<EOF
+#!/usr/bin/env bash
+# osEngineer launcher — resolves the skill checkout without baking an
+# absolute path into every repo.
+set -euo pipefail
+OSENGINEER_HOME="\${OSENGINEER_HOME:-$SCRIPT_DIR}"
+exec python3 "\$OSENGINEER_HOME/bin/osengineer" "\$@"
+EOF
+  chmod +x "$repo/.osengineer/bin/osengineer"
+  log "  + .osengineer/bin/osengineer launcher"
+
+  # planning/ dirs — referenced by the plan gates and planning/PROTOCOL.md
+  mkdir -p "$repo/planning/active" "$repo/planning/completed"
+  touch "$repo/planning/active/.gitkeep" "$repo/planning/completed/.gitkeep"
+  log "  + planning/active/, planning/completed/"
+
   # 2. Git hooks — copy (not symlink) for portability across OSes
   local ghooks="$repo/.git/hooks"
   if [ -d "$ghooks" ]; then
@@ -330,6 +354,12 @@ YAML
     install_git_hook "$HOOKS_DIR/osEngineer-pre-commit.sh"      "$ghooks/pre-commit"
     install_git_hook "$HOOKS_DIR/osEngineer-post-commit.sh"     "$ghooks/post-commit"
     log "  + git hooks: commit-msg, pre-commit, post-commit"
+    # .git/hooks is not committed, so the CI checkout can't see the validator
+    # the generated gate runs — give CI its own copy inside the repo.
+    mkdir -p "$repo/.osengineer/hooks"
+    cp "$HOOKS_DIR/osEngineer-validate-commit.sh" "$repo/.osengineer/hooks/osEngineer-validate-commit.sh"
+    chmod +x "$repo/.osengineer/hooks/osEngineer-validate-commit.sh"
+    log "  + .osengineer/hooks/osEngineer-validate-commit.sh (for CI)"
   else
     warn "$repo/.git/hooks does not exist — git hooks not installed"
   fi
@@ -361,9 +391,21 @@ YAML
             continue
           fi
           
-          # Check if osEngineer additions/rules are already present to prevent infinite duplication
-          if grep -q "## osEngineer" "$dst_file" 2>/dev/null; then
-            log "  · osEngineer additions already present in $agent (skipped)"
+          # A previous upgrade appended an "## osEngineer Additions" block.
+          # Refresh only that block: the prefix is the user's own content, the
+          # suffix is our previously appended half. Rebuild as
+          # prefix + MARKER + current upstream body so repos keep receiving
+          # agent updates instead of freezing at the first append.
+          local MARKER='## osEngineer Additions'
+          if grep -qF "$MARKER" "$dst_file" 2>/dev/null; then
+            local prefix
+            prefix=$(awk -v marker="$MARKER" 'index($0, marker) { exit } { print }' "$dst_file")
+            {
+              printf '%s\n\n%s\n\n' "$prefix" "$MARKER"
+              strip_frontmatter "$src_file"
+            } > "$dst_file.tmp"
+            mv "$dst_file.tmp" "$dst_file"
+            log "  · refreshed osEngineer additions in $agent"
             copied=$((copied + 1))
             continue
           fi
@@ -415,6 +457,12 @@ YAML
   # 4. Settings — merge (never overwrite)
   install_assistant_settings "$repo"
 
+  # 5. Slash commands — verbatim copies into each chosen runtime's dir
+  install_commands "$repo"
+
+  # 5b. CI gate — generated once, never clobbered on re-runs
+  install_ci_gate "$repo"
+
   # Write secrets.env if any credentials provided
   if [ -n "$ATLASSIAN_CLOUD_ID" ] || [ -n "$VAULT_TOKEN" ]; then
     local env_file="$repo/.osengineer/secrets.env"
@@ -438,6 +486,16 @@ EOF
       log "  + added .osengineer/secrets.env to .gitignore"
     fi
   fi
+
+  # .osengineer/.gitignore — always written: the root-gitignore append above
+  # no-ops in repos that have no .gitignore yet.
+  cat > "$repo/.osengineer/.gitignore" <<'EOF'
+secrets.env
+bypass-log.jsonl
+override-log.jsonl
+config.local.toml
+EOF
+  log "  + .osengineer/.gitignore"
 
   # 5. git safe.directory (idempotent)
   git config --global --add safe.directory "$repo" 2>/dev/null || true
@@ -600,6 +658,15 @@ Key operational facts:
 MD
     log "  + osEngineer section appended to CLAUDE.md"
   fi
+
+  # 8. Per-repo Kimi team context — Kimi reads <project root>/.kimi-code/AGENTS.md.
+  # Reuse the exact root AGENTS.md content; never a second template. Must run
+  # after the AGENTS.md step above so the copy is current on fresh installs.
+  if has_runtime kimi && [ -f "$repo/AGENTS.md" ]; then
+    mkdir -p "$repo/.kimi-code"
+    cp "$repo/AGENTS.md" "$repo/.kimi-code/AGENTS.md"
+    log "  + .kimi-code/AGENTS.md (Kimi per-repo team context)"
+  fi
 }
 
 install_git_hook() {
@@ -624,27 +691,238 @@ EOF
   chmod +x "$dst"
 }
 
+has_runtime() {
+  case " $RUNTIMES " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Wire Kimi hooks into the machine-global $KIMI_CODE_HOME/config.toml.
+#
+# Kimi resolves config ONLY from its home dir (KIMI_CODE_HOME or ~/.kimi-code)
+# and reads no settings.json, so hook wiring is machine-global, not per-repo.
+# HookDefSchema is {event, matcher, command, timeout}.strict() — Claude's
+# type/description keys are rejected outright — and the config has no env
+# block, so OSENGINEER_HOME must ride inside the command string. SessionStart
+# and PostToolUse are deliberately not wired: Kimi discards SessionStart
+# output and cannot produce the statusline bridge that PostToolUse depends on.
+wire_kimi_hooks() {
+  local repo="$1"
+
+  # Kimi Code resolves config ONLY from Kimi home (resolveConfigPath =
+  # input.configPath ?? join(resolveKimiHome(...), "config.toml")); there is no
+  # project-level config.toml and the binary never reads a settings.json, so
+  # hooks are wired into the machine-global config and repo membership is
+  # tracked in ~/.osengineer/repos.json (see the ledger below).
+  local kimi_home="${KIMI_CODE_HOME:-$HOME/.kimi-code}"
+  local cfg="$kimi_home/config.toml"
+  mkdir -p "$kimi_home"
+
+  # All values reach the heredoc via OSE_* env vars — never shell interpolation.
+  OSE_KIMI_CFG="$cfg" \
+  OSE_HOOKS_DIR="$HOOKS_DIR" \
+  OSE_REPO_PATH="$repo" \
+  OSE_LEDGER="$HOME/.osengineer/repos.json" \
+  python3 <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+cfg = Path(os.environ["OSE_KIMI_CFG"])
+hooks_dir = Path(os.environ["OSE_HOOKS_DIR"]).resolve()
+root = str(hooks_dir.parent)
+repo = Path(os.environ["OSE_REPO_PATH"]).resolve()
+ledger = Path(os.environ["OSE_LEDGER"])
+
+sys.path.insert(0, str(hooks_dir / "lib"))
+import kimi_config
+
+
+def cmd(script):
+    return f'OSENGINEER_HOME={root} python3 "{root}/hooks/{script}"'
+
+
+# SessionStart output is discarded by Kimi, and PostToolUse early-returns on a
+# statusline bridge file Kimi cannot produce, so only these four are wired.
+entries = [
+    {"event": "UserPromptSubmit",
+     "command": cmd("osEngineer-prompt-guard.py"), "timeout": 30},
+    {"event": "PreToolUse", "matcher": "Write|Edit",
+     "command": cmd("osEngineer-pre-edit-guard.py"), "timeout": 30},
+    {"event": "PreToolUse", "matcher": "Write|Edit",
+     "command": cmd("osEngineer-read-guard.py"), "timeout": 30},
+    {"event": "PreToolUse", "matcher": "Bash",
+     "command": cmd("osEngineer-pre-bash-guard.py"), "timeout": 30},
+]
+
+cfg.parent.mkdir(parents=True, exist_ok=True)
+kimi_config.apply_hooks(cfg, entries)
+print(f"  + {cfg} — {len(entries)} osEngineer hooks wired")
+
+ledger.parent.mkdir(parents=True, exist_ok=True)
+data = {"repos": []}
+if ledger.exists():
+    try:
+        data = json.loads(ledger.read_text())
+    except Exception:
+        data = {"repos": []}
+repos = [r for r in data.get("repos", []) if r != str(repo)]
+repos.append(str(repo))
+ledger.write_text(json.dumps({"repos": sorted(repos)}, indent=2) + "\n")
+PY
+
+  # Per-repo team context: Kimi reads <project root>/.kimi-code/AGENTS.md.
+  # Fresh installs generate AGENTS.md in init_repo step 6, after this function
+  # runs — init_repo step 8 mirrors it there; re-runs land here.
+  if [ -f "$repo/AGENTS.md" ]; then
+    mkdir -p "$repo/.kimi-code"
+    cp "$repo/AGENTS.md" "$repo/.kimi-code/AGENTS.md"
+    log "  + .kimi-code/AGENTS.md"
+  fi
+}
+
+# Install the commands/osEngineer-*.md slash commands for each chosen runtime.
+# Claude reads .claude/commands/<ns>/<verb>.md; Kimi discovers
+# .kimi-code/skills/<verb>/SKILL.md. Files are copied VERBATIM — no templating
+# or interpolation: a plain copy cannot introduce $ARGUMENTS into a backtick or
+# `!` shell injection, which would bypass pre-bash-guard.
+install_commands() {
+  local repo="$1"
+  local n=0 src verb
+  for src in "$SCRIPT_DIR/commands"/osEngineer-*.md; do
+    [ -f "$src" ] || continue
+    # Frontmatter `name:` (osEngineer:<verb>) inside the leading --- block.
+    verb="$(awk '
+      NR == 1 && $0 == "---" { fm = 1; next }
+      fm == 1 && $0 == "---" { exit }
+      fm == 1 && sub(/^name:[[:space:]]*osEngineer:/, "") {
+        gsub(/[[:space:]]+$/, "")
+        print
+        exit
+      }
+    ' "$src")"
+    [ -n "$verb" ] || continue
+
+    if has_runtime claude; then
+      mkdir -p "$repo/.claude/commands/osEngineer"
+      cp "$src" "$repo/.claude/commands/osEngineer/$verb.md"
+    fi
+    if has_runtime kimi; then
+      mkdir -p "$repo/.kimi-code/skills/$verb"
+      cp "$src" "$repo/.kimi-code/skills/$verb/SKILL.md"
+    fi
+    n=$((n + 1))
+  done
+  log "  + $n slash commands installed"
+}
+
+# Drop the osEngineer CI gate workflow into the target repo. The gate runs the
+# deterministic validators (state.yml presence + Conventional Commits) on every
+# PR and merge-group, so they cannot silently no-op like the local hooks can in
+# a checkout without .osengineer/. Written ONCE: a pre-existing workflow is a
+# user's own file and is never clobbered.
+install_ci_gate() {
+  local repo="$1"
+  local wf="$repo/.github/workflows/osengineer-gate.yml"
+  [ -f "$wf" ] && return 0
+  mkdir -p "$(dirname "$wf")"
+  cat > "$wf" <<'YAML'
+name: osEngineer Gate
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+env:
+  OSE_BYPASS: "0"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: range
+        run: |
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            echo "base=${{ github.event.merge_group.base_sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.merge_group.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Conventional Commits
+        run: |
+          set -euo pipefail
+          test -f .osengineer/state.yml || {
+            echo "::error::.osengineer/state.yml missing — the commit-msg hook would no-op and this gate would pass vacuously"
+            exit 1
+          }
+          fail=0
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            f="$(mktemp)"; git log -1 --format=%B "$sha" > "$f"
+            bash .osengineer/hooks/osEngineer-validate-commit.sh "$f" || { echo "::error::$sha violates Conventional Commits"; fail=1; }
+          done < <(git rev-list "${{ steps.range.outputs.base }}..${{ steps.range.outputs.head }}")
+          exit $fail
+YAML
+  log "  + .github/workflows/osengineer-gate.yml"
+}
+
 install_assistant_settings() {
   local repo="$1"
 
+  # Each runtime only gets wiring where it actually reads it: Claude merges
+  # .claude/settings.json below; Kimi resolves config machine-globally from
+  # $KIMI_CODE_HOME (see wire_kimi_hooks); any other runtime is skipped.
   for runtime in $RUNTIMES; do
-    local cfg="$repo/.$runtime/settings.json"
-    mkdir -p "$(dirname "$cfg")"
+    case "$runtime" in
+      claude)
+        install_claude_settings "$repo"
+        ;;
+      kimi)
+        wire_kimi_hooks "$repo"
+        ;;
+      *)
+        ;;
+    esac
+  done
 
-    # Inline Node script merges osEngineer hook entries without overwriting user config.
-    OSE_HOOKS_DIR="$HOOKS_DIR" \
-    OSE_VERSION="$VERSION" \
-    OSE_HOOKS_DIR="$HOOKS_DIR" \
-    OSE_VERSION="$VERSION" \
-    OSE_SETTINGS_PATH="$cfg" \
-    OSE_RUNTIME="$runtime" \
-    OSE_REPO_PATH="$repo" \
-    OSE_ATLASSIAN_CLOUD_ID="$ATLASSIAN_CLOUD_ID" \
-    OSE_ATLASSIAN_SITE_URL="$ATLASSIAN_SITE_URL" \
-    OSE_ATLASSIAN_KEYS="$ATLASSIAN_KEYS" \
-    OSE_VAULT_ADDR="$VAULT_ADDR" \
-    OSE_VAULT_TOKEN="$VAULT_TOKEN" \
-    python3 <<'PY'
+  # Older installs wrote $repo/.kimi/settings.json into a void — Kimi never
+  # reads it. Remove the inert file (and the dir if nothing else is in it).
+  if [ -f "$repo/.kimi/settings.json" ]; then
+    rm -f "$repo/.kimi/settings.json"
+    rmdir "$repo/.kimi" 2>/dev/null || true
+  fi
+}
+
+install_claude_settings() {
+  local repo="$1"
+
+  local cfg="$repo/.claude/settings.json"
+  mkdir -p "$(dirname "$cfg")"
+
+  # Inline Python merges osEngineer hook entries without overwriting user config.
+  OSE_HOOKS_DIR="$HOOKS_DIR" \
+  OSE_VERSION="$VERSION" \
+  OSE_SETTINGS_PATH="$cfg" \
+  OSE_RUNTIME=claude \
+  OSE_REPO_PATH="$repo" \
+  OSE_ATLASSIAN_CLOUD_ID="$ATLASSIAN_CLOUD_ID" \
+  OSE_ATLASSIAN_SITE_URL="$ATLASSIAN_SITE_URL" \
+  OSE_ATLASSIAN_KEYS="$ATLASSIAN_KEYS" \
+  OSE_VAULT_ADDR="$VAULT_ADDR" \
+  OSE_VAULT_TOKEN="$VAULT_TOKEN" \
+  python3 <<'PY'
 import json
 import os
 from pathlib import Path
@@ -756,7 +1034,8 @@ if os.environ.get("OSE_VAULT_ADDR") and os.environ.get("OSE_VAULT_TOKEN"):
         "args": ["-y", "@modelcontextprotocol/server-vault"],
         "env": {
             "VAULT_ADDR": os.environ["OSE_VAULT_ADDR"],
-            "VAULT_TOKEN": os.environ["OSE_VAULT_TOKEN"],
+            # env reference, not the literal secret — the value must never land on disk
+            "VAULT_TOKEN": "${VAULT_TOKEN}",
         },
     }
 
@@ -770,7 +1049,6 @@ with open(settings_path, "w") as f:
     f.write("\n")
 print(f"  + .{runtime}/settings.json merged")
 PY
-  done
 }
 
 # ── Repo classification helpers ────────────────────────────────────────────
@@ -813,10 +1091,10 @@ init_workbench() {
   mkdir -p "$root/.osengineer/handoffs"
   touch "$root/.osengineer/handoffs/.gitkeep"
 
-  # Check and clone OpenSpace if missing
-  if [ ! -d "$root/OpenSpace" ]; then
-    log "OpenSpace repo not found in workbench — cloning it from https://github.com/andreas2301/OpenSpace.git..."
-    git clone https://github.com/andreas2301/OpenSpace.git "$root/OpenSpace" || warn "Failed to clone OpenSpace repo automatically. You will need to clone it manually."
+  # Opt-in OpenSpace clone: osEngineer is project-agnostic, so only clone when the user explicitly configures a repo URL.
+  if [ -n "${OSE_OPENSPACE_REPO:-}" ] && [ ! -d "$root/OpenSpace" ]; then
+    log "OpenSpace repo not found in workbench — cloning it from $OSE_OPENSPACE_REPO..."
+    git clone "$OSE_OPENSPACE_REPO" "$root/OpenSpace" || warn "Failed to clone OpenSpace repo automatically from $OSE_OPENSPACE_REPO. You will need to clone it manually."
   fi
 
   # ── 1. Project name ───────────────────────────────────────────────────────

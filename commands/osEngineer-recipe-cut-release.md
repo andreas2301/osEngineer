@@ -11,6 +11,7 @@ description: >-
   cross-workbench coordinated releases (P7 feature).
 phase_allowed: [accepted]
 phase_after: idle
+plan_artifact: none
 recipe_steps: 8
 ---
 

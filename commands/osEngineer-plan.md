@@ -9,6 +9,7 @@ description: >-
   goal statement — the planner agent will refuse an unscoped invocation.
 phase_allowed: [discuss, plan]
 phase_after: plan
+plan_artifact: PHASE_PLAN
 ---
 
 # /osEngineer:plan

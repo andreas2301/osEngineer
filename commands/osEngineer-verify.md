@@ -9,6 +9,7 @@ description: >-
   the judge makes the merge decision.
 phase_allowed: [execute, verify]
 phase_after: accepted
+plan_artifact: none
 ---
 
 # /osEngineer:verify

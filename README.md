@@ -51,6 +51,14 @@ cd osEngineer
 
 The install script is idempotent. It configures `git safe.directory`, symlinks hooks, creates planning directories, and wires zeroclaw repo settings.
 
+### Relocating the checkout: `OSENGINEER_HOME`
+
+`OSENGINEER_HOME` points at the osEngineer skill checkout. The per-repo launcher installed at `.osengineer/bin/osengineer` honours it, preferring the variable over the checkout path baked in at install time, so setting it is how CI runners and relocated checkouts work without re-running `install.sh`:
+
+```bash
+export OSENGINEER_HOME=/path/to/osEngineer
+```
+
 To remove osEngineer wiring from a project:
 
 ```bash

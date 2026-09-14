@@ -4,7 +4,7 @@ All `agents/*.md` and `commands/osEngineer-*.md` files SHOULD start with a YAML 
 
 ## Why frontmatter
 
-The `osEngineer-prompt-guard.js` hook can route incoming prompts to the right agent or command by matching the user's intent against the `description` field — specifically the `Use when …` and `Don't use when …` verbs. This replaces hardcoded routing tables with discoverable, file-local declarations.
+The `osEngineer-prompt-guard.py` hook can route incoming prompts to the right agent or command by matching the user's intent against the `description` field — specifically the `Use when …` and `Don't use when …` verbs. This replaces hardcoded routing tables with discoverable, file-local declarations.
 
 Frontmatter also enables:
 - `bin/osengineer scaffold-agent <role>` to generate consistent new files
@@ -36,7 +36,7 @@ phase_after: <phase>           # optional; phase transition the command causes o
 ---
 ```
 
-`phase_allowed` enforcement is read by `osEngineer-prompt-guard.js` — invoking a command outside its allowed phases is blocked with a clear reason.
+`phase_allowed` enforcement is read by `osEngineer-prompt-guard.py` — invoking a command outside its allowed phases is blocked with a clear reason.
 
 ## "Use when" / "Don't use when" grammar
 

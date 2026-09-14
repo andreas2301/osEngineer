@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Minimal Jira client for headless runs — comment and transition, nothing else.
+
+Every Jira operation elsewhere in this package is an MCP tool name inside an
+example markdown file. Headless CI has no MCP server, so a run could not report
+back to a ticket at all. This is the CI path; MCP remains the workstation path.
+
+Design constraints:
+
+  * Zero dependencies — urllib/json/base64 only. The package ships no
+    third-party code and that is a stated selling point.
+  * Credentials come from the environment ONLY, never argv, where they would be
+    visible in the process table and in CI logs.
+  * Comments are idempotent. Jira returns comments oldest-first and paginates,
+    so a first-page-only check silently duplicates on long tickets; posting is
+    keyed by an `osengineer:corr` marker searched across every page.
+  * Ticket text is untrusted input: it is never passed to a shell.
+
+Environment:
+    JIRA_BASE_URL   e.g. https://your-site.atlassian.net
+    JIRA_EMAIL      account email (basic auth username)
+    JIRA_TOKEN      API token
+
+Usage:
+    ose-jira comment <ISSUE-KEY> <text> [--corr <id>]
+    ose-jira transition <ISSUE-KEY> <transition-name>
+"""
+
+import base64
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+CORR_PREFIX = "osengineer:corr"
+
+
+def credentials():
+    """Return (base_url, email, token) from the environment, or exit 1."""
+    base = os.environ.get("JIRA_BASE_URL")
+    email = os.environ.get("JIRA_EMAIL")
+    token = os.environ.get("JIRA_TOKEN")
+    missing = [
+        name
+        for name, value in (
+            ("JIRA_BASE_URL", base),
+            ("JIRA_EMAIL", email),
+            ("JIRA_TOKEN", token),
+        )
+        if not value
+    ]
+    if missing:
+        print(
+            "error: missing required environment variables: "
+            + ", ".join(missing)
+            + "\nSet JIRA_BASE_URL, JIRA_EMAIL and JIRA_TOKEN; "
+            "credentials are never accepted as command-line flags.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return base.rstrip("/"), email, token
+
+
+def api(method, path, body=None):
+    """Perform an authenticated Jira REST call and return the decoded JSON."""
+    base, email, token = credentials()
+    req = urllib.request.Request(base + path, method=method)
+    req.add_header(
+        "Authorization",
+        "Basic " + base64.b64encode(f"{email}:{token}".encode()).decode(),
+    )
+    req.add_header("Accept", "application/json")
+    data = None
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+        data = json.dumps(body).encode()
+    try:
+        with urllib.request.urlopen(req, data=data, timeout=30) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        print(f"error: Jira {method} {path} -> HTTP {exc.code}", file=sys.stderr)
+        print(exc.read().decode(errors="replace"), file=sys.stderr)
+        sys.exit(1)
+    return json.loads(raw) if raw else None
+
+
+def find_corr_comment(issue, corr):
+    """True when a comment carrying this correlation marker already exists.
+
+    Pages through every comment: Jira returns them oldest-first with
+    maxResults/startAt, so checking only the first page duplicates on long
+    tickets.
+    """
+    needle = f"{CORR_PREFIX}={corr}"
+    start_at = 0
+    while True:
+        data = api(
+            "GET",
+            f"/rest/api/3/issue/{issue}/comment"
+            f"?startAt={start_at}&maxResults=100",
+        )
+        for comment in data["comments"]:
+            if needle in json.dumps(comment["body"]):
+                return True
+        total = data["total"]
+        start_at = data["startAt"] + data["maxResults"]
+        if start_at >= total:
+            return False
+
+
+def cmd_comment(issue, text, corr=None):
+    """Post a comment, skipping it when the correlation marker is already there."""
+    if corr and find_corr_comment(issue, corr):
+        print(f"skip: {issue} already has a comment with "
+              f"{CORR_PREFIX}={corr}; not posting a duplicate")
+        return 0
+    if corr:
+        text = text + f"\n\n[{CORR_PREFIX}={corr}]"
+    api(
+        "POST",
+        f"/rest/api/3/issue/{issue}/comment",
+        {
+            "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": text}],
+                    }
+                ],
+            }
+        },
+    )
+    print(f"posted comment on {issue}")
+    return 0
+
+
+def cmd_transition(issue, name):
+    """Move an issue through the named workflow transition."""
+    data = api("GET", f"/rest/api/3/issue/{issue}/transitions")
+    matches = [
+        t for t in data["transitions"] if t["name"].lower() == name.lower()
+    ]
+    if not matches:
+        available = ", ".join(t["name"] for t in data["transitions"]) or "(none)"
+        print(
+            f"error: no transition named {name!r} on {issue}; "
+            f"available: {available}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    api(
+        "POST",
+        f"/rest/api/3/issue/{issue}/transitions",
+        {"transition": {"id": matches[0]["id"]}},
+    )
+    print(f"transitioned {issue} to {matches[0]['name']}")
+    return 0
+
+
+def main():
+    argv = sys.argv[1:]
+    if not argv:
+        usage()
+    verb, rest = argv[0], argv[1:]
+    if verb == "comment" and len(rest) >= 2:
+        issue, text = rest[0], rest[1]
+        corr = None
+        extra = rest[2:]
+        if extra:
+            if len(extra) == 2 and extra[0] == "--corr":
+                corr = extra[1]
+            else:
+                usage()
+        sys.exit(cmd_comment(issue, text, corr))
+    elif verb == "transition" and len(rest) == 2:
+        sys.exit(cmd_transition(rest[0], rest[1]))
+    else:
+        usage()
+
+
+def usage():
+    print(
+        "usage: ose-jira comment <ISSUE-KEY> <text> [--corr <id>]\n"
+        "       ose-jira transition <ISSUE-KEY> <transition-name>",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

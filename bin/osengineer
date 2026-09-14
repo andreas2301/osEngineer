@@ -34,10 +34,16 @@
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from subprocess import run
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks" / "lib"))
+from osengineer_common import read_state_map, write_state_field
 
 SCRIPT_DIR = Path(__file__).resolve().parent.parent
 VERSION_FILE = SCRIPT_DIR / "VERSION"
@@ -69,73 +75,6 @@ def find_osengineer_root(cwd=None):
             break
         current = parent
     return None, None
-
-
-def read_workbench_config(workbench_root):
-    p = Path(workbench_root) / ".osengineer" / "workbench-config.yml"
-    if not p.exists():
-        return None
-    config = {}
-    current_array = None
-    for raw in p.read_text().splitlines():
-        line = raw.rstrip()
-        if not line.strip() or line.strip().startswith("#"):
-            continue
-        top_key = re.match(r"^(\w+):\s*(.*)$", line)
-        if top_key and not line.startswith(" ") and not line.startswith("-"):
-            key, val = top_key.group(1), top_key.group(2).strip()
-            val = val.strip("\"'")
-            if val == "":
-                config[key] = []
-                current_array = config[key]
-            else:
-                config[key] = val
-                current_array = None
-            continue
-        array_item = re.match(r"^\s+- (\w+):\s*(.*)$", line)
-        if array_item and current_array is not None:
-            key, val = array_item.group(1), array_item.group(2).strip().strip("\"'")
-            current_array.append({key: val})
-            continue
-        nested_key = re.match(r"^\s+(\w+):\s*(.*)$", line)
-        if nested_key and current_array and current_array and isinstance(current_array[-1], dict):
-            current_array[-1][nested_key.group(1)] = nested_key.group(2).strip().strip("\"'")
-    for k in list(config.keys()):
-        if isinstance(config[k], list) and len(config[k]) == 0:
-            del config[k]
-    return config
-
-
-def read_state_map(repo_root):
-    p = Path(repo_root) / ".osengineer" / "state.yml"
-    if not p.exists():
-        return None
-    state = {}
-    for line in p.read_text().splitlines():
-        m = re.match(r"^(\w+):\s*(.*)$", line)
-        if not m:
-            continue
-        val = m.group(2).strip().strip("\"'")
-        state[m.group(1)] = val or None
-    return state
-
-
-def write_state_field(repo_root, key, value):
-    p = Path(repo_root) / ".osengineer" / "state.yml"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    if not p.exists():
-        p.write_text(f"{key}: {value}\n")
-        return
-    lines = p.read_text().splitlines()
-    found = False
-    for i, line in enumerate(lines):
-        if re.match(r"^" + re.escape(key) + r":", line):
-            lines[i] = f"{key}: {value}"
-            found = True
-            break
-    if not found:
-        lines.append(f"{key}: {value}")
-    p.write_text("\n".join(lines) + "\n")
 
 
 def list_dir_safe(d):
@@ -611,6 +550,255 @@ def cmd_discover_adrs(args):
         print(out, end="")
 
 
+def build_prompt(verb, extra_args):
+    """Render a command verb's executable body. Shared by `render` and `run`
+    so the interactive and headless paths cannot drift.
+
+    Returns the prompt string. Raises ValueError for an unknown verb.
+    """
+    path = find_command_file(verb)
+    if path is None:
+        raise ValueError(f'osengineer: unknown command verb "{verb}" (no commands/osEngineer-*.md with name: osEngineer:{verb})')
+    lines = path.read_text().splitlines()
+    start = next((i for i, l in enumerate(lines) if l.strip() == "<!-- ose:body:start -->"), -1)
+    end = next((i for i, l in enumerate(lines) if l.strip() == "<!-- ose:body:end -->"), -1)
+    if start != -1 and end != -1 and end > start:
+        body_lines = lines[start + 1:end]
+    else:
+        end_idx = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "---"), -1) if lines and lines[0].strip() == "---" else -1
+        body_lines = lines[end_idx + 1:] if end_idx != -1 else lines
+    out = "\n".join(body_lines).strip("\n")
+    if extra_args:
+        out += "\n\nArguments: " + " ".join(extra_args)
+    return out
+
+
+def find_command_file(verb):
+    """Return the Path of commands/osEngineer-*.md whose frontmatter name is
+    `osEngineer:<verb>`, or None."""
+    commands_dir = Path(os.environ.get("OSENGINEER_HOME") or SCRIPT_DIR) / "commands"
+    if not commands_dir.is_dir():
+        return None
+    name_re = re.compile(rf"^name:\s*osEngineer:{re.escape(verb)}$", re.MULTILINE)
+    for f in sorted(commands_dir.glob("osEngineer-*.md")):
+        try:
+            content = f.read_text()
+        except Exception:
+            continue
+        fm = re.match(r"\A---\n(.*?)\n---", content, re.DOTALL)
+        frontmatter = fm.group(1) if fm else ""
+        if name_re.search(frontmatter):
+            return f
+    return None
+
+
+def run_preflight(repo_root, verb):
+    """Refuse to start a headless run unless it is safe to.
+
+    Checks, in order: clean worktree; and, when the verb's frontmatter declares
+    plan_artifact: PHASE_PLAN, that a planning/active/*/PHASE_PLAN.md exists.
+    Raises RuntimeError with a human-readable message on failure.
+    """
+    gs = subprocess.run(["git", "status", "--porcelain"], cwd=repo_root,
+                        capture_output=True, text=True)
+    if gs.stdout.strip():
+        raise RuntimeError("osengineer run: working tree is not clean — commit or stash first")
+    path = find_command_file(verb)
+    if path is not None:
+        fm = re.match(r"\A---\n(.*?)\n---", path.read_text(), re.DOTALL)
+        frontmatter = fm.group(1) if fm else ""
+        if re.search(r"^plan_artifact:\s*PHASE_PLAN\b", frontmatter, re.MULTILINE):
+            plans = list((Path(repo_root) / "planning" / "active").glob("*/PHASE_PLAN.md"))
+            if not plans:
+                raise RuntimeError("osengineer run: no planning/active/*/PHASE_PLAN.md — run /osEngineer:plan first")
+    return None
+
+
+def spawn_harness(harness, prompt, repo_root, home):
+    """Run the harness headlessly and return (exit_code, stdout, stderr).
+
+    exit_code is None on timeout. The child gets OSE_HEADLESS=1 — that is what
+    makes the denylist absolute — and never inherits OSE_BYPASS.
+    """
+    bin_path = os.environ.get("OSE_HARNESS_BIN") or harness
+    argv = [bin_path, "-p", prompt]  # same for claude and kimi; kimi needs -p FIRST
+    env = dict(os.environ)
+    env["OSE_HEADLESS"] = "1"
+    env["OSENGINEER_HOME"] = str(home)
+    env.pop("OSE_BYPASS", None)
+    try:
+        timeout = int(os.environ.get("OSE_RUN_TIMEOUT", "3600"))
+    except ValueError:
+        timeout = 3600
+    try:
+        proc = subprocess.run(argv, cwd=str(repo_root), capture_output=True,
+                              text=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        stdout = e.stdout if isinstance(e.stdout, str) else (e.stdout or b"").decode(errors="replace")
+        stderr = e.stderr if isinstance(e.stderr, str) else (e.stderr or b"").decode(errors="replace")
+        return None, stdout, stderr
+    except OSError as e:
+        return 127, "", f"osengineer: cannot start harness {bin_path!r}: {e}"
+    return proc.returncode, proc.stdout or "", proc.stderr or ""
+
+
+def record_run(repo_root, verb, harness, extra_args, started_at, result):
+    """Persist .osengineer/runs/<id>/{RUN.json,events.jsonl}; return the dir.
+
+    Always writes RUN.json, including on failure and timeout, so every run is
+    auditable.
+    """
+    exit_code, stdout, stderr = result
+    if exit_code is None:
+        status = "timeout"
+    elif exit_code == 0:
+        status = "success"
+    else:
+        status = "failed"
+
+    # Run records must not dirty the tree for the next headless run's
+    # `git status --porcelain` pre-flight.
+    exclude = Path(repo_root) / ".git" / "info" / "exclude"
+    if exclude.exists():
+        lines = exclude.read_text().splitlines()
+        if ".osengineer/runs/" not in [l.strip() for l in lines]:
+            with open(exclude, "a") as f:
+                if lines and not lines[-1].endswith("\n"):
+                    f.write("\n")
+                f.write(".osengineer/runs/\n")
+
+    runs_dir = Path(repo_root) / ".osengineer" / "runs"
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"{ts}-{uuid.uuid4().hex[:8]}"
+    run_dir = runs_dir / run_id
+    run_dir.mkdir()
+
+    with open(run_dir / "events.jsonl", "w") as f:
+        for line in stdout.splitlines():
+            f.write(json.dumps({"stream": "stdout", "line": line}) + "\n")
+        for line in stderr.splitlines():
+            f.write(json.dumps({"stream": "stderr", "line": line}) + "\n")
+
+    (run_dir / "RUN.json").write_text(json.dumps({
+        "verb": verb,
+        "harness": harness,
+        "status": status,
+        "started_at": started_at,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "exit_code": exit_code,
+        "args": extra_args,
+    }, indent=2) + "\n")
+    return run_dir
+
+
+def cmd_upgrade(args):
+    """Re-run the installer against this repo and reconcile version state.
+
+    A repo installed once had no supported way to pick up a new skill version,
+    and the two version records disagreed: state.yml pinned osengineer_version
+    at first install while settings.json rewrote it on every run.
+    """
+    root, _scope = find_osengineer_root()
+    if not root:
+        print("osengineer: cwd is not inside an osEngineer-initialised workbench or repo", file=sys.stderr)
+        sys.exit(1)
+    home = Path(os.environ.get("OSENGINEER_HOME") or SCRIPT_DIR)
+    version = (home / "VERSION").read_text().strip()
+    # Re-run the installer non-interactively against this repo.
+    env = dict(os.environ)
+    env["OSE_NONINTERACTIVE"] = "1"
+    result = subprocess.run(["bash", str(home / "install.sh"), str(root)],
+                            env=env, check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr)
+        sys.exit(1)
+    # Reconcile the pin: state.yml kept the version from first install.
+    write_state_field(root, "osengineer_version", version)
+    print(f"upgraded to osEngineer {version}")
+    return
+
+
+def cmd_render(args):
+    if not args:
+        print("Usage: osengineer render <verb> [arguments...]", file=sys.stderr)
+        sys.exit(1)
+    try:
+        print(build_prompt(args[0], args[1:]))
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_run(args):
+    """Execute a phase headlessly: pre-flight, spawn a harness, record the run.
+
+    Pre-flight must pass BEFORE anything is spawned; the child gets
+    OSE_HEADLESS=1, which is what makes the denylist absolute.
+    """
+    # Split harness selection from the verb arguments.
+    harness = "claude"
+    clean = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--harness":
+            if i + 1 >= len(args):
+                print("osengineer: --harness requires a value (claude|kimi)", file=sys.stderr)
+                sys.exit(1)
+            harness = args[i + 1]
+            i += 2
+            continue
+        if a.startswith("--harness="):
+            harness = a.split("=", 1)[1]
+            i += 1
+            continue
+        clean.append(a)
+        i += 1
+    if not clean:
+        print("Usage: osengineer run <verb> [args...] [--harness claude|kimi]", file=sys.stderr)
+        sys.exit(1)
+    if harness not in ("claude", "kimi"):
+        print(f'osengineer: unknown harness "{harness}" (must be claude or kimi)', file=sys.stderr)
+        sys.exit(1)
+    verb, extra = clean[0], clean[1:]
+    home = Path(os.environ.get("OSENGINEER_HOME") or SCRIPT_DIR)
+
+    # ── Pre-flight: everything must pass before any child is spawned ──
+    root, _scope = find_osengineer_root(os.getcwd())
+    if not root:
+        print("osengineer: cwd is not inside an osEngineer-initialised workbench or repo", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        prompt = build_prompt(verb, extra)  # ValueError → unknown verb
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        run_preflight(root, verb)  # RuntimeError → dirty tree / missing PHASE_PLAN
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+    # ── Spawn + record ──
+    started_at = datetime.now(timezone.utc).isoformat()
+    result = (1, "", "harness was not invoked")
+    try:
+        result = spawn_harness(harness, prompt, root, home)
+    finally:
+        # RUN.json is written even when the child fails, times out, or cannot
+        # be spawned at all — a run without a record is unauditable.
+        run_dir = record_run(root, verb, harness, extra, started_at, result)
+
+    exit_code = result[0]
+    status = "timeout" if exit_code is None else ("success" if exit_code == 0 else "failed")
+    print(f"osengineer run {run_dir.name}: {verb} via {harness} — {status}"
+          + (f" (exit {exit_code})" if exit_code is not None else ""))
+    sys.exit(0 if exit_code == 0 else 1)
+
+
 # ── Evolution loop ───────────────────────────────────────────────────────────
 
 def read_evolution_counter(repo_root):
@@ -962,6 +1150,7 @@ def usage():
         f"osengineer {VERSION}\n\n"
         "Usage:\n"
         "  osengineer init <path>                  Initialise a repo with osEngineer wiring\n"
+        "  osengineer upgrade                      Re-run installer against this repo; reconcile version state\n"
         "  osengineer state                        Show .osengineer/state.yml fields\n"
         "  osengineer state set <k> <v>            Update a state.yml field\n"
         "  osengineer detect-teams <path>          Auto-detect team→folder mapping (outputs YAML)\n"
@@ -981,7 +1170,10 @@ def usage():
         "  osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]\n"
         "                                          Materialise a new command file from template\n"
         "  osengineer version                      Print osEngineer version\n"
-        "  osengineer explain [topic]              overview|phases|hooks|teams|handoffs|scaffold"
+        "  osengineer explain [topic]              overview|phases|hooks|teams|handoffs|scaffold\n"
+        "  osengineer render <verb> [args...]      Render a command's executable body to stdout\n"
+        "  osengineer run <verb> [args...] [--harness claude|kimi]\n"
+        "                                          Run a command headlessly via a harness; transcript in .osengineer/runs/<id>/"
     )
 
 
@@ -1012,6 +1204,12 @@ def main():
         cmd_scaffold(rest)
     elif sub == "explain":
         cmd_explain(rest)
+    elif sub == "upgrade":
+        cmd_upgrade(rest)
+    elif sub == "run":
+        cmd_run(rest)
+    elif sub == "render":
+        cmd_render(rest)
     else:
         print(f'osengineer: unknown subcommand "{sub}"\n', file=sys.stderr)
         usage()

@@ -21,6 +21,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
     bypass_log,
+    emit_block,
+    emit_context,
     find_osengineer_root,
     read_state_map,
 )
@@ -180,18 +182,26 @@ def main():
         return
 
     cwd = data.get("cwd") or os.getcwd()
-    if not (Path(cwd) / ".osengineer" / "state.yml").exists():
+    repo_root = find_osengineer_root(cwd)
+    if not repo_root:
         return
 
     cmd = data.get("tool_input", {}).get("command") or ""
     if not cmd:
         return
 
-    repo_root = find_osengineer_root(cwd) or Path(cwd)
+    headless = os.environ.get("OSE_HEADLESS") == "1"
 
     if os.environ.get("OSE_BYPASS") == "1":
-        bypass_log(repo_root, "pre-bash-guard", "OSE_BYPASS=1")
-        return
+        # OSE_BYPASS is the human's escape hatch, not the runner's: in a
+        # headless run it is logged and refused, not honoured.
+        bypass_log(
+            repo_root,
+            "pre-bash-guard",
+            "OSE_BYPASS=1 refused (headless run)" if headless else "OSE_BYPASS=1",
+        )
+        if not headless:
+            return
 
     globals_ = load_patterns()
     repo_ov_path = Path(repo_root) / ".osengineer" / "denylist-overrides.json"
@@ -224,35 +234,31 @@ def main():
     if matched["name"] in effective["added_names"]:
         log_override(repo_root, {"event": "added_pattern_matched", "pattern": matched["name"], "team": current_team, "cmd": cmd[:200]})
 
-    if has_four_part_plan(repo_root):
+    if not headless and has_four_part_plan(repo_root):
         return
 
     if matched["name"] in effective["downgraded"]:
         log_override(repo_root, {"event": "downgraded_to_warning", "pattern": matched["name"], "team": current_team, "cmd": cmd[:200]})
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "additionalContext": (
-                    f'osEngineer warning: command matches denylist pattern "{matched["name"]}"'
-                    + (f' (category: {matched.get("category")})' if matched.get("category") else "")
-                    + ". This pattern is downgraded-to-warning by a per-team override; the command will run but the match was logged to override-log.jsonl."
-                ),
-            },
-        }))
+        emit_context(
+            "PreToolUse",
+            f'osEngineer warning: command matches denylist pattern "{matched["name"]}"'
+            + (f' (category: {matched.get("category")})' if matched.get("category") else "")
+            + ". This pattern is downgraded-to-warning by a per-team override; the command will run but the match was logged to override-log.jsonl.",
+        )
         return
 
-    print(json.dumps({
-        "decision": "block",
-        "reason": (
-            f'osEngineer: command matches denylist pattern "{matched["name"]}"'
-            + (f' (category: {matched.get("category")})' if matched.get("category") else "")
-            + " and no 4-part plan is active.\n"
-            + "Either:\n"
-            + "  (a) write .osengineer/current-plan.md with sections Touch / Change / Impact / Rollback, or\n"
-            + "  (b) set OSE_BYPASS=1 if absolutely necessary (logged to bypass-log.jsonl).\n"
-            + "See trust/denylist.md for the full pattern contract and rationale."
-        ),
-    }))
+    reason = (
+        f'osEngineer: command matches denylist pattern "{matched["name"]}"'
+        + (f' (category: {matched.get("category")})' if matched.get("category") else "")
+        + " and no 4-part plan is active.\n"
+        + "Either:\n"
+        + "  (a) write .osengineer/current-plan.md with sections Touch / Change / Impact / Rollback, or\n"
+        + "  (b) set OSE_BYPASS=1 if absolutely necessary (logged to bypass-log.jsonl).\n"
+        + "See trust/denylist.md for the full pattern contract and rationale."
+    )
+    if headless:
+        reason += "\n  (headless run: OSE_HEADLESS=1 — the 4-part plan and OSE_BYPASS routes are disabled.)"
+    emit_block("PreToolUse", reason)
 
 
 if __name__ == "__main__":
