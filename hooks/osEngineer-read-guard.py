@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import find_osengineer_root
+from osengineer_common import emit_context, find_osengineer_root
 
 
 def main():
@@ -54,16 +54,12 @@ def main():
     if not repo_root:
         return
 
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "additionalContext": (
-                f"READ-BEFORE-EDIT REMINDER: {Path(file_path).name} exists on disk. "
-                "If you have not Read it in this session, do so first — the runtime "
-                "will otherwise reject the edit."
-            ),
-        },
-    }))
+    emit_context(
+        "PreToolUse",
+        f"READ-BEFORE-EDIT REMINDER: {Path(file_path).name} exists on disk. "
+        "If you have not Read it in this session, do so first — the runtime "
+        "will otherwise reject the edit.",
+    )
 
 
 if __name__ == "__main__":

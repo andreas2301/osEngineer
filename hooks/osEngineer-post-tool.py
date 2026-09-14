@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import find_osengineer_root, write_state_field
+from osengineer_common import emit_context, find_osengineer_root, write_state_field
 
 STDIN_TIMEOUT_MS = 10000
 WARNING_THRESHOLD = 35
@@ -104,12 +104,7 @@ def main():
             "Avoid starting new complex work. If between plan steps, inform the user so they can prepare to pause."
         )
 
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": message,
-        },
-    }))
+    emit_context("PostToolUse", message)
 
 
 if __name__ == "__main__":

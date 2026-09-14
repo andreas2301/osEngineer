@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import count_handoffs, find_osengineer_root, read_state_map
+from osengineer_common import count_handoffs, emit_context, find_osengineer_root, read_state_map
 
 
 def read_evolution_counter(repo_root):
@@ -52,12 +52,7 @@ def main():
     if state.get("phase") == "blocked":
         lines.append("- ⚠ phase is BLOCKED. See .osengineer/BLOCKED.md for resume instructions.")
 
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": "\n".join(lines),
-        },
-    }))
+    emit_context("SessionStart", "\n".join(lines))
 
 
 if __name__ == "__main__":

@@ -21,6 +21,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
     bypass_log,
+    emit_block,
+    emit_context,
     find_osengineer_root,
     read_state_map,
 )
@@ -229,21 +231,17 @@ def main():
 
     if matched["name"] in effective["downgraded"]:
         log_override(repo_root, {"event": "downgraded_to_warning", "pattern": matched["name"], "team": current_team, "cmd": cmd[:200]})
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "additionalContext": (
-                    f'osEngineer warning: command matches denylist pattern "{matched["name"]}"'
-                    + (f' (category: {matched.get("category")})' if matched.get("category") else "")
-                    + ". This pattern is downgraded-to-warning by a per-team override; the command will run but the match was logged to override-log.jsonl."
-                ),
-            },
-        }))
+        emit_context(
+            "PreToolUse",
+            f'osEngineer warning: command matches denylist pattern "{matched["name"]}"'
+            + (f' (category: {matched.get("category")})' if matched.get("category") else "")
+            + ". This pattern is downgraded-to-warning by a per-team override; the command will run but the match was logged to override-log.jsonl.",
+        )
         return
 
-    print(json.dumps({
-        "decision": "block",
-        "reason": (
+    emit_block(
+        "PreToolUse",
+        (
             f'osEngineer: command matches denylist pattern "{matched["name"]}"'
             + (f' (category: {matched.get("category")})' if matched.get("category") else "")
             + " and no 4-part plan is active.\n"
@@ -252,7 +250,7 @@ def main():
             + "  (b) set OSE_BYPASS=1 if absolutely necessary (logged to bypass-log.jsonl).\n"
             + "See trust/denylist.md for the full pattern contract and rationale."
         ),
-    }))
+    )
 
 
 if __name__ == "__main__":

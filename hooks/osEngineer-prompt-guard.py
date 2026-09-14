@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
     bypass_log,
     count_handoffs,
+    emit_block,
+    emit_context,
     find_osengineer_root,
     parse_frontmatter,
     read_state_map,
@@ -216,10 +218,10 @@ def main():
                     has_plan = True
                     break
         if not has_plan:
-            print(json.dumps({
-                "decision": "block",
-                "reason": "osEngineer: cannot /osEngineer:execute — no PHASE_PLAN.md in any planning/active/ directory. Run /osEngineer:plan first.",
-            }))
+            emit_block(
+                "UserPromptSubmit",
+                "osEngineer: cannot /osEngineer:execute — no PHASE_PLAN.md in any planning/active/ directory. Run /osEngineer:plan first.",
+            )
             return
 
     session_id = data.get("session_id") or "default"
@@ -306,12 +308,7 @@ def main():
     except Exception:
         pass
 
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": additional_context,
-        },
-    }))
+    emit_context("UserPromptSubmit", additional_context)
 
 
 if __name__ == "__main__":

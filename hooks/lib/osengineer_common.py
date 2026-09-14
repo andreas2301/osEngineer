@@ -128,6 +128,30 @@ def emit_json(obj):
     print(json.dumps(obj))
 
 
+def emit_block(event, reason):
+    """Emit a block that is honoured by BOTH Claude Code and Kimi Code."""
+    emit_json({
+        "decision": "block",
+        "reason": reason,
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        },
+    })
+
+
+def emit_context(event, text):
+    """Emit advisory context visible on BOTH harnesses."""
+    emit_json({
+        "message": text,
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "additionalContext": text,
+        },
+    })
+
+
 def bypass_log(repo_root, hook, reason):
     try:
         p = Path(repo_root) / ".osengineer" / "bypass-log.jsonl"
