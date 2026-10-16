@@ -1,6 +1,6 @@
 # Cost Recalibration
 
-Read `.osengineer/state.yml` `budget_used`. Compare to `PHASE_PLAN.md` `token_budget.estimate`.
+Read `budget_used` with `osengineer state` (stored in the gitignored `.osengineer/runtime.yml`, merged over `state.yml`). Compare to `PHASE_PLAN.md` `token_budget.estimate`.
 
 - Under estimate: note "phase delivered on budget."
 - Over estimate but under circuit-breaker (1.5×): note "phase over by X% — consider revising estimate model."

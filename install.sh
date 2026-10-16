@@ -495,8 +495,9 @@ EOF
   fi
 
   # .osengineer/.gitignore — always written: the root-gitignore append above
-  # no-ops in repos that have no .gitignore yet. evolution-counter.yml and
-  # .state.lock are rewritten by hooks on routine commits/tool calls.
+  # no-ops in repos that have no .gitignore yet. evolution-counter.yml,
+  # .state.lock and runtime.yml are rewritten by hooks on routine
+  # commits/tool calls.
   cat > "$repo/.osengineer/.gitignore" <<'EOF'
 secrets.env
 bypass-log.jsonl
@@ -504,6 +505,7 @@ override-log.jsonl
 config.local.toml
 evolution-counter.yml
 .state.lock
+runtime.yml
 EOF
   log "  + .osengineer/.gitignore"
 

@@ -32,6 +32,12 @@ this project adheres to semantic versioning.
   broke clean-tree preconditions (`git status --porcelain`). Repos that already
   track `evolution-counter.yml` need a one-time
   `git rm --cached .osengineer/evolution-counter.yml`.
+- The PostToolUse hook no longer rewrites the tracked `.osengineer/state.yml`
+  on every tool call. Volatile counters (`budget_used`) are written to a new
+  gitignored `.osengineer/runtime.yml`; `read_state_map` merges it over
+  `state.yml`, so the statusline, banner, prompt guard and `osengineer state`
+  are unchanged. `state.yml` stays tracked (the CI gate requires it) and keeps
+  only phase/team/version fields that change on deliberate transitions.
 - `install.sh` no longer half-installs on repos with >200 source files
   (SIGPIPE from `find | head` under `set -euo pipefail`).
 - `osEngineer-post-commit.sh` dropped the `--ast-only` flag removed in

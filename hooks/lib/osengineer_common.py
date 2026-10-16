@@ -34,17 +34,30 @@ def find_osengineer_root(cwd=None):
     return None
 
 
-def read_state_map(repo_root):
-    p = Path(repo_root) / ".osengineer" / "state.yml"
-    if not p.exists():
-        return None
-    state = {}
+# Volatile counters live in the gitignored runtime.yml, not the tracked
+# state.yml, so hook writes on every tool call don't dirty the tree.
+RUNTIME_FIELDS = {"budget_used"}
+
+
+def _parse_yml_map(p, state):
     for line in p.read_text().splitlines():
         m = re.match(r"^(\w+):\s*(.*)$", line)
         if not m:
             continue
         val = m.group(2).strip().strip("\"'")
         state[m.group(1)] = val or None
+
+
+def read_state_map(repo_root):
+    d = Path(repo_root) / ".osengineer"
+    p = d / "state.yml"
+    if not p.exists():
+        return None
+    state = {}
+    _parse_yml_map(p, state)
+    runtime = d / "runtime.yml"
+    if runtime.exists():
+        _parse_yml_map(runtime, state)
     return state
 
 
@@ -111,7 +124,7 @@ def path_matches_any(file_path, globs):
 def write_state_field(repo_root, key, value):
     d = Path(repo_root) / ".osengineer"
     d.mkdir(parents=True, exist_ok=True)
-    state_path = d / "state.yml"
+    state_path = d / ("runtime.yml" if key in RUNTIME_FIELDS else "state.yml")
     lock_path = d / ".state.lock"
     tmp_name = None
     with open(lock_path, "a") as lock_f:

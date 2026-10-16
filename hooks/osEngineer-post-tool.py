@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # osEngineer-post-tool.py — Claude PostToolUse hook.
 #
-# 1. Updates .osengineer/state.yml `budget_used` based on tool-use telemetry
+# 1. Updates `budget_used` (in the gitignored .osengineer/runtime.yml) based on tool-use telemetry
 #    (best-effort approximation using token counts from the bridge file written
 #    by the statusline hook).
 # 2. Trips the circuit-breaker when budget exceeds 150% of phase estimate:
