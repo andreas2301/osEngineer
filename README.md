@@ -22,7 +22,7 @@ osEngineer implements all 7 layers required for platform-quality engineering.
 | Layer | Feature | File |
 |-------|---------|------|
 | **Planning** | Phase lifecycle with token budgets, risk flags, rollback paths | [`planning/`](planning/) |
-| **Agents** | 16 mandatory + 5 optional role-based agents | [`agents/`](agents/) |
+| **Agents** | 16 mandatory + 6 optional role-based agents | [`agents/`](agents/) |
 | **Commands** | 7 slash commands including HITL evolution | [`commands/`](commands/) |
 | **Discovery** | Auto-discovers repos, ADRs, graphs, execution environment | [`discovery/`](discovery/) |
 | **Specs** | Spec-driven development with JSON schemas | [`specs/`](specs/) |
@@ -189,6 +189,7 @@ Every directory has a `README.md` (human-readable) and `INDEX.md` (bot-navigable
 | **UI/UX Designer** | Frontend change detected |
 | **Sync Agent** | Hotfix on live system |
 | **Budget Tracker** | Cost threshold exceeded |
+| **Eval Harness Engineer** | Detector/classifier/scanner accuracy work |
 
 ## Key Principles
 

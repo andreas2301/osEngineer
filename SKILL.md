@@ -71,6 +71,7 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 - `agents/ui-ux-designer.md` — UI/UX reasoning rules
 - `agents/sync-agent.md` — live ↔ workbench synchronization
 - `agents/budget-tracker.md` — token spend tracking
+- `agents/eval-harness-engineer.md` — evaluation harness & keep/revert loop for detectors
 - `integrations/confluence-mcp.md` — Atlassian Confluence MCP
 - `integrations/vault-mcp.md` — HashiCorp Vault MCP
 - `integrations/playwright-mcp.md` — browser testing MCP
