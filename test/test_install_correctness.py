@@ -258,5 +258,93 @@ class TestRuntimeFilesDoNotDirtyTree(InstallBase):
             self.assertEqual(st, "", f"tree dirty after commit {msg!r}:\n{st}")
 
 
+MARKER = "## osEngineer Additions"
+
+
+class TestReinstallIsIdempotent(InstallBase):
+    """Re-running install.sh on an installed repo appended a full second copy
+    of every agent under "## osEngineer Additions": copy_agent_references
+    rewrites `](references/x.md)` links in the installed file, so it never
+    equals the source again and every re-run took the append path
+    (19 files grew by 35-73 lines in a consuming repo)."""
+
+    def _agents(self):
+        d = self.repo / ".claude" / "agents"
+        return {p.name: p.read_bytes() for p in sorted(d.glob("*.md"))}
+
+    def _install(self):
+        r = run_install(self.repo, self.home)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+
+    def _bump_source(self, agent, text):
+        src = AGENTS_DIR / agent / "AGENT.md"
+        original = src.read_text()
+        self.addCleanup(src.write_text, original)
+        src.write_text(original + text)
+        return original
+
+    def test_second_install_leaves_agents_byte_identical(self):
+        self._install()
+        first = self._agents()
+        self._install()
+        second = self._agents()
+        self.assertEqual(sorted(first), sorted(second))
+        changed = [n for n in first if first[n] != second[n]]
+        self.assertEqual(changed, [], f"re-run rewrote agent files: {changed}")
+        for name, body in second.items():
+            self.assertLessEqual(body.decode().count(MARKER), 1, name)
+
+    def test_user_agent_kept_and_osengineer_appended_once(self):
+        agents = self.repo / ".claude" / "agents"
+        agents.mkdir(parents=True)
+        user = "---\nname: judge\n---\n\nMY CUSTOM JUDGE RULES\n"
+        (agents / "judge.md").write_text(user)
+        self._install()
+        after_first = (agents / "judge.md").read_text()
+        for _ in range(2):
+            self._install()
+            self.assertEqual((agents / "judge.md").read_text(), after_first,
+                             "re-run changed a user agent file with additions")
+        self.assertTrue(after_first.startswith(user), "user content was lost")
+        self.assertEqual(after_first.count(MARKER), 1)
+        self.assertEqual(after_first.count("## Mandate"), 1)
+
+    def test_upstream_change_replaces_pure_copy(self):
+        self._install()
+        target = self.repo / ".claude" / "agents" / "judge.md"
+        pristine = target.read_text()
+        self._bump_source("judge", "\nSENTINEL-UPSTREAM-1\n")
+        self._install()
+        body = target.read_text()
+        self.assertNotIn(MARKER, body, "upstream update was appended, not replaced")
+        self.assertEqual(body.count("SENTINEL-UPSTREAM-1"), 1)
+        self.assertEqual(body.count("## Mandate"), 1)
+        self.assertEqual(body, pristine + "\nSENTINEL-UPSTREAM-1\n")
+
+    def test_upstream_change_replaces_additions_block(self):
+        agents = self.repo / ".claude" / "agents"
+        agents.mkdir(parents=True)
+        (agents / "judge.md").write_text("MY CUSTOM JUDGE RULES\n")
+        self._install()
+        self._bump_source("judge", "\nSENTINEL-UPSTREAM-2\n")
+        self._install()
+        self._install()
+        body = (agents / "judge.md").read_text()
+        self.assertTrue(body.startswith("MY CUSTOM JUDGE RULES\n"))
+        self.assertEqual(body.count(MARKER), 1)
+        self.assertEqual(body.count("SENTINEL-UPSTREAM-2"), 1)
+        self.assertEqual(body.count("## Mandate"), 1)
+
+    def test_rerun_repairs_self_duplicated_agent(self):
+        self._install()
+        target = self.repo / ".claude" / "agents" / "judge.md"
+        pristine = target.read_text()
+        # What a pre-fix re-run left behind: full copy + marker + body again.
+        dup_body = pristine.split("\n---\n", 1)[1]
+        target.write_text(pristine + f"\n\n{MARKER}\n\n" + dup_body)
+        self._install()
+        self.assertEqual(target.read_text(), pristine)
+
+
 if __name__ == "__main__":
     unittest.main()
