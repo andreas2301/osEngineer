@@ -126,6 +126,14 @@ Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto
 
 Spins up an isolated local container cluster (RabbitMQ, Vault) to run and test swarm missions locally.
 
+### Evaluation harness (detectors, classifiers, scanners)
+
+```
+/osEngineer:recipe-eval-harness /path/to/detector-repo
+```
+
+Sets up pinned, sha256-verified labeled datasets with dev/holdout/sealed splits and set roles, a deterministic fetch script, per-set P/R/F1/latency, and an eval policy (`specs/SCHEMAS/eval-policy.schema.json`). Then it runs a keep/revert improvement loop in which every verdict comes from `bin/ose-eval-gate`. Lessons from the reference loop are in [`docs/eval-harness-lessons.md`](docs/eval-harness-lessons.md).
+
 ### Explain (built-in help)
 
 ```

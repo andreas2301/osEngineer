@@ -9,3 +9,4 @@
 - [osEngineer-verify.md](osEngineer-verify.md) — `/osEngineer:verify <phase-id>`
 - [osEngineer-evolve.md](osEngineer-evolve.md) — `/osEngineer:evolve [focus-area]`
 - [osEngineer-explain.md](osEngineer-explain.md) — `/osEngineer:explain [topic]`
+- [osEngineer-recipe-eval-harness.md](osEngineer-recipe-eval-harness.md) — `/osEngineer:recipe-eval-harness <repo-path>`
