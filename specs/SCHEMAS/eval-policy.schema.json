@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://osengineer.dev/schemas/eval-policy.schema.json",
+  "title": "osEngineer evaluation-harness policy",
+  "description": "Decision rules for a detector/classifier/scanner improvement loop, as data. bin/ose-eval-gate reads this policy plus a baseline and a candidate metrics file and returns ACCEPT or REVERT with reasons. Every threshold the loop applies must be declared here; a number that is not in the policy does not exist. Gates are always evaluated per set, never on a sum across sets (the only sum is the documented single-sample tolerance condition).",
+  "type": "object",
+  "required": ["schema_version", "sets", "gates"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "description": { "type": "string" },
+    "sets": {
+      "type": "object",
+      "description": "Every labeled set the harness measures, keyed by the set name used in the metrics files.",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/set" }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "epsilon": {
+          "type": "number",
+          "minimum": 0,
+          "default": 1e-9,
+          "description": "Float comparison slack only. Not a minimum gain."
+        },
+        "min_dev_f1_gain": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Minimum F1 gain on a PRIMARY dev set for it to count as an improvement. Defaults to 0: the loop has no implicit threshold."
+        },
+        "single_sample_tolerance": {
+          "type": "object",
+          "description": "An F1 drop on one set caused by losing at most max_tp_loss TP is allowed when that set's precision does not drop and the sum of F1 over the PRIMARY holdout sets rises (precedent: safeanalyze v0.3.24, deepset-holdout TP 54 -> 53, FP 2 -> 0).",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "max_tp_loss": { "type": "integer", "minimum": 0, "default": 1 },
+            "roles": {
+              "type": "array",
+              "items": { "enum": ["PRIMARY", "GUARD-ONLY"] },
+              "uniqueItems": true,
+              "default": ["PRIMARY", "GUARD-ONLY"]
+            }
+          }
+        },
+        "recall_only_max_tp_loss": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "TP a RECALL-ONLY set may lose. Default 0: recall must not drop by even one TP."
+        },
+        "generalization": {
+          "type": "object",
+          "description": "For each PRIMARY dev set with a gain and a holdout twin: holdout_gain >= k * dev_gain. Optionally applies only to large gains on small sets.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "k": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 },
+            "measure": { "enum": ["f1", "tp"], "default": "f1" },
+            "min_dev_tp_gain": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Apply only when the dev TP gain is at least this. Omit to always apply."
+            },
+            "max_dev_positives": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Apply only to dev sets with fewer positives than this. Omit to always apply."
+            }
+          }
+        },
+        "bootstrap": {
+          "type": "object",
+          "description": "Paired bootstrap on per-sample predictions of each gaining PRIMARY dev set; the gain counts only if the lower bound of the confidence interval of F1(candidate) - F1(baseline) is above 0. Requires `predictions` in both metrics files for those sets.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "resamples": { "type": "integer", "minimum": 100, "default": 2000 },
+            "seed": { "type": "integer", "default": 1337 },
+            "confidence": { "type": "number", "exclusiveMinimum": 0.5, "exclusiveMaximum": 1, "default": 0.95 }
+          }
+        },
+        "latency": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metric": { "type": "string", "default": "p95_ms", "description": "Per-set latency field in the metrics files." },
+            "budget_ms": { "type": "number", "exclusiveMinimum": 0, "description": "Revert when a candidate set exceeds it and got slower. Omit for no budget." },
+            "noise_pct": {
+              "type": "number",
+              "minimum": 0,
+              "default": 10,
+              "description": "Run-to-run variance. Changes within it are neither gains nor regressions."
+            },
+            "latency_only_accept": {
+              "type": "boolean",
+              "default": true,
+              "description": "Accept when every labeled count is identical, at least one set got faster beyond noise, and none got slower."
+            }
+          }
+        },
+        "sealed": {
+          "type": "object",
+          "description": "A SEALED set is never measured inside an iteration; it is read only at round or release boundaries, at a fixed cadence (Dwork et al. 2015, arXiv:1506.02629).",
+          "additionalProperties": false,
+          "properties": {
+            "allowed_in": {
+              "type": "array",
+              "items": { "enum": ["round", "release"] },
+              "uniqueItems": true,
+              "default": ["round", "release"]
+            },
+            "max_evaluations_per_release": { "type": "integer", "minimum": 1, "default": 1 }
+          }
+        },
+        "corpus_drop_requires_fp_reduction": {
+          "type": "boolean",
+          "default": true,
+          "description": "Revert when unlabeled corpus findings fall while no labeled set lost an FP."
+        },
+        "require_distinct_version_labels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refuse a candidate whose version label equals the baseline's (measured before the bump)."
+        },
+        "require_clean_tree": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refuse a candidate measured on a dirty working tree."
+        }
+      }
+    },
+    "loop": {
+      "type": "object",
+      "description": "Loop cadence. Read by the recipe and the eval-harness-engineer agent, not by the gate.",
+      "additionalProperties": false,
+      "properties": {
+        "stagnation_window": { "type": "integer", "minimum": 1, "default": 2 },
+        "process_review_every": { "type": "integer", "minimum": 1, "default": 5 },
+        "max_iterations_per_round": { "type": "integer", "minimum": 1, "default": 10 }
+      }
+    }
+  },
+  "$defs": {
+    "set": {
+      "type": "object",
+      "required": ["role", "split"],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": ["PRIMARY", "RECALL-ONLY", "GUARD-ONLY", "REPORT-ONLY", "SEALED"],
+          "description": "PRIMARY: F1/precision gate, dev gains count. RECALL-ONLY: positives-only, recall gate. GUARD-ONLY: F1/precision gate, gains never count, never a hypothesis source. REPORT-ONLY: recorded, never gates. SEALED: read only at round/release boundaries."
+        },
+        "split": { "enum": ["dev", "holdout", "report", "sealed"] },
+        "holdout": {
+          "type": "string",
+          "description": "Name of this dev set's holdout twin, for the generalization gate."
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}
