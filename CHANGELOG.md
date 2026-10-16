@@ -24,6 +24,14 @@ this project adheres to semantic versioning.
 
 ### Fixed
 
+- Commits in an installed repo no longer leave the working tree dirty.
+  `install.sh` now gitignores `evolution-counter.yml` and `.state.lock` in
+  `.osengineer/.gitignore` and `graphify-out/` in the repo `.gitignore`
+  (creating it if absent, idempotent on re-run); the post-commit hook rewrites
+  the first and the graphify rebuild writes the last on every commit, which
+  broke clean-tree preconditions (`git status --porcelain`). Repos that already
+  track `evolution-counter.yml` need a one-time
+  `git rm --cached .osengineer/evolution-counter.yml`.
 - `install.sh` no longer half-installs on repos with >200 source files
   (SIGPIPE from `find | head` under `set -euo pipefail`).
 - `osEngineer-post-commit.sh` dropped the `--ast-only` flag removed in

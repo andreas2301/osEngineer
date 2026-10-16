@@ -487,13 +487,23 @@ EOF
     fi
   fi
 
+  # graphify-out/ is rewritten by the post-commit hook; ignore it so commits
+  # leave the tree clean. Creates .gitignore if absent.
+  if ! grep -qxF 'graphify-out/' "$gitignore" 2>/dev/null; then
+    printf '\n# osEngineer graphify output (rebuilt on every commit)\ngraphify-out/\n' >> "$gitignore"
+    log "  + added graphify-out/ to .gitignore"
+  fi
+
   # .osengineer/.gitignore — always written: the root-gitignore append above
-  # no-ops in repos that have no .gitignore yet.
+  # no-ops in repos that have no .gitignore yet. evolution-counter.yml and
+  # .state.lock are rewritten by hooks on routine commits/tool calls.
   cat > "$repo/.osengineer/.gitignore" <<'EOF'
 secrets.env
 bypass-log.jsonl
 override-log.jsonl
 config.local.toml
+evolution-counter.yml
+.state.lock
 EOF
   log "  + .osengineer/.gitignore"
 
