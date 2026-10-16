@@ -177,5 +177,38 @@ class TestPlanningDirsAreCreated(unittest.TestCase):
         )
 
 
+class TestVolatileFieldsStayOutOfTrackedState(unittest.TestCase):
+    """state.yml is tracked (the CI gate requires it), but the PostToolUse hook
+    rewrote its `budget_used` on every tool call, so every session left the
+    tree dirty. Volatile counters go to the gitignored .osengineer/runtime.yml;
+    readers see them merged over state.yml."""
+
+    def test_budget_used_does_not_touch_state_yml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            state = repo / ".osengineer" / "state.yml"
+            before = state.read_bytes()
+            osengineer_common.write_state_field(str(repo), "budget_used", 43)
+            self.assertEqual(state.read_bytes(), before, "budget_used rewrote tracked state.yml")
+            runtime = repo / ".osengineer" / "runtime.yml"
+            self.assertIn("budget_used: 43", runtime.read_text())
+            self.assertEqual(osengineer_common.read_state_map(str(repo))["budget_used"], "43")
+            self.assertEqual(osengineer_common.read_state_map(str(repo))["phase"], "idle")
+
+    def test_phase_still_written_to_state_yml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            osengineer_common.write_state_field(str(repo), "phase", "plan")
+            raw = (repo / ".osengineer" / "state.yml").read_text()
+            self.assertIn("phase: plan", raw)
+            self.assertFalse((repo / ".osengineer" / "runtime.yml").exists())
+
+    def test_installer_gitignores_runtime_yml(self):
+        install = (ROOT / "install.sh").read_text()
+        m = re.search(r'cat > "\$repo/\.osengineer/\.gitignore" <<\'EOF\'\n(.*?)\nEOF', install, re.DOTALL)
+        self.assertIsNotNone(m, ".osengineer/.gitignore heredoc not found")
+        self.assertIn("runtime.yml", m.group(1).splitlines())
+
+
 if __name__ == "__main__":
     unittest.main()
