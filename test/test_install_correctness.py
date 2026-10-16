@@ -165,11 +165,11 @@ class TestSecretsAreNotLeaked(InstallBase):
     def test_osengineer_dir_has_its_own_gitignore(self):
         """The root-gitignore append is wrapped in `if [ -f "$gitignore" ]`, so
         it no-ops entirely in a repo with no .gitignore — as here."""
-        run_install(self.repo, self.home)
         self.assertFalse(
             (self.repo / ".gitignore").exists(),
             "test premise: this repo starts without a .gitignore",
         )
+        run_install(self.repo, self.home)
         nested = self.repo / ".osengineer" / ".gitignore"
         self.assertTrue(
             nested.exists(),
@@ -204,6 +204,58 @@ class TestNoHardcodedThirdPartyClone(unittest.TestCase):
                 f"'Project-Agnostic: Yes':\n{off}",
             )
         del window
+
+
+def git(repo, *args, env=None):
+    return subprocess.run(
+        ["git", *args], cwd=repo, capture_output=True, text=True, env=env,
+    )
+
+
+class TestRuntimeFilesDoNotDirtyTree(InstallBase):
+    """The post-commit hook rewrites .osengineer/evolution-counter.yml and the
+    graphify rebuild writes graphify-out/; write_state_field leaves
+    .osengineer/.state.lock. None were gitignored in the target repo, so every
+    commit left `git status --porcelain` non-empty and broke clean-tree
+    preconditions (loop agents, headless runs)."""
+
+    def _lines(self, path):
+        return [l.strip() for l in path.read_text().splitlines()]
+
+    def test_runtime_files_are_gitignored_idempotently(self):
+        root_gi = self.repo / ".gitignore"
+        root_gi.write_text("*.log\n")
+        for _ in range(2):
+            r = run_install(self.repo, self.home)
+            self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        nested = self._lines(self.repo / ".osengineer" / ".gitignore")
+        for entry in ("evolution-counter.yml", ".state.lock"):
+            self.assertEqual(nested.count(entry), 1, f"{entry} in .osengineer/.gitignore: {nested}")
+        root = self._lines(root_gi)
+        self.assertEqual(root.count("graphify-out/"), 1, f"root .gitignore: {root}")
+        self.assertIn("*.log", root, "existing .gitignore content was lost")
+
+    def test_root_gitignore_created_when_absent(self):
+        r = run_install(self.repo, self.home)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        root_gi = self.repo / ".gitignore"
+        self.assertTrue(root_gi.exists(), "graphify-out/ is unprotected in a repo with no .gitignore")
+        self.assertIn("graphify-out/", self._lines(root_gi))
+
+    def test_commit_after_install_leaves_tree_clean(self):
+        r = run_install(self.repo, self.home)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        env = dict(os.environ, HOME=str(self.home))
+        env.pop("CI", None)
+        env.pop("OSE_BYPASS", None)
+        for msg, name in (("chore: install osEngineer", None), ("feat: add helper", "helper.py")):
+            if name:
+                (self.repo / name).write_text("x = 1\n")
+            git(self.repo, "add", "-A", env=env)
+            c = git(self.repo, "commit", "-qm", msg, env=env)
+            self.assertEqual(c.returncode, 0, c.stderr + c.stdout)
+            st = git(self.repo, "status", "--porcelain", env=env).stdout
+            self.assertEqual(st, "", f"tree dirty after commit {msg!r}:\n{st}")
 
 
 if __name__ == "__main__":
