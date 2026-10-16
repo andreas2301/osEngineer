@@ -24,6 +24,7 @@
 #  11. ~/.osengineer/repos.json         ← ledger of repos wired into the global Kimi config
 #  12. .kimi-code/AGENTS.md             ← copy of the repo AGENTS.md when kimi is chosen
 #  13. .osengineer/bin/osengineer       ← launcher so `osengineer` is invocable in the repo
+#  14. .osengineer/agents.sha256        ← hashes of installed agent copies (upgrade = replace)
 
 set -euo pipefail
 
@@ -294,6 +295,59 @@ copy_agent_references() {
   log "  + $n reference(s) for $agent_name -> references/$agent_name/"
 }
 
+# Agent file as it lands in the repo: the source with references/ links
+# rewritten to the per-role namespace (the same sed copy_agent_references
+# applies). Comparing against the raw source never matched after the rewrite,
+# so every re-run appended a second full copy under the Additions marker.
+render_agent() {
+  local agent_name="$1" src_file="$2"
+  if compgen -G "$AGENTS_DIR/$agent_name/references/*.md" >/dev/null; then
+    sed -E "s#\]\((\./)?references/([A-Za-z0-9._-]+\.md)\)#](references/$agent_name/\2)#g" "$src_file"
+  else
+    cat "$src_file"
+  fi
+}
+
+ADDITIONS_MARKER='## osEngineer Additions'
+
+# Write $3 as user prefix $1 + marker + body of rendered agent $2. One format
+# for the first append and every refresh, so re-runs are byte-identical.
+write_with_additions() {
+  local prefix="$1" rendered="$2" dst="$3"
+  {
+    printf '%s\n\n%s\n\n' "$prefix" "$ADDITIONS_MARKER"
+    strip_frontmatter "$rendered"
+  } > "$dst.tmp"
+  mv "$dst.tmp" "$dst"
+}
+
+file_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+# .osengineer/agents.sha256 holds the hash of each agent file as last installed
+# by osEngineer, so an upgrade can tell an untouched copy (replace) from a
+# user-edited one (keep, add the Additions block).
+manifest_get() {
+  [ -f "$1" ] || return 0
+  awk -v k="$2" '$2 == k { print $1 }' "$1"
+}
+
+manifest_set() {
+  local m="$1" key="$2" sha
+  sha="$(file_sha256 "$3")"
+  [ "$(manifest_get "$m" "$key")" = "$sha" ] && return 0
+  {
+    [ -f "$m" ] && awk -v k="$key" '$2 != k' "$m"
+    printf '%s  %s\n' "$sha" "$key"
+  } > "$m.tmp"
+  mv "$m.tmp" "$m"
+}
+
 init_repo() {
   local repo="$1"
   local repo_name
@@ -368,6 +422,7 @@ EOF
   for runtime in $RUNTIMES; do
     mkdir -p "$repo/.$runtime/agents"
     local copied=0
+    local manifest="$repo/.osengineer/agents.sha256"
     # P6.2: source layout is agents/<role>/AGENT.md (dir-style). Fall back to
     # flat agents/<role>.md for any agent that wasn't split. Destination is
     # always flat — Claude Code recognises only .claude/agents/<role>.md files.
@@ -384,32 +439,33 @@ EOF
 
       if [ -n "$src_file" ]; then
         local dst_file="$repo/.$runtime/agents/$agent"
-        if [ -f "$dst_file" ]; then
-          if cmp -s "$src_file" "$dst_file"; then
-            # Identical contents, skip quietly
-            copied=$((copied + 1))
-            continue
-          fi
-          
-          # A previous upgrade appended an "## osEngineer Additions" block.
-          # Refresh only that block: the prefix is the user's own content, the
-          # suffix is our previously appended half. Rebuild as
-          # prefix + MARKER + current upstream body so repos keep receiving
-          # agent updates instead of freezing at the first append.
-          local MARKER='## osEngineer Additions'
-          if grep -qF "$MARKER" "$dst_file" 2>/dev/null; then
-            local prefix
-            prefix=$(awk -v marker="$MARKER" 'index($0, marker) { exit } { print }' "$dst_file")
-            {
-              printf '%s\n\n%s\n\n' "$prefix" "$MARKER"
-              strip_frontmatter "$src_file"
-            } > "$dst_file.tmp"
-            mv "$dst_file.tmp" "$dst_file"
+        local key=".$runtime/agents/$agent"
+        local rendered
+        rendered="$(mktemp)"
+        render_agent "$agent_name" "$src_file" > "$rendered"
+        if [ ! -f "$dst_file" ]; then
+          cp "$rendered" "$dst_file"
+        elif cmp -s "$rendered" "$dst_file"; then
+          : # already current
+        elif [ "$(file_sha256 "$dst_file")" = "$(manifest_get "$manifest" "$key")" ]; then
+          # Untouched copy of an older osEngineer version: replace, don't append.
+          cp "$rendered" "$dst_file"
+          log "  · updated $agent"
+        elif grep -qF "$ADDITIONS_MARKER" "$dst_file" 2>/dev/null; then
+          # A previous run appended an Additions block. The prefix is the
+          # user's own content; rebuild as prefix + marker + current body so
+          # repos keep receiving agent updates instead of freezing.
+          local prefix
+          prefix=$(awk -v marker="$ADDITIONS_MARKER" 'index($0, marker) { exit } { print }' "$dst_file")
+          if [ "$prefix" = "$(cat "$rendered")" ]; then
+            # Pre-fix re-runs appended osEngineer's own copy to itself.
+            cp "$rendered" "$dst_file"
+            log "  · repaired self-duplicated $agent"
+          else
+            write_with_additions "$prefix" "$rendered" "$dst_file"
             log "  · refreshed osEngineer additions in $agent"
-            copied=$((copied + 1))
-            continue
           fi
-
+        else
           # Contents differ! Check if interactive
           if [ -t 0 ] && [ -z "${CI:-}" ] && [ "${OSE_NONINTERACTIVE:-}" != "1" ]; then
             echo ""
@@ -422,12 +478,11 @@ EOF
             choice="${choice:-k}"
             case "$choice" in
               [Oo]*)
-                cp "$src_file" "$dst_file"
+                cp "$rendered" "$dst_file"
                 log "  · Overwrote $agent"
                 ;;
               [Aa]*)
-                printf "\n\n## osEngineer Additions\n\n" >> "$dst_file"
-                strip_frontmatter "$src_file" >> "$dst_file"
+                write_with_additions "$(cat "$dst_file")" "$rendered" "$dst_file"
                 log "  · Appended osEngineer instructions to $agent"
                 ;;
               *)
@@ -436,17 +491,16 @@ EOF
             esac
           else
             # Non-interactive mode: act as an addition (append) by default.
-            # strip_frontmatter, NOT cat — see its comment: a raw cat injects a
-            # second YAML block mid-body that the loader ignores but the model
-            # reads as a competing mandate.
-            printf "\n\n## osEngineer Additions\n\n" >> "$dst_file"
-            strip_frontmatter "$src_file" >> "$dst_file"
+            write_with_additions "$(cat "$dst_file")" "$rendered" "$dst_file"
             log "  + Appended osEngineer instructions to existing $agent (non-interactive)"
           fi
-        else
-          # New file
-          cp "$src_file" "$dst_file"
         fi
+        copy_agent_references "$agent_name" "$repo/.$runtime/agents" "$dst_file"
+        # Record pure osEngineer copies only, so a later upgrade can replace them.
+        if cmp -s "$rendered" "$dst_file"; then
+          manifest_set "$manifest" "$key" "$dst_file"
+        fi
+        rm -f "$rendered"
         copy_agent_references "$agent_name" "$repo/.$runtime/agents" "$dst_file"
         copied=$((copied + 1))
       fi

@@ -142,6 +142,7 @@ uninstall_repo() {
       | grep -v '/evolution-rejections\.jsonl$' \
       | grep -v '/\.gitignore$' \
       | grep -v '/\.state\.lock$' \
+      | grep -v '/agents\.sha256$' \
       | grep -v '/bin/osengineer$' \
       | grep -v '/hooks/' \
       | head -1)" ]; then

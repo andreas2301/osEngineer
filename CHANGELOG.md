@@ -24,6 +24,14 @@ this project adheres to semantic versioning.
 
 ### Fixed
 
+- Re-running `install.sh` on an installed repo no longer appends a second copy
+  of every agent under `## osEngineer Additions`. The reference-link rewrite
+  made installed agents differ from their source, so each re-run took the
+  append path. The installer now compares against the rendered agent, records
+  pure copies in `.osengineer/agents.sha256` so an upgrade replaces them
+  instead of appending, writes the Additions block in one byte-stable format
+  (user content kept, osEngineer body exactly once), and collapses agent files
+  that a previous re-run duplicated onto themselves.
 - Commits in an installed repo no longer leave the working tree dirty.
   `install.sh` now gitignores `evolution-counter.yml` and `.state.lock` in
   `.osengineer/.gitignore` and `graphify-out/` in the repo `.gitignore`
