@@ -1,0 +1,104 @@
+{
+  "version": "0.3.24",
+  "git": {
+    "commit": "0000000",
+    "dirty": false
+  },
+  "change_kind": "detection",
+  "evaluation": "iteration",
+  "errors": 0,
+  "corpus_findings": 11015,
+  "sets": {
+    "llmail": {
+      "tp": 246,
+      "fp": 0,
+      "tn": 160,
+      "fn": 54,
+      "p95_ms": 12.0
+    },
+    "llmail-holdout": {
+      "tp": 220,
+      "fp": 0,
+      "tn": 160,
+      "fn": 80,
+      "p95_ms": 12.0
+    },
+    "browsesafe": {
+      "tp": 199,
+      "fp": 26,
+      "tn": 274,
+      "fn": 101,
+      "p95_ms": 70.0
+    },
+    "browsesafe-holdout": {
+      "tp": 179,
+      "fp": 27,
+      "tn": 273,
+      "fn": 121,
+      "p95_ms": 74.0
+    },
+    "deepset": {
+      "tp": 46,
+      "fp": 0,
+      "tn": 56,
+      "fn": 14,
+      "p95_ms": 12.0
+    },
+    "deepset-holdout": {
+      "tp": 53,
+      "fp": 0,
+      "tn": 343,
+      "fn": 150,
+      "p95_ms": 12.0
+    },
+    "spanish": {
+      "tp": 37,
+      "fp": 0,
+      "tn": 300,
+      "fn": 15,
+      "p95_ms": 12.0
+    },
+    "spanish-holdout": {
+      "tp": 23,
+      "fp": 0,
+      "tn": 371,
+      "fn": 30,
+      "p95_ms": 12.0
+    },
+    "multilingual": {
+      "tp": 21,
+      "fp": 0,
+      "tn": 0,
+      "fn": 819,
+      "p95_ms": 12.0
+    },
+    "multilingual-holdout": {
+      "tp": 20,
+      "fp": 0,
+      "tn": 0,
+      "fn": 805,
+      "p95_ms": 12.0
+    },
+    "nemotron": {
+      "tp": 34,
+      "fp": 0,
+      "tn": 300,
+      "fn": 266,
+      "p95_ms": 12.0
+    },
+    "nemotron-holdout": {
+      "tp": 35,
+      "fp": 0,
+      "tn": 300,
+      "fn": 265,
+      "p95_ms": 12.0
+    },
+    "stress": {
+      "tp": 30,
+      "fp": 30,
+      "tn": 166,
+      "fn": 150,
+      "p95_ms": 12.0
+    }
+  }
+}
