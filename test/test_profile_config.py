@@ -38,7 +38,6 @@ class ProfileLoader(unittest.TestCase):
                                               "minSignalTerms": 2, "maxHints": 2,
                                               "projection": "codex"})
         self.assertEqual(profile["eval"], {"policy": "EVAL_POLICY.json"})
-        self.assertEqual(profile["runners"], {"codex": {"protocol": "codex-exec"}})
         self.assertEqual(profile["handlers"], {})
 
     def test_existing_flat_profile_still_loads(self):
@@ -90,8 +89,9 @@ class ProfileLoader(unittest.TestCase):
             # The infra config-dir list stays code: the plan-phase gate blocks those paths anyway.
             ({"validationProfiles": {}}, "unknown keys: validationProfiles"),
             ({"eval": {"policy": "../x.json"}}, "eval.policy"),
-            ({"runners": {"codex": {"protocol": "ssh"}}}, "runners.codex.protocol"),
-            ({"runners": {"bad name": {"protocol": "env"}}}, "runners"),
+            # codexRunner (from the Codex branch) is the one runner setting.
+            ({"runners": {}}, "unknown keys: runners"),
+            ({"codexRunner": "bin/codex"}, "codexRunner"),
             ({"handlers": {"eval-policy": {"handler": "no.such", "enabled": True}}}, "handlers.eval-policy.handler"),
             ({"handlers": {"eval-policy": {"handler": "eval.gate"}}}, "handlers.eval-policy.enabled"),
             ({"handlers": {"eval-policy": {"enabled": True}}}, "handlers.eval-policy.handler"),
@@ -121,7 +121,7 @@ class ProfileSchemaParity(unittest.TestCase):
         props = self.schema["properties"]
         self.assertEqual(set(props), set(config.DEFAULTS) | {"schemaVersion"})
         for key, default in config.DEFAULTS.items():
-            if key in ("runners", "handlers"):
+            if key == "handlers":
                 self.assertEqual(props[key]["default"], default, key)
             elif isinstance(default, dict):
                 for sub, value in default.items():
@@ -133,8 +133,7 @@ class ProfileSchemaParity(unittest.TestCase):
         defs = self.schema["$defs"]
         self.assertEqual(sorted(defs["handlerEntry"]["properties"]["handler"]["enum"]),
                          sorted(config.HANDLERS))
-        self.assertEqual(sorted(defs["runner"]["properties"]["protocol"]["enum"]),
-                         sorted(config.RUNNER_PROTOCOLS))
+        self.assertNotIn("runner", defs)
 
 
 if __name__ == "__main__":
