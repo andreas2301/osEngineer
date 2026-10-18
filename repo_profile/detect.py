@@ -34,7 +34,7 @@ DETECTORS = {
     "ci:github-actions": (None, _glob(".github/workflows/*.yml", ".github/workflows/*.yaml")),
     "harness:claude": ("hooks.claude", lambda repo, p, which: (repo / ".claude").is_dir() or which("claude") is not None),
     "harness:kimi": ("hooks.kimi", _tool("kimi")),
-    "harness:codex": ("runtime.runner.codex", lambda repo, p, which: (repo / ".codex").is_dir() or which("codex") is not None),
+    "harness:codex": ("hooks.codex", lambda repo, p, which: (repo / ".codex").is_dir() or which("codex") is not None),
     "cli:gh": ("integrations.github", _tool("gh")),
     "cli:op": ("secrets.op", _tool("op")),
     "package-manager:npm": (None, _glob("package.json")),

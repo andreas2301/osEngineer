@@ -23,7 +23,6 @@ DEFAULTS = {
                 "dispatchWords": ["dispatch", "workflow"],
                 "minSignalTerms": 2, "maxHints": 2, "projection": "codex"},
     "eval": {"policy": "EVAL_POLICY.json"},
-    "runners": {"codex": {"protocol": "codex-exec"}},
     "handlers": {},
 }
 
@@ -35,11 +34,11 @@ HANDLERS = {
     "eval.gate": "bin/ose-eval-gate keep/revert decisions from the eval policy",
     "hooks.claude": "osEngineer hooks wired into Claude Code by install.sh",
     "hooks.kimi": "osEngineer hooks wired into Kimi Code by install.sh",
+    "hooks.codex": "osEngineer hooks wired into Codex CLI by install.sh",
     "runtime.runner.codex": "codex exec runner protocol in the task runtime",
     "integrations.github": "read-only GitHub pull request reader via gh",
     "secrets.op": "1Password op:// secret references (metadata only)",
 }
-RUNNER_PROTOCOLS = ("codex-exec", "env")
 FACT_NAME = re.compile(r"^[a-z][a-z0-9-]*(?::[a-z0-9.-]+)?$")
 RUNNER_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -137,16 +136,6 @@ def validate(data):
         "maxHints": lambda v, k: _int(v, k, 0, 20), "projection": projection})
 
     out["eval"] = _section(data, "eval", {"policy": _rel_path})
-
-    if "runners" in data:
-        _keys(data["runners"], data["runners"], "runners")
-        for name, runner in data["runners"].items():
-            if not RUNNER_NAME.fullmatch(name):
-                _fail("runners", f"has an invalid runner name: {name!r}")
-            _keys(runner, {"protocol"}, f"runners.{name}")
-            if runner.get("protocol") not in RUNNER_PROTOCOLS:
-                _fail(f"runners.{name}.protocol", "must be one of " + ", ".join(RUNNER_PROTOCOLS))
-        out["runners"] = copy.deepcopy(data["runners"])
 
     if "handlers" in data:
         _keys(data["handlers"], data["handlers"], "handlers")

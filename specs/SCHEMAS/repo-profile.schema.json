@@ -13,17 +13,6 @@
       "description": "Repository-relative POSIX path; no absolute paths, no .. segments. A trailing / is stripped."
     },
     "pct": { "type": "integer", "minimum": 0, "maximum": 100 },
-    "runner": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["protocol"],
-      "properties": {
-        "protocol": {
-          "enum": ["codex-exec", "env"],
-          "description": "codex-exec: `<runner> exec --json --output-schema ...`; env: the OSE_PROFILE_* environment protocol."
-        }
-      }
-    },
     "handlerEntry": {
       "type": "object",
       "additionalProperties": false,
@@ -31,7 +20,7 @@
       "properties": {
         "handler": {
           "enum": ["profile.config", "runtime.policyBinding", "routing.skillRegistry", "eval.gate",
-                   "hooks.claude", "hooks.kimi", "runtime.runner.codex", "integrations.github", "secrets.op"]
+                   "hooks.claude", "hooks.kimi", "hooks.codex", "runtime.runner.codex", "integrations.github", "secrets.op"]
         },
         "enabled": { "type": "boolean" }
       },
@@ -80,13 +69,6 @@
       "properties": {
         "policy": { "$ref": "#/$defs/relPath", "default": "EVAL_POLICY.json", "description": "Evaluation policy (eval-policy.schema.json) whose presence is the eval-policy fact." }
       }
-    },
-    "runners": {
-      "type": "object",
-      "propertyNames": { "pattern": "^[A-Za-z0-9_.-]+$" },
-      "additionalProperties": { "$ref": "#/$defs/runner" },
-      "default": { "codex": { "protocol": "codex-exec" } },
-      "description": "Runner executable basename -> protocol. Replaces the default map when present."
     },
     "handlers": {
       "type": "object",
