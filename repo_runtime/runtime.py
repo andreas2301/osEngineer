@@ -13,13 +13,13 @@ import subprocess
 import time
 import uuid
 
+from repo_profile import config as profile_config
+
 
 class ContractError(ValueError):
     pass
 
 
-DEFAULT_POLICY_FILE = "POLICY.md"
-DEFAULT_PLAN_DIR = ".plans"
 # Volatile state the local hooks rewrite on every tool call (context
 # telemetry and its lock). It is not task output, and a repo need not
 # gitignore it.
@@ -27,17 +27,12 @@ HOOK_VOLATILE_PATHS = {".osengineer/runtime.yml", ".osengineer/.state.lock"}
 
 
 def profile_settings(repo):
-    """Read optional policy-file / plan-directory settings from .osengineer/profile.json."""
+    """Policy file and plan directory from .osengineer/profile.json; invalid fails closed."""
     try:
-        data = json.loads((Path(repo) / ".osengineer" / "profile.json").read_text())
-    except (OSError, ValueError):
-        data = {}
-    out = {}
-    for key, default in (("policy", DEFAULT_POLICY_FILE), ("planDirectory", DEFAULT_PLAN_DIR)):
-        value = data.get(key) if isinstance(data, dict) else None
-        ok = isinstance(value, str) and value and not value.startswith("/") and ".." not in PurePosixPath(value).parts
-        out[key] = value.rstrip("/") if ok else default
-    return out
+        profile = profile_config.load(repo)
+    except profile_config.ProfileError as e:
+        raise ContractError(str(e)) from None
+    return {"policy": profile["policy"], "planDirectory": profile["planDirectory"]}
 
 
 def policy_file(repo):
@@ -87,6 +82,7 @@ def load_contract(path, repo):
     root = Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve()
     if root != repo:
         raise ContractError("--repo must name the repository root")
+    profile_settings(repo)
     try:
         c = json.loads(Path(path).read_text())
     except (OSError, ValueError) as e:

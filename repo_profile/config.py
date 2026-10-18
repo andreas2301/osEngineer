@@ -21,8 +21,6 @@ DEFAULTS = {
     "routing": {"excludeNamePattern": "reviewer|verifier|judge",
                 "dispatchWords": ["dispatch", "workflow"],
                 "minSignalTerms": 2, "maxHints": 2, "projection": "codex"},
-    "validationProfiles": {"infra": {"configDirs": ["planning", ".osengineer", "ansible",
-                                                    "docker", "scripts"]}},
     "eval": {"policy": "EVAL_POLICY.json"},
     "runners": {"codex": {"protocol": "codex-exec"}},
     "handlers": {},
@@ -131,17 +129,6 @@ def validate(data):
         "excludeNamePattern": pattern, "dispatchWords": words,
         "minSignalTerms": lambda v, k: _int(v, k, 1, 20),
         "maxHints": lambda v, k: _int(v, k, 0, 20), "projection": projection})
-
-    if "validationProfiles" in data:
-        _keys(data["validationProfiles"], DEFAULTS["validationProfiles"], "validationProfiles")
-        infra = data["validationProfiles"].get("infra")
-        if infra is not None:
-            _keys(infra, {"configDirs"}, "validationProfiles.infra")
-            dirs = infra.get("configDirs", out["validationProfiles"]["infra"]["configDirs"])
-            if not isinstance(dirs, list):
-                _fail("validationProfiles.infra.configDirs", "must be a list")
-            out["validationProfiles"]["infra"]["configDirs"] = [
-                _rel_path(d, "validationProfiles.infra.configDirs[]") for d in dirs]
 
     out["eval"] = _section(data, "eval", {"policy": _rel_path})
 

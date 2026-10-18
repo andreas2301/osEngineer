@@ -73,20 +73,6 @@
         "projection": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_.-]+$", "default": "codex", "description": "Registry projection key preferred over the canonical path; null uses canonical only." }
       }
     },
-    "validationProfiles": {
-      "type": "object",
-      "additionalProperties": false,
-      "default": { "infra": { "configDirs": ["planning", ".osengineer", "ansible", "docker", "scripts"] } },
-      "properties": {
-        "infra": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "configDirs": { "type": "array", "items": { "$ref": "#/$defs/relPath" }, "description": "Top-level directories whose .yml/.yaml/.json files stay editable during discuss/plan under validation_profile: infra." }
-          }
-        }
-      }
-    },
     "eval": {
       "type": "object",
       "additionalProperties": false,

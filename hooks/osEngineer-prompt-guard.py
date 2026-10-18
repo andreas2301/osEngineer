@@ -27,6 +27,7 @@ from osengineer_common import (
     read_payload,
     bypass_log,
     is_repo_profile,
+    load_profile,
     profile_setting,
     planning_dir,
     count_handoffs,
@@ -238,7 +239,9 @@ def plan_requiring_verbs():
 
 def profile_routes(prompt, repo_root):
     """Use registry paths and frontmatter only; never load whole skill bodies."""
-    registry_path = Path(repo_root) / profile_setting(repo_root, "skillRegistry")
+    profile = load_profile(repo_root)
+    rules = profile["routing"]
+    registry_path = Path(repo_root) / profile["skillRegistry"]
     if not registry_path.exists():
         return []
     entries = json.loads(registry_path.read_text()).get("skills", [])
@@ -246,9 +249,10 @@ def profile_routes(prompt, repo_root):
     matches = []
     for entry in entries:
         name = entry.get("name", "")
-        if re.search(r"(?:reviewer|verifier|judge)", name, re.I):
+        if rules["excludeNamePattern"] and re.search(rules["excludeNamePattern"], name, re.I):
             continue
-        relative = (entry.get("projections") or {}).get("codex") or entry.get("canonical")
+        projection = rules["projection"]
+        relative = (projection and (entry.get("projections") or {}).get(projection)) or entry.get("canonical")
         if not relative:
             continue
         skill_path = (Path(repo_root) / relative).resolve()
@@ -261,13 +265,13 @@ def profile_routes(prompt, repo_root):
                 raw = handle.read(8192)
             description = (parse_frontmatter(raw) or {}).get("description", "")
         explicit = bool(name) and bool(re.search(r"(?<![\w-])" + re.escape(name.lower()) + r"(?![\w-])", prompt.lower()))
-        dispatch = name == profile_setting(repo_root, "dispatchSkill") and bool(prompt_words & {"dispatch", "workflow"})
+        dispatch = name == profile["dispatchSkill"] and bool(prompt_words & set(rules["dispatchWords"]))
         signal = set(tokenize(extract_use_signal(description)))
-        # Require two meaningful signal terms for implicit routing.
-        implicit = len(prompt_words & signal) >= 2
+        # Require minSignalTerms meaningful signal terms for implicit routing.
+        implicit = len(prompt_words & signal) >= rules["minSignalTerms"]
         if explicit or dispatch or implicit:
             matches.append(f"- {name}: {relative}/SKILL.md" if skill_path.is_dir() else f"- {name}: {relative}")
-    return matches[:2]
+    return matches[:rules["maxHints"]]
 
 
 def profile_context(data, repo_root, state):
@@ -287,9 +291,11 @@ def profile_context(data, repo_root, state):
         if metrics_path.exists():
             metrics = json.loads(metrics_path.read_text())
             import time
-            if time.time() - metrics.get("timestamp", 0) <= 60:
+            context = load_profile(repo_root)["context"]
+            if time.time() - metrics.get("timestamp", 0) <= context["staleSeconds"]:
                 remaining = metrics.get("remaining_percentage", 100)
-                level = "critical" if remaining <= 25 else "warning" if remaining <= 40 else "normal"
+                level = ("critical" if remaining <= context["criticalPct"]
+                         else "warning" if remaining <= context["warnPct"] else "normal")
     signature = {"root": str(repo_root), "phase": phase, "routes": routes, "level": level}
     if cached == signature:
         return
@@ -366,7 +372,7 @@ def main():
             except Exception:
                 pass
 
-        if remaining_percent <= 40:
+        if remaining_percent <= load_profile(repo_root)["context"]["reinjectPct"]:
             active_dir = planning_dir(repo_root) / "active"
             plan_summary = "No active PHASE_PLAN.md found."
             if active_dir.is_dir():

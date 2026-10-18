@@ -9,6 +9,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+# The profile loader ships in repo_profile/ so the installed skill can reuse it.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from repo_profile import config as profile_config  # noqa: E402
+
 STDIN_TIMEOUT_MS = 3000
 
 
@@ -228,33 +232,20 @@ def bypass_log(repo_root, hook, reason):
         f.write(json.dumps(entry) + "\n")
 
 
+def load_profile(repo_root):
+    """Effective .osengineer/profile.json; invalid profiles raise (hooks then block)."""
+    return profile_config.load(repo_root)
+
+
 def is_repo_profile(repo_root):
-    p = Path(repo_root) / ".osengineer" / "profile.json"
-    if p.exists() and json.loads(p.read_text()).get("profile") == "repo":
+    if load_profile(repo_root)["profile"] == "repo":
         return True
     return read_workbench_field(repo_root, "validation_profile") == "repo"
 
 
-PROFILE_DEFAULTS = {
-    "policy": "POLICY.md",
-    "planDirectory": ".plans",
-    "skillRegistry": ".osengineer/skill-registry.json",
-    "dispatchSkill": "dispatch",
-}
-
-
 def profile_setting(repo_root, key):
-    """Repository-relative profile setting with a neutral default."""
-    default = PROFILE_DEFAULTS[key]
-    try:
-        value = json.loads((Path(repo_root) / ".osengineer" / "profile.json").read_text()).get(key)
-    except (OSError, ValueError, AttributeError):
-        return default
-    if not isinstance(value, str) or not value:
-        return default
-    if key != "dispatchSkill" and (value.startswith("/") or ".." in Path(value).parts):
-        return default
-    return value.rstrip("/")
+    """One top-level profile setting, defaults included."""
+    return load_profile(repo_root)[key]
 
 
 def planning_dir(repo_root):

@@ -16,12 +16,9 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import emit_context, find_osengineer_root, is_repo_profile, planning_dir, write_state_field, fail_strict, read_payload
+from osengineer_common import emit_context, find_osengineer_root, is_repo_profile, load_profile, planning_dir, write_state_field, fail_strict, read_payload
 
 STDIN_TIMEOUT_MS = 10000
-WARNING_THRESHOLD = 35
-CRITICAL_THRESHOLD = 25
-STALE_SECONDS = 60
 
 
 def main():
@@ -39,6 +36,8 @@ def main():
     metrics_path = Path(tempfile.gettempdir()) / f"claude-ctx-{session_id}.json"
     if not metrics_path.exists():
         return
+    # Thresholds are percent remaining, shared with prompt-guard (profile.json `context`).
+    context = load_profile(repo_root)["context"]
 
     try:
         metrics = json.loads(metrics_path.read_text())
@@ -49,7 +48,7 @@ def main():
         raise ValueError("context telemetry session mismatch")
 
     now = int(time.time())
-    if metrics.get("timestamp") and (now - metrics["timestamp"]) > STALE_SECONDS:
+    if metrics.get("timestamp") and (now - metrics["timestamp"]) > context["staleSeconds"]:
         return
 
     remaining = metrics.get("remaining_percentage")
@@ -63,7 +62,7 @@ def main():
     warn_path = Path(tempfile.gettempdir()) / f"claude-ctx-{session_id}-ose-warned.json"
     if remaining is None:
         return
-    if remaining > WARNING_THRESHOLD:
+    if remaining > context["warnPct"]:
         warn_path.unlink(missing_ok=True)
         return
 
@@ -78,7 +77,7 @@ def main():
             raise RuntimeError("cannot load or persist warning state") from exc
 
     warn_data["callsSinceWarn"] = warn_data.get("callsSinceWarn", 0) + 1
-    is_critical = remaining <= CRITICAL_THRESHOLD
+    is_critical = remaining <= context["criticalPct"]
     current_level = "critical" if is_critical else "warning"
     escalated = current_level == "critical" and warn_data.get("lastLevel") == "warning"
 

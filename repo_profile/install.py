@@ -7,25 +7,30 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from . import config
+
 SOURCE = Path(__file__).resolve().parent.parent
 NAME = 'osengineer-repo-profile'
 SKILL_REL = f'.claude/skills/{NAME}'
 LINK_REL = f'.agents/skills/{NAME}'
-PROFILE_REL = '.osengineer/profile.json'
+PROFILE_REL = config.PROFILE_REL
 MANIFEST_REL = '.osengineer/repo-profile-install.json'
-DEFAULT_POLICY = 'POLICY.md'
-DEFAULT_PLAN_DIR = '.plans'
-REGISTRY_REL = '.osengineer/skill-registry.json'
+DEFAULT_POLICY = config.DEFAULTS['policy']
+DEFAULT_PLAN_DIR = config.DEFAULTS['planDirectory']
+REGISTRY_REL = config.DEFAULTS['skillRegistry']
 ROW = {'name': NAME, 'canonical': SKILL_REL, 'projections': {'codex': LINK_REL}}
 
 
 def profile_config(policy=DEFAULT_POLICY, plan_dir=DEFAULT_PLAN_DIR):
-    for value in (policy, plan_dir):
-        parts = Path(value).parts
-        if not value or Path(value).is_absolute() or '..' in parts:
-            raise ValueError(f'Invalid repository-relative setting: {value!r}')
-    return {'schemaVersion': 1, 'profile': 'repo', 'policy': policy,
-            'skillRegistry': REGISTRY_REL, 'planDirectory': plan_dir.rstrip('/')}
+    checked = config.validate({'policy': policy, 'planDirectory': plan_dir})
+    return {'schemaVersion': 1, 'profile': 'repo', 'policy': checked['policy'],
+            'skillRegistry': REGISTRY_REL, 'planDirectory': checked['planDirectory']}
+
+
+def release_version(source):
+    # The profile ships with osEngineer, so it carries the release version.
+    path = Path(source) / 'VERSION'
+    return path.read_text().strip() if path.is_file() else '0.0.0-dev'
 
 
 def digest(path):
@@ -124,7 +129,7 @@ def install(repo, source=SOURCE, policy=DEFAULT_POLICY, plan_dir=DEFAULT_PLAN_DI
         except (OSError, subprocess.CalledProcessError):
             revision = 'unknown'
         target = os.path.relpath(skill, link.parent)
-        manifest = {'schemaVersion': 1, 'profileVersion': '0.1.1', 'sourceRevision': revision,
+        manifest = {'schemaVersion': 1, 'profileVersion': release_version(source), 'sourceRevision': revision,
                     'files': files, 'linkTarget': target, 'registryCreated':
                     previous.get('registryCreated', False) if previous else reg_original is None}
         if skill.exists():
