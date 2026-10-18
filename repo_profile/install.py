@@ -33,6 +33,21 @@ def release_version(source):
     return path.read_text().strip() if path.is_file() else '0.0.0-dev'
 
 
+# Keys the installer writes into profile.json; every other key belongs to the
+# user (e.g. handlers from `profile detect --write`) and survives (un)install.
+INSTALLER_KEYS = ('schemaVersion', 'profile', 'policy', 'skillRegistry', 'planDirectory')
+
+
+def merged_profile(repo, installer):
+    """Existing profile.json with the installer's keys; refuse conflicting settings."""
+    existing = config.read_raw(repo) or {}
+    config.validate(existing)
+    for key in ('policy', 'planDirectory'):
+        if key in existing and existing[key].rstrip('/') != installer[key]:
+            raise ValueError(f'{PROFILE_REL} sets {key}={existing[key]!r}; pass the same value to install')
+    return {**existing, **installer}
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -52,6 +67,8 @@ def read_manifest(repo):
 
 def verify_owned(repo, manifest):
     for relative, expected in manifest.get('files', {}).items():
+        if relative == PROFILE_REL:
+            continue  # user-editable; older manifests still list it
         path = safe_path(repo, relative)
         if not path.is_file() or digest(path) != expected:
             raise ValueError(f'Owned asset changed; preserve and resolve manually: {relative}')
@@ -94,7 +111,7 @@ def atomic_write(path, content):
 
 
 def install(repo, source=SOURCE, policy=DEFAULT_POLICY, plan_dir=DEFAULT_PLAN_DIR):
-    config = profile_config(policy, plan_dir)
+    settings = profile_config(policy, plan_dir)
     repo, source = Path(repo).resolve(), Path(source).resolve()
     if not (repo / '.git').exists() or not (repo / policy).is_file():
         raise ValueError('Repo profile installation requires a Git checkout and its policy file')
@@ -103,7 +120,7 @@ def install(repo, source=SOURCE, policy=DEFAULT_POLICY, plan_dir=DEFAULT_PLAN_DI
     previous = read_manifest(repo)
     if previous:
         verify_owned(repo, previous)
-    elif any(p.exists() or p.is_symlink() for p in (skill, link, profile)):
+    elif any(p.exists() or p.is_symlink() for p in (skill, link)):
         raise ValueError('Existing unowned Repo profile assets; refusing overwrite')
     reg_path, reg_original, reg_new = registry_payload(repo, policy=policy)
     saved_profile = profile.read_bytes() if profile.exists() else None
@@ -121,8 +138,7 @@ def install(repo, source=SOURCE, policy=DEFAULT_POLICY, plan_dir=DEFAULT_PLAN_DI
                             ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
         files = {f'{SKILL_REL}/{p.relative_to(stage)}': digest(p)
                  for p in stage.rglob('*') if p.is_file()}
-        profile_bytes = (json.dumps(config, indent=2) + '\n').encode()
-        files[PROFILE_REL] = hashlib.sha256(profile_bytes).hexdigest()
+        profile_bytes = (json.dumps(merged_profile(repo, settings), indent=2) + '\n').encode()
         try:
             revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'],
                                                text=True, stderr=subprocess.DEVNULL).strip()
@@ -155,9 +171,11 @@ def install(repo, source=SOURCE, policy=DEFAULT_POLICY, plan_dir=DEFAULT_PLAN_DI
             os.replace(backup, skill)
         elif not previous and skill.exists():
             shutil.rmtree(skill)
+        if saved_profile is not None:
+            atomic_write(profile, saved_profile)
+        elif profile.exists():
+            profile.unlink()
         if previous:
-            if saved_profile is not None:
-                atomic_write(profile, saved_profile)
             if saved_manifest is not None:
                 atomic_write(manifest_path, saved_manifest)
             if link.is_symlink():
@@ -166,9 +184,8 @@ def install(repo, source=SOURCE, policy=DEFAULT_POLICY, plan_dir=DEFAULT_PLAN_DI
         if not previous:
             if link.is_symlink():
                 link.unlink()
-            for p in (profile, manifest_path):
-                if p.exists():
-                    p.unlink()
+            if manifest_path.exists():
+                manifest_path.unlink()
         if reg_original is not None:
             atomic_write(reg_path, reg_original)
         elif reg_path.exists():
@@ -197,6 +214,10 @@ def uninstall(repo):
         atomic_write(reg_path, reg_new)
     (repo / LINK_REL).unlink()
     shutil.rmtree(repo / SKILL_REL)
-    (repo / PROFILE_REL).unlink()
+    remaining = {k: v for k, v in (config.read_raw(repo) or {}).items() if k not in INSTALLER_KEYS}
+    if remaining:
+        atomic_write(repo / PROFILE_REL, (json.dumps({'schemaVersion': 1, **remaining}, indent=2) + '\n').encode())
+    elif (repo / PROFILE_REL).exists():
+        (repo / PROFILE_REL).unlink()
     (repo / MANIFEST_REL).unlink()
-    return {'status': 'uninstalled', 'preserved': 'policy, foreign settings, agents, state and learning'}
+    return {'status': 'uninstalled', 'preserved': 'policy, foreign settings, user profile keys, agents, state and learning'}
