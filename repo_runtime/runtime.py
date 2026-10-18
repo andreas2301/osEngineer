@@ -20,10 +20,12 @@ class ContractError(ValueError):
 
 DEFAULT_POLICY_FILE = "POLICY.md"
 DEFAULT_PLAN_DIR = ".plans"
+# Runner basename that selects the `codex exec` protocol; profile.json key codexRunner.
+DEFAULT_CODEX_RUNNER = "codex"
 
 
 def profile_settings(repo):
-    """Read optional policy-file / plan-directory settings from .osengineer/profile.json."""
+    """Read optional policy-file / plan-directory / codexRunner settings from .osengineer/profile.json."""
     try:
         data = json.loads((Path(repo) / ".osengineer" / "profile.json").read_text())
     except (OSError, ValueError):
@@ -33,6 +35,9 @@ def profile_settings(repo):
         value = data.get(key) if isinstance(data, dict) else None
         ok = isinstance(value, str) and value and not value.startswith("/") and ".." not in PurePosixPath(value).parts
         out[key] = value.rstrip("/") if ok else default
+    value = data.get("codexRunner") if isinstance(data, dict) else None
+    ok = isinstance(value, str) and value and value == Path(value).name
+    out["codexRunner"] = value if ok else DEFAULT_CODEX_RUNNER
     return out
 
 
@@ -339,7 +344,7 @@ def run(c, repo, mode="local", runner=None, out=None):
     final_path = out / "runner-final.json"
     prompt = "Execute this Repo profile contract within the repository policy and allowed paths. Do not request interactive input; report needs-human when blocked. No remote effects without an explicit capability and external sandbox authorization. Contract:\n" + json.dumps(c, ensure_ascii=False)
     argv = [executable]
-    if Path(runner).name == "codex":
+    if Path(runner).name == profile_settings(repo)["codexRunner"]:
         schema = out / "runner-output-schema.json"
         write_json(schema, {"type": "object", "properties": {"status": {"type": "string", "enum": ["passed", "failed", "needs-human"]}, "summary": {"type": "string"}}, "required": ["status", "summary"], "additionalProperties": False})
         argv += ["exec", "--json", "--output-schema", str(schema), "--output-last-message", str(final_path), "-"]
