@@ -83,6 +83,25 @@ this project adheres to semantic versioning.
 - **Usage learning receipts** (`repo_profile/learning.py`): record, summarize
   and compare sanitized task receipts.
 
+### Added — Codex CLI as a supported harness
+
+- **`RUNTIMES=codex`** (menu option 3) wires the per-repo `.codex/hooks.json`
+  with the session-start, prompt, edit and Bash guards, installs the commands
+  as `.agents/skills/<verb>/SKILL.md`, and relies on the root `AGENTS.md`,
+  which Codex reads natively. Re-install replaces stale osEngineer handlers.
+  `uninstall.sh` removes only osEngineer handlers and unchanged skill copies.
+  This reverses the earlier removal of Codex from the runtime menu.
+- **`hooks/lib/codex_hook.py`** runs the unmodified guards for Codex. It
+  splits `apply_patch` into one edit check per touched file and normalises
+  shell tool aliases to `Bash`. It turns a block into exit 2 with the reason
+  on stderr, because Codex lets an action continue when a hook prints fields
+  it does not support.
+- Install warns that Codex runs project hooks only after `/hooks` trust.
+  Until then, the git hooks and the CI gate are the only enforcement.
+- **`codexRunner`** in `.osengineer/profile.json` (default `codex`) names the
+  runner executable that gets the `codex exec` protocol in `repo_runtime`.
+  Before, this name was hard-coded.
+
 ### Changed
 
 - **Migrated the entire enforcement layer from Node.js to Python 3.** All
@@ -113,6 +132,8 @@ this project adheres to semantic versioning.
 - The pre-edit guard blocks a team whose cached `owns_paths` is missing or
   invalid instead of treating it as unrestricted, and the bypass audit log
   write now reports its failure on stderr instead of being swallowed.
+- The `/osEngineer:recipe-eval-harness` description is shortened to fit the
+  1024-character skill limit, so the command also loads as a skill.
 - `find_osengineer_root` walks up to the home directory or filesystem root
   instead of stopping after eight levels.
 - Re-running `install.sh` on an installed repo no longer appends a second copy
