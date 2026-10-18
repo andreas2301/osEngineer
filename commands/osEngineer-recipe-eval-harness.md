@@ -1,16 +1,15 @@
 ---
 name: osEngineer:recipe-eval-harness
 description: >-
-  Linear recipe that sets up an evaluation harness for a detector,
+  Recipe that sets up an evaluation harness for a detector,
   classifier or scanner repo and runs its keep/revert improvement loop. It
   researches and verifies labeled datasets (license, gated status, pinned
   revision, sha256, benign negatives, overlap and contamination), builds
   group-split dev/holdout/sealed sets with roles (PRIMARY, RECALL-ONLY,
   GUARD-ONLY, REPORT-ONLY, SEALED), writes a deterministic fetch script,
   per-set P/R/F1/latency metrics, and an eval policy decided by
-  bin/ose-eval-gate. It also covers the karpathy/autoresearch-style loop,
-  process reviews, one report branch per round, and a premortem plus honest
-  assessment. Use when a repo's output is a label (prompt-injection
+  bin/ose-eval-gate. It also covers process reviews, one report branch per
+  round, and a premortem. Use when a repo's output is a label (prompt-injection
   scanner, secret detector, spam or toxicity classifier, SAST rule pack)
   and changes to it must be measured before they are kept. Don't use for
   unit or e2e test coverage (use /osEngineer:verify or the qa agent).
