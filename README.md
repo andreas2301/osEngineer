@@ -211,3 +211,39 @@ This skill evolves via retrospectives and the HITL evolution protocol. After eac
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+## Repo profile
+
+The repo profile adds a scoped Coding Skill and a portable local/headless
+execution adapter. It reuses the target repository's policy, skill registry,
+configurable plan directory (default `.plans/`) and review path. It does not
+install generic reviewer roles, rewrite the policy file or CLAUDE.md, modify global configuration, or connect live accounts.
+
+```bash
+python3 bin/osengineer profile install --repo /path/to/repo
+# Optional: --policy-file POLICY.md --plan-dir .plans
+# Equivalent: bash install.sh --profile repo /path/to/repo
+python3 bin/osengineer profile integrations doctor --config profiles/repo/integrations.json
+python3 bin/osengineer profile runtime --help
+python3 bin/osengineer profile learn --help
+```
+
+Codex discovers `.agents/skills/osengineer-repo-profile`; Claude uses its canonical
+`.claude/skills/osengineer-repo-profile` copy. All runtime assets are copied inside
+the skill, so the original checkout location is not required. Existing project
+hooks are preserved; no new runtime hooks are automatically trusted or installed.
+The repaired optional hooks remain available for separately configured launchers.
+
+Copy integration configuration to a local untracked location before adding
+project/page IDs and credential environment names. Configuration never contains
+secret values. Provider reads and runner execution require explicit selections.
+Headless operation defaults to local evidence; remote effects need a separately
+authorized and sandboxed launch policy. A passing fixture suite does not promote
+production autonomy.
+
+Installation is repeatable when owned assets are unchanged. A modified skill,
+projection or profile is preserved and produces a conflict instead of being
+overwritten. Uninstall with `python3 bin/osengineer profile uninstall --repo
+/path/to/repo`; unrelated policy, settings, agents and learning remain.
+See [the skill](profiles/repo/SKILL.md), [execution](profiles/repo/references/execution.md)
+for scope and verification.
