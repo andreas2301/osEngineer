@@ -33,7 +33,11 @@
     "README.md",
     "VERSION",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "profiles/",
+    "repo_profile/",
+    "repo_runtime/",
+    "repo_integrations/"
   ],
   "keywords": [
     "ai-agent",

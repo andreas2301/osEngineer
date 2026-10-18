@@ -11,17 +11,17 @@ osEngineer enforcement layer. Installed by `install.sh`. All hooks honour
 
 ## Claude Code hooks (referenced from `.claude/settings.json`)
 
-- [osEngineer-prompt-guard.js](osEngineer-prompt-guard.js) — `UserPromptSubmit`: inject phase/team/budget state; block `/osEngineer:execute` when no PHASE_PLAN.md exists
-- [osEngineer-pre-edit-guard.js](osEngineer-pre-edit-guard.js) — `PreToolUse` on Write/Edit/NotebookEdit: block edits during discuss/plan phases; block `/opt/sovereign-shield/` writes; team `owns_paths` validation (P3+)
-- [osEngineer-pre-bash-guard.js](osEngineer-pre-bash-guard.js) — `PreToolUse` on Bash: block destructive commands (`rm -rf`, `git push --force`, `docker rm`, `kubectl delete`, `git reset --hard`) without an active 4-part plan
-- [osEngineer-read-guard.js](osEngineer-read-guard.js) — `PreToolUse` on Write/Edit: advisory "read before edit" reminder (no-op on Claude Code itself which enforces natively)
-- [osEngineer-post-tool.js](osEngineer-post-tool.js) — `PostToolUse`: track context window; mirror used_pct into `state.yml`; emit warnings at 35% / 25% remaining
-- [osEngineer-session-start.js](osEngineer-session-start.js) — `SessionStart`: emit banner with phase / team / budget / open handoffs / auto-nudge
+- [osEngineer-prompt-guard.py](osEngineer-prompt-guard.py) — `UserPromptSubmit`: inject phase/team/budget state; block `/osEngineer:execute` when no PHASE_PLAN.md exists
+- [osEngineer-pre-edit-guard.py](osEngineer-pre-edit-guard.py) — `PreToolUse` on Write/Edit/NotebookEdit: block edits during discuss/plan phases; block `/opt/sovereign-shield/` writes; team `owns_paths` validation (P3+)
+- [osEngineer-pre-bash-guard.py](osEngineer-pre-bash-guard.py) — `PreToolUse` on Bash: block destructive commands (`rm -rf`, `git push --force`, `docker rm`, `kubectl delete`, `git reset --hard`) without an active 4-part plan
+- [osEngineer-read-guard.py](osEngineer-read-guard.py) — `PreToolUse` on Write/Edit: advisory "read before edit" reminder (no-op on Claude Code itself which enforces natively)
+- [osEngineer-post-tool.py](osEngineer-post-tool.py) — `PostToolUse`: track context window; mirror used_pct into `state.yml`; emit warnings at 35% / 25% remaining
+- [osEngineer-session-start.py](osEngineer-session-start.py) — `SessionStart`: emit banner with phase / team / budget / open handoffs / auto-nudge
 
 ## Statusline
 
-- [osEngineer-statusline.js](osEngineer-statusline.js) — renders `model · phase:X · team:Y · b:N% · HO:K · dirname [context bar]`; also writes context metrics to `/tmp/claude-ctx-{session_id}.json` for the PostToolUse hook to consume
+- [osEngineer-statusline.py](osEngineer-statusline.py) — renders `model · phase:X · team:Y · b:N% · HO:K · dirname [context bar]`; also writes context metrics to `/tmp/claude-ctx-{session_id}.json` for the PostToolUse hook to consume
 
 ## Library
 
-- [lib/osengineer-git-cmd.js](lib/osengineer-git-cmd.js) — token-walk git command classifier (handles `git -C path`, `VAR=x git`, `/usr/bin/git` forms)
+- [lib/osengineer-git-cmd.py](lib/osengineer-git-cmd.py) — token-walk git command classifier (handles `git -C path`, `VAR=x git`, `/usr/bin/git` forms)

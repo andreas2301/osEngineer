@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import count_handoffs, emit_context, find_osengineer_root, read_state_map
+from osengineer_common import count_handoffs, emit_context, find_osengineer_root, is_repo_profile, profile_setting, read_state_map
 
 
 def read_evolution_counter(repo_root):
@@ -27,7 +27,14 @@ def read_evolution_counter(repo_root):
 
 
 def main():
-    cwd = os.getcwd()
+    raw = sys.stdin.read()
+    try:
+        data = json.loads(raw) if raw.strip() else {}
+    except ValueError as exc:
+        raise ValueError("invalid hook input or data") from exc
+    if not isinstance(data, dict):
+        raise ValueError("invalid hook input or data")
+    cwd = data.get("cwd") or os.getcwd()
     repo_root = find_osengineer_root(cwd)
     if not repo_root:
         return
@@ -39,15 +46,21 @@ def main():
     handoffs = count_handoffs(repo_root)
     counter = read_evolution_counter(repo_root)
 
-    lines = ["## osEngineer state"]
+    repo_profile = is_repo_profile(repo_root)
+    lines = ["## Repo profile state" if repo_profile else "## osEngineer state"]
     lines.append(f"- phase: {state.get('phase') or 'idle'}")
     if state.get("current_team"):
         lines.append(f"- team: {state['current_team']}")
     if state.get("budget_used") is not None:
         lines.append(f"- budget used: {state['budget_used']}%")
+    if state.get("context_used_pct") is not None:
+        lines.append(f"- context window used: {state['context_used_pct']}% (not task spend)")
     if handoffs > 0:
         lines.append(f"- open handoffs: {handoffs}")
-    if counter is not None and counter >= 5:
+    if repo_profile:
+        lines.append(f"- policy: {profile_setting(repo_root, 'policy')}; plan references: {profile_setting(repo_root, 'planDirectory')}/; "
+                     f"skill registry: {profile_setting(repo_root, 'skillRegistry')}")
+    if not repo_profile and counter is not None and counter >= 5:
         lines.append(f"- ⚙ {counter} phases since last /osEngineer:evolve — consider running it to surface improvement proposals.")
     if state.get("phase") == "blocked":
         lines.append("- ⚠ phase is BLOCKED. See .osengineer/BLOCKED.md for resume instructions.")
@@ -58,5 +71,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Diagnose on stderr but exit 0: a hook must never crash the harness
+        # (Claude Code and Kimi Code), whatever arrives on stdin.
+        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)

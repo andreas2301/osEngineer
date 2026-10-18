@@ -13,6 +13,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The Repo profile never runs the broad legacy installer/uninstaller.
+if [[ "${1:-}" == "--profile" ]]; then
+  if [[ "${2:-}" != "repo" || "$#" != 3 ]]; then
+    printf 'Usage: %s --profile repo <repo-path>\n' "$0" >&2
+    exit 2
+  fi
+  exec python3 "$SCRIPT_DIR/bin/osengineer" profile uninstall --repo "$3"
+fi
 VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "0.0.0-dev")"
 
 log() { printf '[osEngineer-uninstall] %s\n' "$*"; }

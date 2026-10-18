@@ -6,7 +6,7 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
-## [0.5.0] — 2026-10-16
+## [0.5.0] — unreleased (date set when tagged)
 
 ### Added — evaluation harness for detectors, classifiers and scanners
 
@@ -55,6 +55,34 @@ this project adheres to semantic versioning.
   version-label hygiene, latency creep, report-branch sprawl, citation
   verification, and the regex ceiling (arXiv:2510.01529).
 
+### Added — repo profile (scoped coding skill and portable task runtime)
+
+- **Repo-profile mode in the hooks.** A repository opts in with
+  `.osengineer/profile.json` (`"profile": "repo"`) or
+  `validation_profile: repo` in `workbench-config.yml`. In that mode the
+  hooks use the configured plan directory (`planDirectory`, default `.plans`)
+  instead of `planning/`, route prompts from the repository's skill registry
+  (`skillRegistry`, frontmatter only, at most two hints), report the
+  configured policy file, and leave edit scope to the repository's own
+  policy/dispatch contract instead of the team cache.
+- **Portable task runtime** (`repo_runtime/`): validate, preflight, run,
+  verify and handoff for a JSON task contract (`profiles/repo/task.schema.json`)
+  with base-SHA binding, path-scope checks, argv-only acceptance commands,
+  hashed evidence under `<planDirectory>/osengineer/`, and an explicit runner
+  (`codex` or any executable implementing the runner protocol). No runner
+  means nothing executes.
+- **Bounded read-only integration readers** (`repo_integrations/`) for GitHub
+  (`gh`), Linear and Notion, with allowlisted scopes, page/item/text limits,
+  credential redaction and an offline `doctor`. Configuration lives in
+  `profiles/repo/integrations.json`; all providers are disabled by default.
+- **Installer, skill and CLI verb**: `osengineer profile
+  install|uninstall|runtime|integrations|learn` and
+  `install.sh --profile repo <path>` install one owned skill
+  (`.claude/skills/osengineer-repo-profile` plus a `.agents/skills` projection)
+  with a hash manifest, and refuse to overwrite modified or unowned assets.
+- **Usage learning receipts** (`repo_profile/learning.py`): record, summarize
+  and compare sanitized task receipts.
+
 ### Changed
 
 - **Migrated the entire enforcement layer from Node.js to Python 3.** All
@@ -73,6 +101,20 @@ this project adheres to semantic versioning.
 
 ### Fixed
 
+- The PostToolUse hook now records the statusline bridge value as
+  `context_used_pct` (context-window occupancy) instead of `budget_used`
+  (which it is not), in the gitignored `runtime.yml`. The stale header comment
+  promising a budget circuit-breaker is removed; none was implemented.
+- `state.yml` values `null` and `~` now read as unset. Before, a
+  `current_team: null` line read as a team literally named "null".
+- Hooks validate hook input and context telemetry and report a bad payload
+  on stderr (`invalid hook input or data`) instead of silently doing
+  nothing; they still exit 0 so a bad payload never crashes the harness.
+- The pre-edit guard blocks a team whose cached `owns_paths` is missing or
+  invalid instead of treating it as unrestricted, and the bypass audit log
+  write now reports its failure on stderr instead of being swallowed.
+- `find_osengineer_root` walks up to the home directory or filesystem root
+  instead of stopping after eight levels.
 - Re-running `install.sh` on an installed repo no longer appends a second copy
   of every agent under `## osEngineer Additions`. The reference-link rewrite
   made installed agents differ from their source, so each re-run took the

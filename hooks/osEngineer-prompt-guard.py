@@ -24,6 +24,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
     bypass_log,
+    is_repo_profile,
+    profile_setting,
+    planning_dir,
     count_handoffs,
     emit_block,
     emit_context,
@@ -231,11 +234,79 @@ def plan_requiring_verbs():
     return verbs or fallback
 
 
+def profile_routes(prompt, repo_root):
+    """Use registry paths and frontmatter only; never load whole skill bodies."""
+    registry_path = Path(repo_root) / profile_setting(repo_root, "skillRegistry")
+    if not registry_path.exists():
+        return []
+    entries = json.loads(registry_path.read_text()).get("skills", [])
+    prompt_words = set(tokenize(prompt))
+    matches = []
+    for entry in entries:
+        name = entry.get("name", "")
+        if re.search(r"(?:reviewer|verifier|judge)", name, re.I):
+            continue
+        relative = (entry.get("projections") or {}).get("codex") or entry.get("canonical")
+        if not relative:
+            continue
+        skill_path = (Path(repo_root) / relative).resolve()
+        if not skill_path.is_relative_to(Path(repo_root).resolve()):
+            continue
+        source = skill_path / "SKILL.md" if skill_path.is_dir() else skill_path
+        description = ""
+        if source.is_file():
+            with source.open() as handle:
+                raw = handle.read(8192)
+            description = (parse_frontmatter(raw) or {}).get("description", "")
+        explicit = bool(name) and bool(re.search(r"(?<![\w-])" + re.escape(name.lower()) + r"(?![\w-])", prompt.lower()))
+        dispatch = name == profile_setting(repo_root, "dispatchSkill") and bool(prompt_words & {"dispatch", "workflow"})
+        signal = set(tokenize(extract_use_signal(description)))
+        # Require two meaningful signal terms for implicit routing.
+        implicit = len(prompt_words & signal) >= 2
+        if explicit or dispatch or implicit:
+            matches.append(f"- {name}: {relative}/SKILL.md" if skill_path.is_dir() else f"- {name}: {relative}")
+    return matches[:2]
+
+
+def profile_context(data, repo_root, state):
+    phase = state.get("phase") or "idle"
+    summary = (f"Repo profile phase={phase}; policy: {profile_setting(repo_root, 'policy')}; "
+               f"plans: {profile_setting(repo_root, 'planDirectory')}/.")
+    session = data.get("session_id")
+    routes = profile_routes(data.get("prompt") or "", repo_root)
+    level = "normal"
+    cache_path = None
+    cached = {}
+    if isinstance(session, str) and session and not re.search(r"[/\\]|\.\.", session):
+        cache_path = Path(tempfile.gettempdir()) / f"claude-repo-profile-prompt-{session}.json"
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text())
+        metrics_path = Path(tempfile.gettempdir()) / f"claude-ctx-{session}.json"
+        if metrics_path.exists():
+            metrics = json.loads(metrics_path.read_text())
+            import time
+            if time.time() - metrics.get("timestamp", 0) <= 60:
+                remaining = metrics.get("remaining_percentage", 100)
+                level = "critical" if remaining <= 25 else "warning" if remaining <= 40 else "normal"
+    signature = {"root": str(repo_root), "phase": phase, "routes": routes, "level": level}
+    if cached == signature:
+        return
+    if cache_path:
+        cache_path.write_text(json.dumps(signature))
+    lines = [summary]
+    if phase in ("blocked", "suspended"):
+        lines.append("Edits are denied until explicit resume.")
+    if level != "normal":
+        lines.append(f"Context {level}: checkpoint the current task; load only references needed for the next step.")
+    lines.extend(routes)
+    emit_context("UserPromptSubmit", "\n".join(lines))
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read())
-    except Exception:
-        return
+    except Exception as exc:
+        raise ValueError("invalid hook input or data") from exc
 
     cwd = data.get("cwd") or os.getcwd()
     repo_root = find_osengineer_root(cwd)
@@ -247,6 +318,9 @@ def main():
         return
 
     state = read_state_map(repo_root)
+    if is_repo_profile(repo_root):
+        profile_context(data, repo_root, state or {})
+        return
     if not state:
         return
 
@@ -256,7 +330,7 @@ def main():
     m = re.search(r"/osEngineer:([\w-]+)", prompt)
     if m and m.group(1) in plan_requiring_verbs():
         verb = m.group(1)
-        active_dir = Path(repo_root) / "planning" / "active"
+        active_dir = planning_dir(repo_root) / "active"
         has_plan = False
         if active_dir.is_dir():
             for d in active_dir.iterdir():
@@ -266,7 +340,7 @@ def main():
         if not has_plan:
             emit_block(
                 "UserPromptSubmit",
-                f"osEngineer: cannot /osEngineer:{verb} — no PHASE_PLAN.md in any planning/active/ directory. Run /osEngineer:plan first.",
+                f"osEngineer: cannot /osEngineer:{verb} — no PHASE_PLAN.md in any {planning_dir(repo_root).relative_to(repo_root).as_posix()}/active/ directory. Run /osEngineer:plan first.",
             )
             return
 
@@ -294,7 +368,7 @@ def main():
                 pass
 
         if remaining_percent <= 40:
-            active_dir = Path(repo_root) / "planning" / "active"
+            active_dir = planning_dir(repo_root) / "active"
             plan_summary = "No active PHASE_PLAN.md found."
             if active_dir.is_dir():
                 for phase_dir in active_dir.iterdir():
@@ -351,8 +425,9 @@ def main():
                 hint_block = format_routing_hints(matches)
                 if hint_block:
                     additional_context = f"{additional_context}\n\n{hint_block}" if additional_context else hint_block
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     emit_context("UserPromptSubmit", additional_context)
 
@@ -360,5 +435,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Diagnose on stderr but exit 0: a hook must never crash the harness
+        # (Claude Code and Kimi Code), whatever arrives on stdin.
+        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)

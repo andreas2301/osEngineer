@@ -1149,6 +1149,8 @@ def usage():
     print(
         f"osengineer {VERSION}\n\n"
         "Usage:\n"
+        "  osengineer profile install|uninstall --repo <path>  Install scoped profile\n"
+        "  osengineer profile runtime|integrations|learn ...  Portable execution and evidence\n"
         "  osengineer init <path>                  Initialise a repo with osEngineer wiring\n"
         "  osengineer upgrade                      Re-run installer against this repo; reconcile version state\n"
         "  osengineer state                        Show .osengineer/state.yml fields\n"
@@ -1188,6 +1190,17 @@ def main():
     rest = argv[1:]
     if sub in ("version", "--version", "-v"):
         cmd_version()
+    elif sub == "profile":
+        sys.path.insert(0, str(SCRIPT_DIR))
+        import runpy
+        modules = {"runtime": "repo_runtime", "integrations": "repo_integrations", "learn": "repo_profile.learning"}
+        target = modules.get(rest[0]) if rest else None
+        if target:
+            sys.argv = ["osengineer profile " + rest[0], *rest[1:]]
+        else:
+            target = "repo_profile"
+            sys.argv = ["osengineer profile", *rest]
+        runpy.run_module(target, run_name="__main__")
     elif sub == "init":
         cmd_init(rest)
     elif sub == "state":
