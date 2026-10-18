@@ -17,6 +17,7 @@ DEFAULTS = {
     "planDirectory": ".plans",
     "skillRegistry": ".osengineer/skill-registry.json",
     "dispatchSkill": "dispatch",
+    "codexRunner": "codex",
     "context": {"warnPct": 35, "criticalPct": 25, "reinjectPct": 40, "staleSeconds": 60},
     "routing": {"excludeNamePattern": "reviewer|verifier|judge",
                 "dispatchWords": ["dispatch", "workflow"],
@@ -96,6 +97,11 @@ def validate(data):
     for key in ("policy", "planDirectory", "skillRegistry"):
         if key in data:
             out[key] = _rel_path(data[key], key)
+    if "codexRunner" in data:
+        value = data["codexRunner"]
+        if not isinstance(value, str) or not RUNNER_NAME.fullmatch(value) or value in (".", ".."):
+            _fail("codexRunner", "must be a bare executable name")
+        out["codexRunner"] = value
     if "dispatchSkill" in data:
         if not isinstance(data["dispatchSkill"], str) or not data["dispatchSkill"]:
             _fail("dispatchSkill", "must be a nonempty string")

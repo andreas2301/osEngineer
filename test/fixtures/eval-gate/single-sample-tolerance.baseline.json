@@ -1,5 +1,5 @@
 {
-  "version": "0.3.34",
+  "version": "1.0.0",
   "git": {
     "commit": "0000000",
     "dirty": false
@@ -9,84 +9,84 @@
   "errors": 0,
   "corpus_findings": 11015,
   "sets": {
-    "llmail": {
+    "primary-a": {
       "tp": 240,
       "fp": 0,
       "tn": 160,
       "fn": 60,
       "p95_ms": 12.0
     },
-    "llmail-holdout": {
+    "primary-a-holdout": {
       "tp": 216,
       "fp": 0,
       "tn": 160,
       "fn": 84,
       "p95_ms": 12.0
     },
-    "browsesafe": {
+    "primary-b": {
       "tp": 199,
       "fp": 26,
       "tn": 274,
       "fn": 101,
       "p95_ms": 70.0
     },
-    "browsesafe-holdout": {
+    "primary-b-holdout": {
       "tp": 179,
       "fp": 27,
       "tn": 273,
       "fn": 121,
       "p95_ms": 74.0
     },
-    "deepset": {
+    "primary-c": {
       "tp": 46,
       "fp": 0,
       "tn": 56,
       "fn": 14,
       "p95_ms": 12.0
     },
-    "deepset-holdout": {
-      "tp": 62,
-      "fp": 0,
-      "tn": 343,
-      "fn": 141,
+    "primary-c-holdout": {
+      "tp": 54,
+      "fp": 2,
+      "tn": 341,
+      "fn": 149,
       "p95_ms": 12.0
     },
-    "spanish": {
-      "tp": 13,
+    "small-subset": {
+      "tp": 37,
       "fp": 0,
       "tn": 300,
-      "fn": 39,
+      "fn": 15,
       "p95_ms": 12.0
     },
-    "spanish-holdout": {
-      "tp": 16,
+    "small-subset-holdout": {
+      "tp": 23,
       "fp": 0,
       "tn": 371,
-      "fn": 37,
+      "fn": 30,
       "p95_ms": 12.0
     },
-    "multilingual": {
+    "recall-a": {
       "tp": 21,
       "fp": 0,
       "tn": 0,
       "fn": 819,
       "p95_ms": 12.0
     },
-    "multilingual-holdout": {
+    "recall-a-holdout": {
       "tp": 20,
       "fp": 0,
       "tn": 0,
       "fn": 805,
       "p95_ms": 12.0
     },
-    "nemotron": {
+    "guard-a": {
       "tp": 34,
       "fp": 0,
       "tn": 300,
       "fn": 266,
       "p95_ms": 12.0
     },
-    "nemotron-holdout": {
+    "guard-a-holdout": {
       "tp": 35,
       "fp": 0,
       "tn": 300,

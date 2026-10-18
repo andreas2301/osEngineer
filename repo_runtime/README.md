@@ -48,7 +48,7 @@ An explicit non-Codex runner is invoked as a single executable, without appended
 
 It must return exit code zero and write `{"status":"passed|failed|needs-human","summary":"..."}` to the final path. Missing or invalid structured results become needs-human. Wrapper executables can adapt other coding tools to this protocol. Existing environment and authentication are retained; select a sanitized environment outside this module for pipeline runs.
 
-`--runner codex` uses `codex exec --json --output-schema ... --output-last-message ... -`; it does not change model, authentication, approval, or sandbox settings. Codex must already be installed and configured. The generated output schema contains only status and summary; actual success is determined by recorded acceptance commands. Local and headless modes share validation and evidence rules; headless is not an elevated permission level.
+`--runner codex` uses `codex exec --json --output-schema ... --output-last-message ... -`. The runner basename that selects this protocol is the `codexRunner` key in `.osengineer/profile.json` (a bare executable name, default `codex`), for example `{"codexRunner": "codex-nightly"}`. A value that is not a bare name fails closed (needs-human), like every invalid `profile.json` setting, and every other runner uses the env-var protocol above. It does not change model, authentication, approval, or sandbox settings. Codex must already be installed and configured. The generated output schema contains only status and summary; actual success is determined by recorded acceptance commands. Local and headless modes share validation and evidence rules; headless is not an elevated permission level.
 
 ## Evidence and boundaries
 

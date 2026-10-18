@@ -137,6 +137,53 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result["status"], "not-run")
         self.assertIsNone(result["runner"])
 
+    def make_codex_like(self, name):
+        """A runner that records its argv and answers like `codex exec`."""
+        runner = self.root / "bin" / name
+        runner.parent.mkdir(exist_ok=True)
+        runner.write_text("#!" + sys.executable + "\nimport json,sys\nfrom pathlib import Path\n"
+            "Path(%r).write_text(json.dumps(sys.argv[1:]))\n"
+            "a=sys.argv\nfinal=a[a.index('--output-last-message')+1] if '--output-last-message' in a else __import__('os').environ['OSE_PROFILE_RESULT_PATH']\n"
+            "Path(final).write_text(json.dumps({'status':'passed','summary':'done'}))\n" % str(self.root / "argv.json"))
+        runner.chmod(0o755)
+        return runner
+
+    def set_profile(self, data):
+        (self.repo / ".osengineer").mkdir(exist_ok=True)
+        (self.repo / ".osengineer" / "profile.json").write_text(json.dumps(data))
+        self.git("add", ".")
+        self.git("commit", "-qm", "profile")
+        self.contract["baseSha"] = self.git("rev-parse", "HEAD").strip()
+
+    def runner_argv(self, runner):
+        c, repo = self.load()
+        out = self.root / "out"
+        while out.exists():
+            out = out.with_name(out.name + "-")
+        result = run(c, repo, runner=str(runner), out=out)
+        self.assertEqual(result["status"], "passed", result["reasons"])
+        return json.loads((self.root / "argv.json").read_text())
+
+    def test_runner_named_codex_uses_codex_exec_by_default(self):
+        self.assertEqual(self.runner_argv(self.make_codex_like("codex"))[:2], ["exec", "--json"])
+
+    def test_codex_runner_name_is_configurable(self):
+        self.set_profile({"codexRunner": "codex-nightly"})
+        self.assertEqual(self.runner_argv(self.make_codex_like("codex-nightly"))[:2], ["exec", "--json"])
+
+    def test_configured_name_replaces_the_default(self):
+        self.set_profile({"codexRunner": "codex-nightly"})
+        self.assertEqual(self.runner_argv(self.make_codex_like("codex")), [],
+                         "only the configured name selects the codex exec protocol")
+
+    def test_invalid_codex_runner_fails_closed(self):
+        # The shared profile loader is strict: no silent fallback to "codex".
+        for bad in ("", "bin/codex", 7, None):
+            self.set_profile({"codexRunner": bad})
+            with self.assertRaises(ContractError) as caught:
+                self.load()
+            self.assertIn("codexRunner", str(caught.exception))
+
     def test_missing_runner(self):
         c, repo = self.load()
         result = run(c, repo, runner="missing-runner-123", out=self.root / "out")

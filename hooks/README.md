@@ -11,6 +11,16 @@ fields a hook acts on is a no-op. Runners must treat guard failures as failed
 checks rather than assuming that a failed hook granted permission. `OSE_BYPASS=1` is an explicit,
 audited bypass in the edit, Bash and prompt guards.
 
+## Codex CLI
+
+Codex runs each guard through `lib/codex_hook.py <guard>` from `.codex/hooks.json`.
+The adapter turns each file in an `apply_patch` into one `Edit` payload, with paths
+resolved against the payload `cwd`. It also normalises shell tool aliases and argv
+commands to `Bash`. A guard block becomes exit 2 with the reason on stderr. Context
+becomes `hookSpecificOutput.additionalContext` only. If a guard exits non-zero, the
+adapter passes that exit code through unchanged. `post-tool`, `read-guard` and
+`statusline` are not wired on Codex.
+
 ## Repo profile
 
 Activate with `.osengineer/profile.json` containing `{"profile":"repo"}`,

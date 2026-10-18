@@ -44,11 +44,15 @@ this project adheres to semantic versioning.
 - **`bin/ose-eval-gate`**: a stdlib-only reference evaluator. It reads a
   policy plus baseline and candidate metrics and returns ACCEPT or REVERT with
   reasons (exit 0/1, or 2 on input errors). Regression fixtures in
-  `test/fixtures/eval-gate/` reproduce real defects from the reference loop:
-  - the summed-holdout check;
-  - the undocumented 0.01 threshold;
-  - the v0.3.24 single-sample tolerance precedent;
-  - a small-set overfit (spanish, dev +0.43 F1 vs holdout +0.14).
+  `test/fixtures/eval-gate/` reproduce real loop defects under generic set
+  names (`primary-a`, `small-subset`, ...), one fixture per defect:
+  - `summed-holdout`: the summed-holdout check;
+  - `undocumented-threshold`: the undocumented 0.01 threshold;
+  - `single-sample-tolerance`: the single-sample tolerance precedent;
+  - `small-set-overfit`: dev +0.43 F1 vs holdout +0.14 on a 52-positive set.
+- **Eval content stays generic.** osEngineer ships no domain eval sets. The
+  consuming repo supplies its own `EVAL_POLICY.json`, labeled cases and eval
+  command; the recipe, agent and gate only read them.
 - **`docs/eval-harness-lessons.md`**: a lessons-learned checklist. It covers
   holdout reuse and sealed sets (arXiv:1506.02629, arXiv:1502.04585), dataset
   artifacts, template-dominated and contaminated sets, dirty-tree and
@@ -82,6 +86,25 @@ this project adheres to semantic versioning.
   with a hash manifest, and refuse to overwrite modified or unowned assets.
 - **Usage learning receipts** (`repo_profile/learning.py`): record, summarize
   and compare sanitized task receipts.
+
+### Added — Codex CLI as a supported harness
+
+- **`RUNTIMES=codex`** (menu option 3) wires the per-repo `.codex/hooks.json`
+  with the session-start, prompt, edit and Bash guards, installs the commands
+  as `.agents/skills/<verb>/SKILL.md`, and relies on the root `AGENTS.md`,
+  which Codex reads natively. Re-install replaces stale osEngineer handlers.
+  `uninstall.sh` removes only osEngineer handlers and unchanged skill copies.
+  This reverses the earlier removal of Codex from the runtime menu.
+- **`hooks/lib/codex_hook.py`** runs the unmodified guards for Codex. It
+  splits `apply_patch` into one edit check per touched file and normalises
+  shell tool aliases to `Bash`. It turns a block into exit 2 with the reason
+  on stderr, because Codex lets an action continue when a hook prints fields
+  it does not support.
+- Install warns that Codex runs project hooks only after `/hooks` trust.
+  Until then, the git hooks and the CI gate are the only enforcement.
+- **`codexRunner`** in `.osengineer/profile.json` (default `codex`) names the
+  runner executable that gets the `codex exec` protocol in `repo_runtime`.
+  Before, this name was hard-coded.
 
 ### Changed
 
@@ -121,6 +144,8 @@ this project adheres to semantic versioning.
 - The pre-edit guard blocks a team whose cached `owns_paths` is missing or
   invalid instead of treating it as unrestricted, and the bypass audit log
   write now reports its failure on stderr instead of being swallowed.
+- The `/osEngineer:recipe-eval-harness` description is shortened to fit the
+  1024-character skill limit, so the command also loads as a skill.
 - `find_osengineer_root` walks up to the home directory or filesystem root
   instead of stopping after eight levels.
 - Re-running `install.sh` on an installed repo no longer appends a second copy

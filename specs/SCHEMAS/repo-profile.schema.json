@@ -50,6 +50,7 @@
     "planDirectory": { "$ref": "#/$defs/relPath", "default": ".plans", "description": "Repo-profile plan namespace; runtime evidence lives under <planDirectory>/osengineer/." },
     "skillRegistry": { "$ref": "#/$defs/relPath", "default": ".osengineer/skill-registry.json" },
     "dispatchSkill": { "type": "string", "minLength": 1, "default": "dispatch" },
+    "codexRunner": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$", "default": "codex", "description": "Runner executable basename that selects the `codex exec` protocol in the task runtime; every other runner uses the OSE_PROFILE_* environment protocol." },
     "context": {
       "type": "object",
       "additionalProperties": false,

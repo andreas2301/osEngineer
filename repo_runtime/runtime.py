@@ -24,15 +24,17 @@ class ContractError(ValueError):
 # telemetry and its lock). It is not task output, and a repo need not
 # gitignore it.
 HOOK_VOLATILE_PATHS = {".osengineer/runtime.yml", ".osengineer/.state.lock"}
+# Runner basename that selects the `codex exec` protocol; profile.json key codexRunner.
+DEFAULT_CODEX_RUNNER = profile_config.DEFAULTS["codexRunner"]
 
 
 def profile_settings(repo):
-    """Policy file and plan directory from .osengineer/profile.json; invalid fails closed."""
+    """Policy file, plan directory and codexRunner from .osengineer/profile.json; invalid fails closed."""
     try:
         profile = profile_config.load(repo)
     except profile_config.ProfileError as e:
         raise ContractError(str(e)) from None
-    return {"policy": profile["policy"], "planDirectory": profile["planDirectory"]}
+    return {key: profile[key] for key in ("policy", "planDirectory", "codexRunner")}
 
 
 def policy_file(repo):
@@ -339,7 +341,7 @@ def run(c, repo, mode="local", runner=None, out=None):
     final_path = out / "runner-final.json"
     prompt = "Execute this Repo profile contract within the repository policy and allowed paths. Do not request interactive input; report needs-human when blocked. No remote effects without an explicit capability and external sandbox authorization. Contract:\n" + json.dumps(c, ensure_ascii=False)
     argv = [executable]
-    if Path(runner).name == "codex":
+    if Path(runner).name == profile_settings(repo)["codexRunner"]:
         schema = out / "runner-output-schema.json"
         write_json(schema, {"type": "object", "properties": {"status": {"type": "string", "enum": ["passed", "failed", "needs-human"]}, "summary": {"type": "string"}}, "required": ["status", "summary"], "additionalProperties": False})
         argv += ["exec", "--json", "--output-schema", str(schema), "--output-last-message", str(final_path), "-"]

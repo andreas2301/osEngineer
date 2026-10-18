@@ -29,6 +29,7 @@ class ProfileLoader(unittest.TestCase):
         self.assertEqual(profile["policy"], "POLICY.md")
         self.assertEqual(profile["planDirectory"], ".plans")
         self.assertEqual(profile["skillRegistry"], ".osengineer/skill-registry.json")
+        self.assertEqual(profile["codexRunner"], "codex")
         self.assertEqual(profile["dispatchSkill"], "dispatch")
         self.assertEqual(profile["context"], {"warnPct": 35, "criticalPct": 25,
                                               "reinjectPct": 40, "staleSeconds": 60})

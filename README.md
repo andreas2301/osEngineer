@@ -51,6 +51,29 @@ cd osEngineer
 
 The install script is idempotent. It configures `git safe.directory`, symlinks hooks, creates planning directories, and wires zeroclaw repo settings.
 
+### Supported harnesses: Claude Code, Kimi Code, Codex CLI
+
+Pick the harnesses with `RUNTIMES` (space-separated, default `claude`) or the interactive multi-harness menu:
+
+```bash
+RUNTIMES="claude kimi codex" ./install.sh /path/to/your/project
+```
+
+| | Claude Code (`claude`) | Kimi Code (`kimi`) | Codex CLI (`codex`) |
+|---|---|---|---|
+| Hook wiring | `.claude/settings.json` (per repo) | `$KIMI_CODE_HOME/config.toml` (machine-global, ledger in `~/.osengineer/repos.json`) | `.codex/hooks.json` (per repo), each guard run through `hooks/lib/codex_hook.py` |
+| Guards wired | prompt, edit, read-before-edit, Bash, post-tool, session-start, statusline | prompt, edit, read-before-edit, Bash | prompt, edit (`apply_patch` split per file), Bash, session-start |
+| Team context | root `AGENTS.md`, `CLAUDE.md`, `.claude/agents/*.md` | `.kimi-code/AGENTS.md` | root `AGENTS.md` (read natively) |
+| Commands | `.claude/commands/osEngineer/<verb>.md` | `.kimi-code/skills/<verb>/SKILL.md` | `.agents/skills/<verb>/SKILL.md` |
+
+Codex limits:
+- Codex runs project hooks only after you trust the project and then each osEngineer hook in `/hooks`. Trust is recorded per command hash, so after an upgrade that changes a command you must trust it again. Until then, Codex enforces nothing locally, and only the git hooks (`commit-msg`, `pre-commit`) and the CI gate (`.github/workflows/osengineer-gate.yml`) apply. `install.sh` prints a warning about this.
+- Codex has no statusline and no context-usage bridge, so the post-tool context monitor is not wired. The read-before-edit advisory is not wired either.
+- Codex custom agents are TOML files, so no agent role files are copied to `.codex/agents/`. Codex gets the roles through `AGENTS.md`.
+- Hosted Codex tools such as web search never reach `PreToolUse`.
+
+`./uninstall.sh` removes only the osEngineer handlers and skills. It keeps foreign hooks and skills you have edited.
+
 ### Relocating the checkout: `OSENGINEER_HOME`
 
 `OSENGINEER_HOME` points at the osEngineer skill checkout. The per-repo launcher installed at `.osengineer/bin/osengineer` honours it, preferring the variable over the checkout path baked in at install time, so setting it is how CI runners and relocated checkouts work without re-running `install.sh`:

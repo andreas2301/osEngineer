@@ -4,7 +4,7 @@ The repo's eval command (or a small adapter) writes one file per measured versio
 
 ```json
 {
-  "version": "0.3.45",
+  "version": "1.0.1",
   "git": { "commit": "703834c", "dirty": false },
   "change_kind": "detection",
   "evaluation": "iteration",
@@ -12,10 +12,10 @@ The repo's eval command (or a small adapter) writes one file per measured versio
   "errors": 0,
   "corpus_findings": 11015,
   "sets": {
-    "llmail":         { "tp": 240, "fp": 0,  "tn": 160, "fn": 60,  "p95_ms": 12.1 },
-    "llmail-holdout": { "tp": 216, "fp": 0,  "tn": 160, "fn": 84,  "p95_ms": 12.5 },
-    "browsesafe":     { "tp": 199, "fp": 26, "tn": 274, "fn": 101, "p95_ms": 44.1,
-                        "predictions": [ { "id": "bs-0001", "label": 1, "pred": 1 } ] }
+    "primary-a":         { "tp": 240, "fp": 0,  "tn": 160, "fn": 60,  "p95_ms": 12.1 },
+    "primary-a-holdout": { "tp": 216, "fp": 0,  "tn": 160, "fn": 84,  "p95_ms": 12.5 },
+    "primary-b":         { "tp": 199, "fp": 26, "tn": 274, "fn": 101, "p95_ms": 44.1,
+                           "predictions": [ { "id": "b-0001", "label": 1, "pred": 1 } ] }
   }
 }
 ```

@@ -15,9 +15,9 @@ Every labeled set has exactly one role, declared in `EVAL_POLICY.json`. A role a
 Role changes need user approval and a dated note in the repo's CLAUDE.md (or equivalent) that gives the evidence.
 
 - **Demote to GUARD-ONLY** when:
-  - dev moves and holdout does not, across several iterations (safeanalyze deepset: dev recall 0.77 vs holdout 0.31),
-  - a few templates dominate the positives (nemotron: 98.4 % from two wrappers), or
-  - the set is too small (spanish: 52 positives, dev +0.43 F1 vs holdout +0.14).
+  - dev moves and holdout does not, across several iterations (e.g. dev recall 0.77 vs holdout 0.31),
+  - a few templates dominate the positives (e.g. 98.4 % from two fixed wrappers), or
+  - the set is too small (e.g. 52 positives, dev +0.43 F1 vs holdout +0.14).
 - **RECALL-ONLY** for positives-only sets. Their precision and F1 mean nothing.
 - **REPORT-ONLY** for hard, human-written adversarial sets with hard-benign rows. Keep them out of every decision so they stay the least-contaminated view.
 - **SEALED**: create a fresh one when the holdout has been read by many decisions. It answers adaptive overfitting (Dwork et al. 2015, arXiv:1506.02629).
