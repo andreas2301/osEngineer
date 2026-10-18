@@ -27,16 +27,19 @@ Activate with `.osengineer/profile.json` containing `{"profile":"repo"}`,
 or `validation_profile: repo` in `.osengineer/workbench-config.yml`.
 The prompt hook routes through the skill registry (`skillRegistry` in `.osengineer/profile.json`, default `.osengineer/skill-registry.json`) using registry
 `skills[].name`, `canonical` and `projections.codex`. It reads at most 8 KiB of
-frontmatter per available skill and emits at most two matching paths, including
-aliases for the configured dispatch skill (`dispatchSkill`, default `dispatch`). Generic reviewer/verifier/judge
-entries are excluded. It never loads complete skill bodies into the prompt.
+frontmatter per available skill and emits at most `routing.maxHints` (default two) matching paths, including
+aliases for the configured dispatch skill (`dispatchSkill`, default `dispatch`; `routing.dispatchWords`). Skill names
+matching `routing.excludeNamePattern` (default reviewer/verifier/judge) are excluded. It never loads complete skill bodies into the prompt.
 Repo profile plans are referenced under the configured plan directory (`planDirectory`, default `.plans/`); no planning directory is
 created by these hooks. The generic profile keeps its `planning/` namespace.
 
 Prompt summaries are emitted only on phase, route or context-level changes for a
 valid session. Low context causes a compact checkpoint reminder, not repeated
 policy text. Context warnings occur on warning/critical transitions and rearm
-after recovery. Temporary metrics expire after 60 seconds. Telemetry records
+after recovery. Thresholds are percent remaining from `context` in
+`.osengineer/profile.json`: warning at `warnPct` (35), critical at `criticalPct` (25),
+shared by post-tool and prompt-guard; the generic prompt-guard re-injects the plan
+at `reinjectPct` (40). Temporary metrics expire after `staleSeconds` (60). Telemetry records
 `context_used_pct`, which is context-window occupancy, **not task token spend**.
 Both profiles store it in the gitignored `.osengineer/runtime.yml`; repo profile
 does not create an independent `.osengineer/state.yml`, and nothing is written to

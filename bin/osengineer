@@ -1151,6 +1151,7 @@ def usage():
         "Usage:\n"
         "  osengineer profile install|uninstall --repo <path>  Install scoped profile\n"
         "  osengineer profile runtime|integrations|learn ...  Portable execution and evidence\n"
+        "  osengineer profile detect|doctor --repo <path> [--write]  Report repo facts and their handlers\n"
         "  osengineer init <path>                  Initialise a repo with osEngineer wiring\n"
         "  osengineer upgrade                      Re-run installer against this repo; reconcile version state\n"
         "  osengineer state                        Show .osengineer/state.yml fields\n"

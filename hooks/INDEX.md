@@ -15,7 +15,7 @@ osEngineer enforcement layer. Installed by `install.sh`. All hooks honour
 - [osEngineer-pre-edit-guard.py](osEngineer-pre-edit-guard.py) — `PreToolUse` on Write/Edit/NotebookEdit: block edits during discuss/plan phases; block `/opt/sovereign-shield/` writes; team `owns_paths` validation (P3+)
 - [osEngineer-pre-bash-guard.py](osEngineer-pre-bash-guard.py) — `PreToolUse` on Bash: block destructive commands (`rm -rf`, `git push --force`, `docker rm`, `kubectl delete`, `git reset --hard`) without an active 4-part plan
 - [osEngineer-read-guard.py](osEngineer-read-guard.py) — `PreToolUse` on Write/Edit: advisory "read before edit" reminder (no-op on Claude Code itself which enforces natively)
-- [osEngineer-post-tool.py](osEngineer-post-tool.py) — `PostToolUse`: track context window; mirror used_pct into `state.yml`; emit warnings at 35% / 25% remaining
+- [osEngineer-post-tool.py](osEngineer-post-tool.py) — `PostToolUse`: track context window; mirror used_pct into `state.yml`; emit warnings at `context.warnPct` / `criticalPct` remaining (default 35% / 25%)
 - [osEngineer-session-start.py](osEngineer-session-start.py) — `SessionStart`: emit banner with phase / team / budget / open handoffs / auto-nudge
 
 ## Statusline

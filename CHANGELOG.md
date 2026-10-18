@@ -106,6 +106,35 @@ this project adheres to semantic versioning.
   runner executable that gets the `codex exec` protocol in `repo_runtime`.
   Before, this name was hard-coded.
 
+### Added — one profile configuration with fact detection
+
+- **`repo_profile/config.py`** is the single loader for
+  `.osengineer/profile.json`, shared by the hooks, `bin/osengineer`,
+  `repo_runtime` and the installer. It replaces three copies of the
+  policy / plan-directory / registry defaults. The rules are documented in
+  `specs/SCHEMAS/repo-profile.schema.json`, and a test keeps them in step.
+- **New keys**, all optional, with the previous literals as defaults:
+  - `context.warnPct` / `criticalPct` / `reinjectPct` / `staleSeconds`
+    (35 / 25 / 40 / 60);
+  - `routing.excludeNamePattern` / `dispatchWords` / `minSignalTerms` /
+    `maxHints` / `projection`;
+  - `eval.policy` (`EVAL_POLICY.json`);
+  - `handlers` (fact -> handler map);
+  - `codexRunner`, which is now validated by the loader.
+- **`osengineer profile detect --repo <path> [--write]`** runs offline file
+  and PATH detectors: policy, registry, eval policy, GitHub Actions,
+  Claude/Kimi/Codex harnesses, `gh`/`op`, and package managers. It prints the
+  facts and a proposed `profile.json`. Only `--write` writes, and it writes
+  only facts that have a known handler (for example `eval-policy` ->
+  `eval.gate`).
+- **`osengineer profile doctor --repo <path>`** exits 1 while a fact is
+  `unhandled` (no handler exists) or `unconfigured` (a handler exists but
+  has no entry). Unknown facts are never enabled. `{"enabled": false}`
+  acknowledges a fact.
+- **`integrations.json`** can now set `providers.github.host` (GHES),
+  `providers.linear.endpoint`, `providers.notion.endpoint` and `apiVersion`,
+  and `providers.secrets.schemes` (`op`, `vault`; the default is `op` only).
+
 ### Changed
 
 - **Migrated the entire enforcement layer from Node.js to Python 3.** All
@@ -121,6 +150,20 @@ this project adheres to semantic versioning.
   Python 3, git, and bash.
 - Test suite ported from Node to `unittest` (`test/test_osengineer.py`,
   `test/test_git_cmd.py`); `npm test` now runs `python3 -m unittest discover`.
+
+- **Breaking for invalid profiles:** an invalid `.osengineer/profile.json`
+  value now fails closed everywhere. Hooks block with exit 2, the runtime
+  returns `needs-human`, and the installer and CLI fail. Before, an absolute
+  `planDirectory`, an unknown key or a non-bare `codexRunner` silently fell
+  back to the default.
+- Repo-profile prompt-guard now warns at 35% context remaining, the same
+  point as post-tool. Before, it warned at 40%. The thresholds are a single
+  `context` setting.
+- The installer records the osEngineer `VERSION` as `profileVersion`
+  instead of the literal `0.1.1`. It no longer digest-owns `profile.json`:
+  it merges its keys into an existing file and refuses a conflicting
+  `policy` or `planDirectory`. Uninstall keeps user keys and removes only the
+  repo-profile switch.
 
 ### Fixed
 

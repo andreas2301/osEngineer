@@ -281,8 +281,49 @@ Headless operation defaults to local evidence; remote effects need a separately
 authorized and sandboxed launch policy. A passing fixture suite does not promote
 production autonomy.
 
-Installation is repeatable when owned assets are unchanged. A modified skill,
-projection or profile is preserved and produces a conflict instead of being
+### Configuration and detection
+
+`.osengineer/profile.json` is the one per-repository configuration for the
+hooks, the CLI and the runtime ([schema](specs/SCHEMAS/repo-profile.schema.json),
+loader `repo_profile/config.py`). Every key is optional; a missing file means
+the defaults. An invalid file fails closed: hooks block, the runtime returns
+`needs-human`, the CLI exits 1, each naming the offending key.
+
+| Key | Default | Used by |
+|---|---|---|
+| `profile` | unset (`"repo"` enables repo-profile mode) | hooks |
+| `policy`, `planDirectory`, `skillRegistry`, `dispatchSkill` | `POLICY.md`, `.plans`, `.osengineer/skill-registry.json`, `dispatch` | hooks, runtime, installer |
+| `codexRunner` | `codex` | runtime (`codex exec` protocol) |
+| `context.warnPct` / `criticalPct` / `reinjectPct` / `staleSeconds` | 35 / 25 / 40 / 60 | post-tool, prompt-guard (percent remaining) |
+| `routing.excludeNamePattern` / `dispatchWords` / `minSignalTerms` / `maxHints` / `projection` | `reviewer\|verifier\|judge` / `["dispatch","workflow"]` / 2 / 2 / `codex` | repo-profile prompt routing |
+| `eval.policy` | `EVAL_POLICY.json` | `eval-policy` detector |
+| `handlers` | `{}` | detect / doctor |
+
+```bash
+python3 bin/osengineer profile detect --repo /path/to/repo           # facts + proposed profile.json
+python3 bin/osengineer profile detect --repo /path/to/repo --write   # write known handlers only
+python3 bin/osengineer profile doctor --repo /path/to/repo           # exit 1 on unhandled/unconfigured facts
+```
+
+Detectors are offline file and PATH probes: `profile-json`, `policy-file`,
+`skill-registry`, `eval-policy`, `ci:github-actions`, `harness:claude|kimi|codex`,
+`cli:gh`, `cli:op`, `package-manager:npm|pip|go|cargo`. A fact with a known
+handler (for example `eval-policy` -> `eval.gate`) is proposed as
+`{"handler": "eval.gate", "enabled": true}` and written only with `--write`.
+A fact without a handler is reported as `unhandled` and never enabled; mark it
+as seen with `{"enabled": false}`. Handlers are declarative: the map records
+which capability covers a fact; it does not switch a capability on.
+
+Provider endpoints live in `integrations.json`: `providers.github.host` (GHES),
+`providers.linear.endpoint`, `providers.notion.endpoint` and `apiVersion`, and
+`providers.secrets.schemes` (`["op"]` by default; add `"vault"` to allow
+`vault://secret/...` references).
+
+Installation is repeatable when owned assets are unchanged. The installer merges
+its keys into an existing `profile.json`, refuses a conflicting `policy` or
+`planDirectory`, and on uninstall keeps user keys (such as `handlers`) while
+removing the repo-profile switch. A modified skill or
+projection is preserved and produces a conflict instead of being
 overwritten. Uninstall with `python3 bin/osengineer profile uninstall --repo
 /path/to/repo`; unrelated policy, settings, agents and learning remain.
 See [the skill](profiles/repo/SKILL.md), [execution](profiles/repo/references/execution.md)
