@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "readOnly": true,
+  "limits": {
+    "maxPages": 3,
+    "pageSize": 50,
+    "maxItems": 50,
+    "maxTextChars": 240
+  },
+  "providers": {
+    "github": {
+      "enabled": false,
+      "repoAllowlist": [],
+      "tokenEnv": "GH_TOKEN"
+    },
+    "linear": {
+      "enabled": false,
+      "tokenEnv": "LINEAR_API_KEY",
+      "projectIds": []
+    },
+    "notion": {
+      "enabled": false,
+      "tokenEnv": "NOTION_TOKEN",
+      "pageAllowlist": []
+    },
+    "secrets": {
+      "enabled": false,
+      "secretRefs": []
+    },
+    "browser": {
+      "enabled": false
+    },
+    "tracker": {
+      "enabled": false
+    },
+    "docs": {
+      "enabled": false
+    },
+    "observability": {
+      "enabled": false
+    },
+    "hosting": {
+      "enabled": false
+    },
+    "database": {
+      "enabled": false
+    }
+  }
+}
