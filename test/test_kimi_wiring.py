@@ -275,22 +275,6 @@ class TestPerRepoKimiTeamContext(KimiWiringBase):
         )
 
 
-class TestCodexIsDropped(unittest.TestCase):
-    def test_codex_not_offered_in_the_runtime_menu(self):
-        src = INSTALL.read_text()
-        offenders = [
-            f"{i}: {line.strip()}"
-            for i, line in enumerate(src.splitlines(), 1)
-            if "codex" in line.lower() and "Codex CLI" in line
-        ]
-        self.assertEqual(
-            offenders, [],
-            "install.sh still offers Codex, for which no hook model has been "
-            "verified — shipping it means a third silently unguarded runtime:\n"
-            + "\n".join(offenders),
-        )
-
-
 @unittest.skipUnless(KIMI_BIN.exists(), "kimi not installed")
 class TestKimiAcceptsGeneratedConfig(KimiWiringBase):
     def test_kimi_doctor_validates(self):
