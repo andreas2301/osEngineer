@@ -15,6 +15,14 @@ ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 REPO_NAME = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 UUID = re.compile(r"^[a-fA-F0-9]{8}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{12}$")
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*$")
+API_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Overridable per provider for GHES and self-hosted or proxied APIs.
+ENDPOINTS = {"github": {"host": "github.com"},
+             "linear": {"endpoint": "https://api.linear.app/graphql"},
+             "notion": {"endpoint": "https://api.notion.com/v1", "apiVersion": "2022-06-28"}}
+# Secret-reference scheme -> the local CLI that resolves it (metadata only here).
+SECRET_SCHEMES = {"op": "op", "vault": "vault"}
 
 
 class IntegrationError(ValueError):
@@ -40,16 +48,27 @@ def validate_config(config):
     providers = config.get("providers")
     if not isinstance(providers, dict) or set(providers) - READERS - OPTIONAL - {"secrets"}:
         raise IntegrationError("Unknown providers")
+    schemes = secret_schemes(config)
     for name, settings in providers.items():
         _keys(settings, {"enabled", "tokenEnv", "secretRefs", "repoAllowlist", "projectIds",
-                         "pageAllowlist", "mcpUrl"}, name)
+                         "pageAllowlist", "mcpUrl"} | set(ENDPOINTS.get(name, {}))
+              | ({"schemes"} if name == "secrets" else set()), name)
+        if "host" in settings and (not isinstance(settings["host"], str) or len(settings["host"]) > 253
+                                   or not HOSTNAME.fullmatch(settings["host"])):
+            raise IntegrationError(f"{name}.host must be a bare hostname")
+        if "endpoint" in settings and (not isinstance(settings["endpoint"], str) or len(settings["endpoint"]) > 300
+                                       or not re.fullmatch(r"https://[^\s/?#]+(?:/[^\s?#]*)?", settings["endpoint"])):
+            raise IntegrationError(f"{name}.endpoint must be an HTTPS URL without query")
+        if "apiVersion" in settings and not API_DATE.fullmatch(str(settings["apiVersion"])):
+            raise IntegrationError(f"{name}.apiVersion must be a YYYY-MM-DD version")
         if type(settings.get("enabled", False)) is not bool:
             raise IntegrationError(f"{name}.enabled must be boolean")
         if "tokenEnv" in settings and not ENV_NAME.fullmatch(str(settings["tokenEnv"])):
             raise IntegrationError(f"{name}.tokenEnv must name an environment variable")
         refs = settings.get("secretRefs", [])
-        if not isinstance(refs, list) or any(not isinstance(x, str) or not x.startswith("op://") or len(x) > 300 for x in refs):
-            raise IntegrationError(f"{name}.secretRefs must contain op:// metadata references")
+        prefixes = tuple(f"{scheme}://" for scheme in schemes)
+        if not isinstance(refs, list) or any(not isinstance(x, str) or not x.startswith(prefixes) or len(x) > 300 for x in refs):
+            raise IntegrationError(f"{name}.secretRefs must contain {'/'.join(prefixes)} metadata references")
         if "mcpUrl" in settings and (not isinstance(settings["mcpUrl"], str) or
                                     not settings["mcpUrl"].startswith("https://") or
                                     len(settings["mcpUrl"]) > 300):
@@ -65,6 +84,19 @@ def validate_config(config):
         if scope and settings.get("enabled") and not settings.get(scope):
             raise IntegrationError(f"{name}.{scope} is required when enabled")
     return config
+
+
+def secret_schemes(config):
+    """Allowed secret-reference schemes (providers.secrets.schemes, default op)."""
+    schemes = ((config.get("providers") or {}).get("secrets") or {}).get("schemes", ["op"])
+    if (not isinstance(schemes, list) or not schemes or len(set(map(str, schemes))) != len(schemes)
+            or any(x not in SECRET_SCHEMES for x in schemes)):
+        raise IntegrationError("secrets.schemes must list distinct schemes from: " + ", ".join(sorted(SECRET_SCHEMES)))
+    return schemes
+
+
+def setting(config, provider, key):
+    return config["providers"][provider].get(key, ENDPOINTS[provider][key])
 
 
 def load_config(path):
@@ -140,7 +172,8 @@ class IntegrationClient:
             status = "disabled"
             if enabled:
                 if name == "secrets":
-                    status = "metadata-only" if self.available("op") else "unavailable"
+                    tools = [SECRET_SCHEMES[s] for s in secret_schemes(self.config)]
+                    status = "metadata-only" if all(self.available(t) for t in tools) else "unavailable"
                 elif not reader:
                     status = "unsupported-reader"
                 elif name == "github":
@@ -159,7 +192,7 @@ class IntegrationClient:
             raise IntegrationError("Credential environment variable is missing")
         headers = {"Content-Type": "application/json", "Authorization": token if provider == "linear" else f"Bearer {token}"}
         if provider == "notion":
-            headers["Notion-Version"] = "2022-06-28"
+            headers["Notion-Version"] = setting(self.config, "notion", "apiVersion")
         try:
             data = self.http(method, url, headers, payload)
         except IntegrationError:
@@ -190,7 +223,7 @@ class IntegrationClient:
                 scope_complete = False
                 for page in range(1, self.limits["maxPages"] + 1):
                     try:
-                        data = self.cli(["gh", "api", "--hostname", "github.com", "--method", "GET",
+                        data = self.cli(["gh", "api", "--hostname", setting(self.config, "github", "host"), "--method", "GET",
                                          f"repos/{repo}/pulls?state=open&per_page={self.limits['pageSize']}&page={page}"])
                     except IntegrationError:
                         raise
@@ -223,7 +256,7 @@ class IntegrationClient:
                 cursor, scope_complete = None, False
                 for _ in range(self.limits["maxPages"]):
                     query = "query($project: String!, $first: Int!, $after: String) { issues(filter: {project: {id: {eq: $project}}}, first: $first, after: $after) { nodes { id identifier title updatedAt state { name type } } pageInfo { hasNextPage endCursor } } }"
-                    data = self._request(provider, "POST", "https://api.linear.app/graphql", {
+                    data = self._request(provider, "POST", setting(self.config, "linear", "endpoint"), {
                         "query": query, "variables": {"project": project, "first": self.limits["pageSize"], "after": cursor}})
                     if data.get("errors"):
                         raise IntegrationError("Linear GraphQL returned errors")
@@ -254,7 +287,7 @@ class IntegrationClient:
             for page_id in settings["pageAllowlist"]:
                 cursor, scope_complete = None, False
                 for _ in range(self.limits["maxPages"]):
-                    url = f"https://api.notion.com/v1/blocks/{page_id}/children?page_size={self.limits['pageSize']}"
+                    url = f"{setting(self.config, 'notion', 'endpoint').rstrip('/')}/blocks/{page_id}/children?page_size={self.limits['pageSize']}"
                     if cursor:
                         from urllib.parse import quote
                         url += "&start_cursor=" + quote(cursor, safe="")
