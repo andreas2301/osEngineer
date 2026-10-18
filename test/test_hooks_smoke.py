@@ -95,33 +95,99 @@ class TestHooksImportCleanly(unittest.TestCase):
         self.assertEqual(failures, [], "\n".join(sorted(set(failures))))
 
 
-class TestHooksSurviveHostilePayloads(unittest.TestCase):
-    """A hook must never crash the harness, whatever arrives on stdin."""
+class TestHooksAreStrictOnMalformedPayloads(unittest.TestCase):
+    """Hooks are strict: a payload that is not a JSON object fails closed.
 
-    PAYLOADS = {
+    Exit 2 is Claude Code's block signal; guards on events that can still be
+    stopped (PreToolUse, UserPromptSubmit) also print the dual-dialect block
+    Kimi honours. Events that cannot be stopped (PostToolUse, SessionStart,
+    statusline) fail loudly with exit 2 and a stderr diagnosis only.
+    """
+
+    MALFORMED = {
         "empty": "",
         "not-json": "definitely not json",
+        "truncated": "{",
+        "array": "[]",
+        "null": "null",
+    }
+    # Parseable objects without the fields a hook acts on are a no-op.
+    WELL_FORMED = {
         "empty-object": "{}",
         "null-fields": json.dumps({"session_id": None, "cwd": None}),
         "unexpected-types": json.dumps({"session_id": 42, "cwd": [], "tool_name": {}}),
     }
+    BLOCKING_EVENTS = {
+        "osEngineer-pre-edit-guard.py": "PreToolUse",
+        "osEngineer-pre-bash-guard.py": "PreToolUse",
+        "osEngineer-read-guard.py": "PreToolUse",
+        "osEngineer-prompt-guard.py": "UserPromptSubmit",
+    }
 
-    def test_no_traceback_on_any_payload(self):
+    def _run(self, hook, payload):
+        return subprocess.run(
+            [sys.executable, str(hook)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_malformed_payload_blocks(self):
         failures = []
         for hook in PY_HOOKS:
-            for name, payload in self.PAYLOADS.items():
-                proc = subprocess.run(
-                    [sys.executable, str(hook)],
-                    input=payload,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
+            for name, payload in self.MALFORMED.items():
+                proc = self._run(hook, payload)
+                where = f"{hook.name}/{name}"
+                if proc.returncode != 2:
+                    failures.append(f"{where}: exit {proc.returncode}, want 2")
+                if "invalid hook input" not in proc.stderr:
+                    failures.append(f"{where}: no stderr diagnosis: {proc.stderr!r}")
+                if "Traceback" in proc.stderr:
+                    failures.append(f"{where}: traceback\n{proc.stderr}")
+                event = self.BLOCKING_EVENTS.get(hook.name)
+                if event is None:
+                    if proc.stdout:
+                        failures.append(f"{where}: unexpected stdout {proc.stdout!r}")
+                    continue
+                try:
+                    out = json.loads(proc.stdout)
+                except ValueError:
+                    failures.append(f"{where}: no block payload on stdout: {proc.stdout!r}")
+                    continue
+                spec = out.get("hookSpecificOutput") or {}
+                if (out.get("decision"), spec.get("permissionDecision"), spec.get("hookEventName")) != ("block", "deny", event):
+                    failures.append(f"{where}: not a dual-dialect {event} block: {out}")
+        self.assertEqual(failures, [], "\n".join(failures))
+
+    def test_well_formed_payload_is_not_blocked(self):
+        failures = []
+        for hook in PY_HOOKS:
+            for name, payload in self.WELL_FORMED.items():
+                proc = self._run(hook, payload)
                 if proc.returncode != 0:
-                    failures.append(f"{hook.name}/{name}: exit {proc.returncode}")
+                    failures.append(f"{hook.name}/{name}: exit {proc.returncode}\n{proc.stderr}")
                 if "Traceback" in proc.stderr:
                     failures.append(f"{hook.name}/{name}: traceback\n{proc.stderr}")
         self.assertEqual(failures, [], "\n".join(failures))
+
+    def test_internal_failure_blocks(self):
+        """A guard that cannot audit itself must block, not exit 1 (fail-open)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            (repo / ".osengineer" / "denylist-overrides.json").write_text("{")
+            (repo / ".osengineer" / "override-log.jsonl").mkdir()
+            env = dict(os.environ)
+            env.pop("OSE_BYPASS", None)
+            proc = subprocess.run(
+                [sys.executable, str(HOOKS / "osEngineer-pre-bash-guard.py")],
+                input=json.dumps({"cwd": str(repo), "tool_name": "Bash",
+                                  "tool_input": {"command": "echo hi"}}),
+                capture_output=True, text=True, timeout=30, env=env,
+            )
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["decision"], "block")
+        self.assertNotIn("Traceback", proc.stderr)
 
 
 class TestHooksRunOnValidPayload(unittest.TestCase):

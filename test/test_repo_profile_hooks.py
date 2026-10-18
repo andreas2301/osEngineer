@@ -96,11 +96,11 @@ class RepoProfileHooks(unittest.TestCase):
         self.assertEqual(json.loads((self.root / '.osengineer/bypass-log.jsonl').read_text())['hook'], 'pre-bash-guard')
 
     def test_invalid_payload_observable(self):
-        for hook in ('pre-edit-guard', 'pre-bash-guard', 'post-tool', 'statusline', 'prompt-guard'):
+        for hook in ('pre-edit-guard', 'pre-bash-guard', 'read-guard', 'post-tool', 'statusline',
+                     'prompt-guard', 'session-start'):
             result = self.run_hook(hook, raw='{')
-            # Observable on stderr, but never a non-zero exit that would crash
-            # the harness (see test_hooks_smoke.TestHooksSurviveHostilePayloads).
-            self.assertEqual(result.returncode, 0, hook)
+            # Strict: exit 2 blocks (see test_hooks_smoke.TestHooksAreStrictOnMalformedPayloads).
+            self.assertEqual(result.returncode, 2, hook)
             self.assertIn('invalid hook input', result.stderr)
             self.assertNotIn('Traceback', result.stderr)
 
@@ -121,7 +121,7 @@ class RepoProfileHooks(unittest.TestCase):
     def test_statusline_invalid_occupancy_is_visible(self):
         for remaining in (True, -1, 101, '33'):
             result = self.run_hook('statusline', {'context_window': {'remaining_percentage': remaining}})
-            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.returncode, 2)
             self.assertEqual(result.stdout, '')
             self.assertIn('ValueError', result.stderr)
 
@@ -214,7 +214,8 @@ class RepoProfileHooks(unittest.TestCase):
     def test_invalid_profile_observable(self):
         (self.root / '.osengineer/profile.json').write_text('{')
         result = self.prompt()
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stdout)['decision'], 'block')
         self.assertIn('JSONDecodeError', result.stderr)
         self.assertNotIn('Traceback', result.stderr)
 
