@@ -207,9 +207,12 @@ class RepoProfileHooks(unittest.TestCase):
         result = self.run_hook('post-tool', {'session_id': self.session, 'cwd': str(self.root)})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / '.osengineer/state.yml').exists())
-        telemetry = json.loads((self.root / '.plans/osengineer/context.json').read_text())
-        self.assertEqual(telemetry['context_used_pct'], 70)
+        # Volatile telemetry shares master's gitignored runtime.yml and stays
+        # out of the runtime's <planDirectory>/osengineer evidence namespace.
+        telemetry = (self.root / '.osengineer/runtime.yml').read_text()
+        self.assertIn('context_used_pct: 70', telemetry)
         self.assertNotIn('phase', telemetry)
+        self.assertFalse((self.root / '.plans').exists())
 
     def test_invalid_profile_observable(self):
         (self.root / '.osengineer/profile.json').write_text('{')

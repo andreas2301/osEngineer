@@ -248,6 +248,34 @@ class RuntimeTests(unittest.TestCase):
         (repo / ".plans/osengineer/unrelated.txt").write_text("not an artifact")
         self.assertEqual(run(c, repo, runner=str(self.runner))["status"], "needs-human")
 
+    def test_hook_context_telemetry_is_not_a_scope_change(self):
+        """The PostToolUse hook fires on every tool call, also around runtime runs."""
+        import time, uuid
+        (self.repo / ".osengineer").mkdir()
+        (self.repo / ".osengineer/profile.json").write_text('{"profile":"repo"}')
+        self.git("add", ".")
+        self.git("commit", "-qm", "repo profile")
+        self.contract["baseSha"] = self.git("rev-parse", "HEAD").strip()
+        session = "ose-test-" + uuid.uuid4().hex
+        metrics = Path(tempfile.gettempdir()) / f"claude-ctx-{session}.json"
+        self.addCleanup(metrics.unlink, missing_ok=True)
+        hook = Path(__file__).resolve().parents[1] / "hooks/osEngineer-post-tool.py"
+
+        def tool_call():
+            metrics.write_text(json.dumps({"session_id": session, "remaining_percentage": 60,
+                                           "used_pct": 40, "timestamp": int(time.time())}))
+            p = subprocess.run([sys.executable, str(hook)], input=json.dumps({"session_id": session, "cwd": str(self.repo)}),
+                               text=True, capture_output=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+
+        tool_call()
+        c, repo = self.load()
+        self.assertEqual(preflight(c, repo)["status"], "passed", preflight(c, repo))
+        r = run(c, repo, runner=str(self.runner))
+        self.assertEqual(r["status"], "passed", r)
+        tool_call()
+        self.assertEqual(verify(c, repo, Path(r["artifactDirectory"]) / "result.json")["status"], "passed")
+
     def test_registered_artifact_tampering_rejected(self):
         c, repo = self.load()
         first = run(c, repo, runner=str(self.runner))
