@@ -22,7 +22,7 @@ def read_stdin():
 def find_osengineer_root(cwd=None):
     current = Path(cwd or os.getcwd()).resolve()
     home = Path.home()
-    for _ in range(8):
+    while True:
         if (current / ".osengineer").is_dir():
             return current
         parent = current.parent
@@ -49,7 +49,7 @@ def read_state_map(repo_root):
 def read_workbench_field(cwd, key):
     current = Path(cwd).resolve()
     home = Path.home()
-    for _ in range(8):
+    while True:
         p = current / ".osengineer" / "workbench-config.yml"
         if p.exists():
             try:
@@ -129,18 +129,47 @@ def emit_json(obj):
 
 
 def bypass_log(repo_root, hook, reason):
+    # An unaudited bypass must fail visibly rather than silently continue.
+    p = Path(repo_root) / ".osengineer" / "bypass-log.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"ts": datetime_utc_iso(), "hook": hook, "reason": reason}
+    with p.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def is_repo_profile(repo_root):
+    p = Path(repo_root) / ".osengineer" / "profile.json"
+    if p.exists() and json.loads(p.read_text()).get("profile") == "repo":
+        return True
+    return read_workbench_field(repo_root, "validation_profile") == "repo"
+
+
+PROFILE_DEFAULTS = {
+    "policy": "POLICY.md",
+    "planDirectory": ".plans",
+    "skillRegistry": ".osengineer/skill-registry.json",
+    "dispatchSkill": "dispatch",
+}
+
+
+def profile_setting(repo_root, key):
+    """Repository-relative profile setting with a neutral default."""
+    default = PROFILE_DEFAULTS[key]
     try:
-        p = Path(repo_root) / ".osengineer" / "bypass-log.jsonl"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        entry = json.dumps({
-            "ts": datetime_utc_iso(),
-            "hook": hook,
-            "reason": reason,
-        })
-        with open(p, "a") as f:
-            f.write(entry + "\n")
-    except Exception:
-        pass
+        value = json.loads((Path(repo_root) / ".osengineer" / "profile.json").read_text()).get(key)
+    except (OSError, ValueError, AttributeError):
+        return default
+    if not isinstance(value, str) or not value:
+        return default
+    if key != "dispatchSkill" and (value.startswith("/") or ".." in Path(value).parts):
+        return default
+    return value.rstrip("/")
+
+
+def planning_dir(repo_root):
+    if is_repo_profile(repo_root):
+        return Path(repo_root) / profile_setting(repo_root, "planDirectory")
+    return Path(repo_root) / "planning"
 
 
 def datetime_utc_iso():

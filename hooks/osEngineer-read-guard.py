@@ -19,8 +19,8 @@ from osengineer_common import find_osengineer_root
 def main():
     try:
         data = json.loads(sys.stdin.read())
-    except Exception:
-        return
+    except Exception as exc:
+        raise ValueError("invalid hook input or data") from exc
 
     tool = (data.get("tool_name") or "").lower()
     is_edit_tool = any(t in tool for t in ("write", "edit", "replace"))
@@ -69,5 +69,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)

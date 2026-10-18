@@ -100,8 +100,9 @@ def log_override(repo_root, entry):
         record.update(entry)
         with open(p, "a") as f:
             f.write(json.dumps(record) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def utc_now():
@@ -173,14 +174,15 @@ def build_effective_denylist(globals_, repo_ov, team_ov):
 def main():
     try:
         data = json.loads(sys.stdin.read())
-    except Exception:
-        return
+    except Exception as exc:
+        raise ValueError("invalid hook input or data") from exc
 
     if data.get("tool_name") != "Bash":
         return
 
     cwd = data.get("cwd") or os.getcwd()
-    if not (Path(cwd) / ".osengineer" / "state.yml").exists():
+    repo_root = find_osengineer_root(cwd)
+    if not repo_root or not (repo_root / ".osengineer" / "state.yml").exists():
         return
 
     cmd = data.get("tool_input", {}).get("command") or ""
@@ -258,5 +260,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)
