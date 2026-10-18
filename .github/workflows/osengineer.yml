@@ -62,13 +62,15 @@ jobs:
       - name: Conventional Commits
         run: |
           set -euo pipefail
-          # validate-commit.sh exits 0 when .osengineer/state.yml is absent, so a
-          # CI checkout without it would produce a green gate that checked
-          # nothing. Assert the precondition instead of trusting the hook.
-          test -f .osengineer/state.yml || {
-            echo "::error::.osengineer/state.yml missing — the commit-msg hook would no-op and this gate would pass vacuously"
+          # validate-commit.sh exits 0 when .osengineer/state.yml is absent, and
+          # state.yml is per-install, never committed. Activate the hook, then
+          # prove it rejects a bad message so the gate cannot pass vacuously.
+          mkdir -p .osengineer && touch .osengineer/state.yml
+          probe="$(mktemp)"; echo "not a conventional commit" > "$probe"
+          if bash hooks/osEngineer-validate-commit.sh "$probe" 2>/dev/null; then
+            echo "::error::commit-msg hook accepted a non-conventional message — gate would pass vacuously"
             exit 1
-          }
+          fi
           fail=0
           while read -r sha; do
             [ -n "$sha" ] || continue
