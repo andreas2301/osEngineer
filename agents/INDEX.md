@@ -53,6 +53,7 @@ agents/<role>/
 | **UI/UX Designer** | Design intelligence, accessibility, component systems | [ui-ux-designer/AGENT.md](ui-ux-designer/AGENT.md) | Frontend change detected |
 | **Sync Agent** | Live ↔ workbench synchronization, backport tracking | [sync-agent/AGENT.md](sync-agent/AGENT.md) | Hotfix on live system |
 | **Budget Tracker** | Token spend tracking, cost alerting | [budget-tracker/AGENT.md](budget-tracker/AGENT.md) | Cost threshold exceeded |
+| **Eval Harness Engineer** | Labeled datasets, set roles, eval policy, keep/revert loop via `bin/ose-eval-gate` | [eval-harness-engineer/AGENT.md](eval-harness-engineer/AGENT.md) | Detector/classifier/scanner accuracy work; `/osEngineer:recipe-eval-harness` |
 
 ## Agent dispatch rules
 

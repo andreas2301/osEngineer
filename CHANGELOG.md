@@ -6,6 +6,55 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-16
+
+### Added — evaluation harness for detectors, classifiers and scanners
+
+- **`/osEngineer:recipe-eval-harness`** (`commands/osEngineer-recipe-eval-harness.md`):
+  a nine-step recipe that sets up a measured keep/revert improvement loop for a
+  detector repo. It covers:
+  - dataset research and verification (license, gated status, pinned revision,
+    sha256, benign negatives, overlap and contamination);
+  - group-split dev/holdout/sealed sets with roles (PRIMARY, RECALL-ONLY,
+    GUARD-ONLY, REPORT-ONLY, SEALED);
+  - a deterministic fetch script and per-set P/R/F1/latency;
+  - the karpathy/autoresearch-style loop;
+  - process reviews, with one report branch per round;
+  - a premortem and an honest assessment.
+- **`eval-harness-engineer` agent** (`agents/eval-harness-engineer/`) with
+  references for dataset intake, set roles, the metrics format and the
+  assessment template. Hard rules:
+  - never design from holdout, GUARD-ONLY, REPORT-ONLY or SEALED
+    misclassifications;
+  - never re-implement decision rules in a prompt;
+  - verify research citations before use.
+  It is installed with the other agents.
+- **`specs/SCHEMAS/eval-policy.schema.json`**: decision rules as data. It
+  defines the set roles and these gates:
+  - per-set non-regression;
+  - single-sample tolerance;
+  - recall-only TP loss;
+  - a generalization ratio (`holdout_gain ≥ k × dev_gain`);
+  - a paired-bootstrap CI lower bound;
+  - a latency budget and latency-only accept;
+  - sealed-set cadence;
+  - measurement hygiene.
+  `min_dev_f1_gain` defaults to 0, so no threshold can exist without being
+  written down.
+- **`bin/ose-eval-gate`**: a stdlib-only reference evaluator. It reads a
+  policy plus baseline and candidate metrics and returns ACCEPT or REVERT with
+  reasons (exit 0/1, or 2 on input errors). Regression fixtures in
+  `test/fixtures/eval-gate/` reproduce real defects from the reference loop:
+  - the summed-holdout check;
+  - the undocumented 0.01 threshold;
+  - the v0.3.24 single-sample tolerance precedent;
+  - a small-set overfit (spanish, dev +0.43 F1 vs holdout +0.14).
+- **`docs/eval-harness-lessons.md`**: a lessons-learned checklist. It covers
+  holdout reuse and sealed sets (arXiv:1506.02629, arXiv:1502.04585), dataset
+  artifacts, template-dominated and contaminated sets, dirty-tree and
+  version-label hygiene, latency creep, report-branch sprawl, citation
+  verification, and the regex ceiling (arXiv:2510.01529).
+
 ### Changed
 
 - **Migrated the entire enforcement layer from Node.js to Python 3.** All

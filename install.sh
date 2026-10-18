@@ -47,6 +47,7 @@ MANDATORY_AGENTS=(
   sandbox-provisioner.md
   budget-tracker.md dba.md qa.md
   sync-agent.md ui-ux-designer.md
+  eval-harness-engineer.md
 )
 
 # Global variables for interactive setup

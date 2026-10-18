@@ -1,0 +1,385 @@
+#!/usr/bin/env python3
+"""Reference evaluator for an evaluation-harness policy — ACCEPT or REVERT.
+
+A detector improvement loop (autoresearch-style keep/revert) is only as honest
+as its decision rules. When those rules live in prose and get re-implemented in
+loop prompts or ad-hoc scripts, they drift: a summed holdout check replaced the
+per-set one, and a 0.01 minimum-gain threshold appeared that nobody wrote down.
+This tool is the single implementation: loops and agents call it instead of
+re-deriving the rules.
+
+Design constraints:
+
+  * Zero dependencies — json/random/argparse only, like the rest of bin/.
+  * Every threshold comes from the policy (specs/SCHEMAS/eval-policy.schema.json).
+    Absent keys take the defaults documented in the schema; there are no others.
+  * Gates are per set. The only cross-set sum is the documented
+    single-sample-tolerance condition (PRIMARY holdout F1 sum must rise).
+  * Fail explicitly: malformed input, a stale version label, a dirty tree, a
+    sealed set measured inside an iteration, or bootstrap without predictions
+    is an input error (exit 2), never a silent ACCEPT.
+
+Metrics file (baseline and candidate):
+    {
+      "version": "0.3.24", "git": {"commit": "...", "dirty": false},
+      "change_kind": "detection" | "latency" | "security-hardening",
+      "evaluation": "iteration" | "round" | "release",
+      "sealed_evaluations": 0, "errors": 0, "corpus_findings": 11015,
+      "sets": {"<name>": {"tp": 0, "fp": 0, "tn": 0, "fn": 0, "p95_ms": 12.0,
+                          "predictions": [{"id": "x", "label": 1, "pred": 1}]}}
+    }
+
+Usage:
+    ose-eval-gate --policy policy.json --baseline base.json --candidate cand.json [--json]
+
+Exit codes: 0 ACCEPT, 1 REVERT, 2 input error.
+"""
+
+import argparse
+import json
+import random
+import sys
+
+ROLES = ("PRIMARY", "RECALL-ONLY", "GUARD-ONLY", "REPORT-ONLY", "SEALED")
+SPLITS = ("dev", "holdout", "report", "sealed")
+COUNT_KEYS = ("tp", "fp", "tn", "fn")
+
+
+class InputError(Exception):
+    pass
+
+
+# ── Loading and validation ───────────────────────────────────────────────────
+
+def load_json(path, what):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise InputError(f"cannot read {what} {path}: {exc}")
+
+
+def gate_config(policy):
+    g = policy.get("gates") or {}
+    sst = g.get("single_sample_tolerance") or {}
+    gen = g.get("generalization") or {}
+    boot = g.get("bootstrap") or {}
+    lat = g.get("latency") or {}
+    sealed = g.get("sealed") or {}
+    return {
+        "eps": g.get("epsilon", 1e-9),
+        "min_gain": g.get("min_dev_f1_gain", 0),
+        "sst_enabled": sst.get("enabled", False),
+        "sst_max": sst.get("max_tp_loss", 1),
+        "sst_roles": set(sst.get("roles", ["PRIMARY", "GUARD-ONLY"])),
+        "recall_max": g.get("recall_only_max_tp_loss", 0),
+        "gen_enabled": gen.get("enabled", False),
+        "gen_k": gen.get("k", 0.5),
+        "gen_measure": gen.get("measure", "f1"),
+        "gen_min_tp": gen.get("min_dev_tp_gain"),
+        "gen_max_pos": gen.get("max_dev_positives"),
+        "boot_enabled": boot.get("enabled", False),
+        "boot_n": boot.get("resamples", 2000),
+        "boot_seed": boot.get("seed", 1337),
+        "boot_conf": boot.get("confidence", 0.95),
+        "lat_metric": lat.get("metric", "p95_ms"),
+        "lat_budget": lat.get("budget_ms"),
+        "lat_noise": lat.get("noise_pct", 10),
+        "lat_only": lat.get("latency_only_accept", True),
+        "sealed_allowed": set(sealed.get("allowed_in", ["round", "release"])),
+        "sealed_max": sealed.get("max_evaluations_per_release", 1),
+        "corpus_gate": g.get("corpus_drop_requires_fp_reduction", True),
+        "distinct_versions": g.get("require_distinct_version_labels", True),
+        "clean_tree": g.get("require_clean_tree", True),
+    }
+
+
+def validate_policy(policy):
+    if not isinstance(policy, dict) or policy.get("schema_version") != 1:
+        raise InputError("policy: schema_version must be 1")
+    sets = policy.get("sets")
+    if not isinstance(sets, dict) or not sets:
+        raise InputError("policy: `sets` must be a non-empty object")
+    if not isinstance(policy.get("gates"), dict):
+        raise InputError("policy: `gates` must be an object")
+    for name, spec in sets.items():
+        role = (spec or {}).get("role")
+        if role not in ROLES:
+            raise InputError(f"policy: set {name} has unknown role {role!r} (expected one of {', '.join(ROLES)})")
+        if spec.get("split") not in SPLITS:
+            raise InputError(f"policy: set {name} has unknown split {spec.get('split')!r}")
+        twin = spec.get("holdout")
+        if twin is not None and twin not in sets:
+            raise InputError(f"policy: set {name} names holdout twin {twin!r}, which is not a declared set")
+
+
+def validate_counts(name, entry, which):
+    if not isinstance(entry, dict):
+        raise InputError(f"{which}: set {name} must be an object")
+    for k in COUNT_KEYS:
+        v = entry.get(k)
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            raise InputError(f"{which}: set {name} needs a non-negative integer `{k}`, got {v!r}")
+    preds = entry.get("predictions")
+    if preds is not None:
+        tally = {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
+        for row in preds:
+            label, pred = row.get("label"), row.get("pred")
+            if label not in (0, 1) or pred not in (0, 1) or "id" not in row:
+                raise InputError(f"{which}: set {name} has a malformed predictions row {row!r}")
+            key = ("tp" if pred else "fn") if label else ("fp" if pred else "tn")
+            tally[key] += 1
+        if any(tally[k] != entry[k] for k in COUNT_KEYS):
+            raise InputError(f"{which}: set {name} predictions tally {tally} disagree with its counts")
+
+
+def validate_metrics(policy, cfg, base, cand):
+    for obj, which in ((base, "baseline"), (cand, "candidate")):
+        if not isinstance(obj, dict) or not isinstance(obj.get("sets"), dict):
+            raise InputError(f"{which}: metrics file needs a `sets` object")
+
+    if cfg["clean_tree"] and (cand.get("git") or {}).get("dirty"):
+        raise InputError("candidate was measured on a dirty working tree; commit or stash, then re-measure")
+    if cfg["distinct_versions"] and base.get("version") is not None \
+            and base.get("version") == cand.get("version"):
+        raise InputError(f"candidate version label {cand.get('version')!r} equals the baseline's; "
+                         "bump the version before measuring so reports are not mislabeled")
+
+    sealed = [n for n, s in policy["sets"].items() if s["role"] == "SEALED"]
+    measured_sealed = [n for n in sealed if n in cand["sets"]]
+    if measured_sealed:
+        kind = cand.get("evaluation", "iteration")
+        if kind not in cfg["sealed_allowed"]:
+            raise InputError(f"sealed set {', '.join(measured_sealed)} measured in a {kind!r} evaluation; "
+                             f"sealed sets are read only in {sorted(cfg['sealed_allowed'])}")
+        if cand.get("sealed_evaluations", 1) > cfg["sealed_max"]:
+            raise InputError(f"sealed set evaluated {cand.get('sealed_evaluations')} times this release; "
+                             f"policy max_evaluations_per_release is {cfg['sealed_max']}")
+
+    required = [n for n, s in policy["sets"].items() if s["role"] != "SEALED"] + measured_sealed
+    for name in required:
+        for obj, which in ((base, "baseline"), (cand, "candidate")):
+            if name not in obj["sets"]:
+                raise InputError(f"{which}: missing set {name} declared in the policy")
+            validate_counts(name, obj["sets"][name], which)
+        b, c = base["sets"][name], cand["sets"][name]
+        if (b["tp"] + b["fn"], b["fp"] + b["tn"]) != (c["tp"] + c["fn"], c["fp"] + c["tn"]):
+            raise InputError(f"set {name} changed size between baseline and candidate; "
+                             "re-fetch the pinned data (sha256 must match) before comparing")
+    return required
+
+
+# ── Metrics ──────────────────────────────────────────────────────────────────
+
+def prf(c):
+    tp, fp, fn = c["tp"], c["fp"], c["fn"]
+    p = tp / (tp + fp) if tp + fp else 0.0
+    r = tp / (tp + fn) if tp + fn else 0.0
+    d = 2 * tp + fp + fn
+    return {"precision": p, "recall": r, "f1": (2 * tp / d) if d else 0.0}
+
+
+def f1_counts(tp, fp, fn):
+    d = 2 * tp + fp + fn
+    return 2 * tp / d if d else 0.0
+
+
+def bootstrap_lower(name, b, c, cfg):
+    if b.get("predictions") is None or c.get("predictions") is None:
+        raise InputError(f"bootstrap is enabled but set {name} has no per-sample predictions "
+                         "in both baseline and candidate")
+    bp = {r["id"]: (r["label"], r["pred"]) for r in b["predictions"]}
+    cp = {r["id"]: (r["label"], r["pred"]) for r in c["predictions"]}
+    if set(bp) != set(cp) or any(bp[i][0] != cp[i][0] for i in bp):
+        raise InputError(f"set {name}: baseline and candidate predictions cover different ids or labels")
+    rows = [(bp[i][0], bp[i][1], cp[i][1]) for i in sorted(bp)]
+    rng = random.Random(cfg["boot_seed"])
+    n = len(rows)
+    diffs = []
+    for _ in range(cfg["boot_n"]):
+        bt = bf = bn = ct = cf = cn = 0
+        for _ in range(n):
+            label, pb, pc = rows[rng.randrange(n)]
+            if label:
+                if pb: bt += 1
+                else: bn += 1
+                if pc: ct += 1
+                else: cn += 1
+            else:
+                bf += pb
+                cf += pc
+        diffs.append(f1_counts(ct, cf, cn) - f1_counts(bt, bf, bn))
+    diffs.sort()
+    alpha = 1 - cfg["boot_conf"]
+    return diffs[int(alpha / 2 * len(diffs))]
+
+
+# ── Decision ─────────────────────────────────────────────────────────────────
+
+def fmt(x):
+    return f"{x:.4f}"
+
+
+def decide(policy, base, cand):
+    validate_policy(policy)
+    cfg = gate_config(policy)
+    names = validate_metrics(policy, cfg, base, cand)
+    eps = cfg["eps"]
+    specs = policy["sets"]
+    m = {n: (prf(base["sets"][n]), prf(cand["sets"][n])) for n in names}
+
+    reverts, notes, gains = [], [], []
+
+    primary_holdouts = [n for n in names if specs[n]["role"] == "PRIMARY" and specs[n]["split"] == "holdout"]
+    hsum_b = sum(m[n][0]["f1"] for n in primary_holdouts)
+    hsum_c = sum(m[n][1]["f1"] for n in primary_holdouts)
+    hsum_rises = hsum_c > hsum_b + eps
+
+    # Per-set non-regression.
+    for n in names:
+        role = specs[n]["role"]
+        b, c = base["sets"][n], cand["sets"][n]
+        mb, mc = m[n]
+        if role in ("PRIMARY", "GUARD-ONLY", "SEALED"):
+            dp = mc["precision"] - mb["precision"]
+            df = mc["f1"] - mb["f1"]
+            if dp < -eps:
+                reverts.append(f"{n} ({role}): precision {fmt(mb['precision'])} -> {fmt(mc['precision'])}")
+            if df < -eps:
+                tp_loss = b["tp"] - c["tp"]
+                if (cfg["sst_enabled"] and role in cfg["sst_roles"] and 0 < tp_loss <= cfg["sst_max"]
+                        and dp >= -eps and hsum_rises):
+                    notes.append(f"{n}: F1 {fmt(mb['f1'])} -> {fmt(mc['f1'])} allowed by single-sample tolerance "
+                                 f"(TP -{tp_loss}, precision {fmt(mb['precision'])} -> {fmt(mc['precision'])}, "
+                                 f"PRIMARY holdout F1 sum {fmt(hsum_b)} -> {fmt(hsum_c)})")
+                else:
+                    reverts.append(f"{n} ({role}): F1 {fmt(mb['f1'])} -> {fmt(mc['f1'])} (TP {b['tp']} -> {c['tp']}, "
+                                   f"FP {b['fp']} -> {c['fp']}); checked per set, not summed")
+        elif role == "RECALL-ONLY":
+            tp_loss = b["tp"] - c["tp"]
+            if tp_loss > cfg["recall_max"]:
+                reverts.append(f"{n} (RECALL-ONLY): recall {fmt(mb['recall'])} -> {fmt(mc['recall'])} "
+                               f"(TP {b['tp']} -> {c['tp']}; recall_only_max_tp_loss {cfg['recall_max']})")
+
+    if cand.get("errors", 0) > base.get("errors", 0):
+        reverts.append(f"new errors: {base.get('errors', 0)} -> {cand.get('errors', 0)}")
+
+    gating = [n for n in names if specs[n]["role"] != "REPORT-ONLY"]
+    if cfg["corpus_gate"] and "corpus_findings" in base and "corpus_findings" in cand \
+            and cand["corpus_findings"] < base["corpus_findings"]:
+        if not any(cand["sets"][n]["fp"] < base["sets"][n]["fp"] for n in gating):
+            reverts.append(f"corpus findings {base['corpus_findings']} -> {cand['corpus_findings']} "
+                           "without a labeled FP reduction to explain the drop")
+
+    # Improvements on PRIMARY dev sets.
+    for n in names:
+        if specs[n]["role"] != "PRIMARY" or specs[n]["split"] != "dev":
+            continue
+        mb, mc = m[n]
+        df = mc["f1"] - mb["f1"]
+        if df <= eps:
+            continue
+        if df < cfg["min_gain"] - eps:
+            notes.append(f"{n}: dev F1 +{fmt(df)} is below min_dev_f1_gain {cfg['min_gain']}")
+            continue
+        b, c = base["sets"][n], cand["sets"][n]
+        twin = specs[n].get("holdout")
+        if cfg["gen_enabled"] and twin in m:
+            tp_gain = c["tp"] - b["tp"]
+            applies = (cfg["gen_min_tp"] is None or tp_gain >= cfg["gen_min_tp"]) and \
+                      (cfg["gen_max_pos"] is None or b["tp"] + b["fn"] < cfg["gen_max_pos"])
+            if applies:
+                if cfg["gen_measure"] == "tp":
+                    dev_gain, hold_gain = tp_gain, cand["sets"][twin]["tp"] - base["sets"][twin]["tp"]
+                else:
+                    dev_gain, hold_gain = df, m[twin][1]["f1"] - m[twin][0]["f1"]
+                ratio = hold_gain / dev_gain if dev_gain else 0.0
+                if hold_gain < cfg["gen_k"] * dev_gain - eps:
+                    reverts.append(f"generalization: {n} dev {cfg['gen_measure']} +{fmt(dev_gain)} but {twin} "
+                                   f"+{fmt(hold_gain)} (ratio {ratio:.2f} < k {cfg['gen_k']})")
+                    continue
+                notes.append(f"generalization: {n} -> {twin} ratio {ratio:.2f} (k {cfg['gen_k']})")
+        if cfg["boot_enabled"]:
+            lower = bootstrap_lower(n, base["sets"][n], cand["sets"][n], cfg)
+            if lower <= 0:
+                notes.append(f"bootstrap: {n} dev F1 +{fmt(df)} but the {cfg['boot_conf']:.0%} CI lower bound "
+                             f"is {fmt(lower)} <= 0")
+                continue
+            notes.append(f"bootstrap: {n} {cfg['boot_conf']:.0%} CI lower bound {fmt(lower)} > 0")
+        gains.append(f"{n}: dev F1 {fmt(mb['f1'])} -> {fmt(mc['f1'])} (TP {b['tp']} -> {c['tp']}, "
+                     f"FP {b['fp']} -> {c['fp']})")
+
+    # Latency.
+    metric, noise = cfg["lat_metric"], cfg["lat_noise"]
+    faster, slower = [], []
+    for n in names:
+        lb, lc = base["sets"][n].get(metric), cand["sets"][n].get(metric)
+        if not isinstance(lb, (int, float)) or not isinstance(lc, (int, float)) or lb <= 0:
+            continue
+        pct = (lc - lb) / lb * 100
+        line = f"{n} {metric} {lb} -> {lc} ({pct:+.1f} %)"
+        if pct > noise:
+            slower.append(line)
+        elif pct < -noise:
+            faster.append(line)
+        if cfg["lat_budget"] is not None and lc > cfg["lat_budget"] and lc > lb:
+            reverts.append(f"latency budget: {n} {metric} {lc} exceeds budget_ms {cfg['lat_budget']}")
+    if slower and not gains:
+        reverts.extend(f"latency increase without a labeled gain: {s}" for s in slower)
+
+    counts_same = all(
+        all(base["sets"][n][k] == cand["sets"][n][k] for k in COUNT_KEYS) for n in names
+    ) and base.get("corpus_findings") == cand.get("corpus_findings")
+
+    if reverts:
+        return "REVERT", reverts + notes, m
+    if gains:
+        return "ACCEPT", gains + notes, m
+    if cand.get("change_kind") == "security-hardening":
+        return "ACCEPT", ["security hardening with no metric regression"] + notes, m
+    if cfg["lat_only"] and counts_same and faster and not slower:
+        return "ACCEPT", [f"latency-only: {f}" for f in faster] + notes, m
+    return "REVERT", ["no measurable improvement on a PRIMARY dev set, latency or hardening"] + notes, m
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ose-eval-gate", description=__doc__.splitlines()[0])
+    ap.add_argument("--policy", required=True)
+    ap.add_argument("--baseline", required=True)
+    ap.add_argument("--candidate", required=True)
+    ap.add_argument("--json", action="store_true", help="emit a JSON verdict on stdout")
+    args = ap.parse_args(argv)
+    try:
+        policy = load_json(args.policy, "policy")
+        base = load_json(args.baseline, "baseline")
+        cand = load_json(args.candidate, "candidate")
+        decision, reasons, m = decide(policy, base, cand)
+    except InputError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        out = {
+            "decision": decision,
+            "reasons": reasons,
+            "baseline_version": base.get("version"),
+            "candidate_version": cand.get("version"),
+            "sets": {
+                n: {
+                    "role": policy["sets"][n]["role"],
+                    "split": policy["sets"][n]["split"],
+                    "baseline": {k: round(v, 6) for k, v in mb.items()},
+                    "candidate": {k: round(v, 6) for k, v in mc.items()},
+                }
+                for n, (mb, mc) in m.items()
+            },
+        }
+        print(json.dumps(out, indent=2))
+    else:
+        print(decision)
+        for r in reasons:
+            print(f"  - {r}")
+    return 0 if decision == "ACCEPT" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
