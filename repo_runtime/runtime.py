@@ -20,6 +20,10 @@ class ContractError(ValueError):
 
 DEFAULT_POLICY_FILE = "POLICY.md"
 DEFAULT_PLAN_DIR = ".plans"
+# Volatile state the local hooks rewrite on every tool call (context
+# telemetry and its lock). It is not task output, and a repo need not
+# gitignore it.
+HOOK_VOLATILE_PATHS = {".osengineer/runtime.yml", ".osengineer/.state.lock"}
 
 
 def profile_settings(repo):
@@ -170,7 +174,7 @@ def changed_paths(repo, base):
     # --no-renames returns both old and new names; includes staged, unstaged and deleted paths.
     tracked = git(repo, "diff", "--no-renames", "--name-only", "-z", base, "--").split(b"\0")
     untracked = git(repo, "ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
-    return sorted({os.fsdecode(x) for x in tracked + untracked if x})
+    return sorted({os.fsdecode(x) for x in tracked + untracked if x} - HOOK_VOLATILE_PATHS)
 
 
 def registered_artifacts(repo):

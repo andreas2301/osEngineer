@@ -28,8 +28,9 @@ valid session. Low context causes a compact checkpoint reminder, not repeated
 policy text. Context warnings occur on warning/critical transitions and rearm
 after recovery. Temporary metrics expire after 60 seconds. Telemetry records
 `context_used_pct`, which is context-window occupancy, **not task token spend**.
-Repo profile stores derived context telemetry in `<planDirectory>/osengineer/context.json`;
-it does not create an independent `.osengineer/state.yml`. Repo profile execution
+Both profiles store it in the gitignored `.osengineer/runtime.yml`; repo profile
+does not create an independent `.osengineer/state.yml`, and nothing is written to
+the runtime's `<planDirectory>/osengineer/` evidence namespace. Repo profile execution
 scope comes from repository policy and the dispatch contract, not legacy team
 `owns_paths` caches. Generic profiles deny execution edits if the active team
 cache has missing or malformed ownership configuration.

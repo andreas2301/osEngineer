@@ -2,9 +2,8 @@
 # osEngineer-post-tool.py — Claude PostToolUse hook.
 #
 # Context telemetry describes window occupancy, not task token spend.
-# 1. Records `context_used_pct` (in the gitignored .osengineer/runtime.yml, or
-#    the repo-profile plan directory) from the bridge file written by the
-#    statusline hook.
+# 1. Records `context_used_pct` (in the gitignored .osengineer/runtime.yml) from
+#    the bridge file written by the statusline hook.
 # 2. Surfaces context warning/critical transitions. It implements no budget
 #    circuit-breaker.
 
@@ -57,14 +56,9 @@ def main():
     used_pct = metrics.get("used_pct")
 
     if used_pct is not None:
-        if is_repo_profile(repo_root):
-            # Derived telemetry is not a new phase or execution authority.
-            context_path = planning_dir(repo_root) / "osengineer" / "context.json"
-            context_path.parent.mkdir(parents=True, exist_ok=True)
-            context_path.write_text(json.dumps({"session_id": session_id, "context_used_pct": used_pct,
-                                                "remaining_percentage": remaining, "timestamp": now}) + "\n")
-        else:
-            write_state_field(repo_root, "context_used_pct", used_pct)
+        # Both profiles: volatile, gitignored runtime.yml. Never the repo
+        # profile's <planDirectory>/osengineer/, the runtime's evidence namespace.
+        write_state_field(repo_root, "context_used_pct", used_pct)
 
     warn_path = Path(tempfile.gettempdir()) / f"claude-ctx-{session_id}-ose-warned.json"
     if remaining is None:

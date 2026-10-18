@@ -113,6 +113,11 @@ this project adheres to semantic versioning.
   block, so the action is blocked on Claude Code and Kimi Code. PostToolUse,
   SessionStart and the statusline cannot stop anything and fail loudly.
   Before, a bad payload exited 0 (or 1), which let the action proceed.
+- Repo profile: the PostToolUse hook no longer writes
+  `<planDirectory>/osengineer/context.json`, which the task runtime reported
+  as an out-of-scope change on every tool call (preflight and verify
+  returned needs-human). Context telemetry now goes to `.osengineer/runtime.yml`
+  as in the generic profile, and the runtime ignores the hooks' volatile files.
 - The pre-edit guard blocks a team whose cached `owns_paths` is missing or
   invalid instead of treating it as unrestricted, and the bypass audit log
   write now reports its failure on stderr instead of being swallowed.
