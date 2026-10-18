@@ -1,13 +1,23 @@
 # Evaluation harness — lessons-learned checklist
 
-Lessons from the safeanalyze prompt-injection scanner (42 autoresearch
-iterations over five rounds, July–October 2026). Each item names what went
-wrong, the evidence, and the check that prevents it. `/osEngineer:recipe-eval-harness`
+Generic lessons for any detector, classifier or scanner improved by a
+keep/revert loop. They come from a rule-based text detector run for 42
+autoresearch iterations over five rounds; set names below describe the set's
+role, not a particular dataset. Each item names what went wrong, the evidence,
+and the check that prevents it. `/osEngineer:recipe-eval-harness`
 and the `eval-harness-engineer` agent walk this list at setup and at every
 process review. Gates marked **(gate)** are enforced by `bin/ose-eval-gate`
 when the policy enables them; the rest are process checks.
 
 Citations were checked against arXiv on 2026-10-16.
+
+## Domain-specific eval sets
+
+osEngineer ships no domain eval content. The consuming repo supplies it: an
+`EVAL_POLICY.json` (shape: `specs/SCHEMAS/eval-policy.schema.json`) that names
+its sets and roles, the labeled cases, and an eval command that writes the
+metrics JSON. `bin/ose-eval-gate` only reads those files. The fixtures in
+`test/fixtures/eval-gate/` use placeholder set names and exist to test the gate.
 
 ## Data and splits
 
@@ -25,14 +35,14 @@ Citations were checked against arXiv on 2026-10-16.
   Only PRIMARY and RECALL-ONLY **dev** FP/FN files are hypothesis sources. The
   eval script writes FP/FN files for every set; restrict who reads them, not
   what is written.
-- [ ] **Template-dominated sets are GUARD-ONLY.** In nemotron, 98.4 % of
-  positives used one of two wrappers (`[PRIORITY MESSAGE]`, `⚠️ URGENT: ...`),
-  so one rule per wrapper moved recall without generalizing.
+- [ ] **Template-dominated sets are GUARD-ONLY.** In one synthetic set, 98.4 %
+  of positives used one of two fixed wrappers, so one rule per wrapper moved
+  recall without generalizing.
   **Check:** at intake, count the top-k prefixes and suffixes of the positives.
   If a few templates dominate, the set may only guard against regressions.
-- [ ] **Small sets overfit fast.** spanish had 52 dev positives. In round 4, dev
-  F1 rose +0.43 (0.400 → 0.831) while the holdout rose only +0.14 (0.464 →
-  0.605), a ratio of 0.33.
+- [ ] **Small sets overfit fast.** A single-language subset had 52 dev
+  positives. In round 4, dev F1 rose +0.43 (0.400 → 0.831) while the holdout
+  rose only +0.14 (0.464 → 0.605), a ratio of 0.33.
   **Check:** generalization ratio `holdout_gain ≥ k × dev_gain` for large gains
   on small sets **(gate)**. Below about 100 positives, prefer GUARD-ONLY.
 - [ ] **Contamination through translations.** Machine-translated eval sets can
@@ -42,12 +52,13 @@ Citations were checked against arXiv on 2026-10-16.
   on one side, and run cross-set exact and normalized overlap checks in the fetch
   script. The script exits non-zero on any overlap.
 - [ ] **Dataset artifacts create false positives you cannot fix honestly.** On
-  toolresp, 29 of 31 dev FPs came from one rule firing on JSON `\u` escapes, and
-  105 injection rows also contained them. Narrowing the rule cut TP 189 → 160.
-  **Check:** at intake, diff the feature distributions of benign and injection
+  a set of JSON tool outputs, 29 of 31 dev FPs came from one rule firing on JSON
+  `\u` escapes, and 105 positive rows also contained them. Narrowing the rule
+  cut TP 189 → 160.
+  **Check:** at intake, diff the feature distributions of benign and positive
   rows (escapes, encodings, length, markup). Record known artifacts in the
   sources manifest. Do not tune a rule to an artifact.
-- [ ] **Shared negatives are not an independent signal.** llmail-holdout reuses
+- [ ] **Shared negatives are not an independent signal.** One holdout reused
   the dev benign rows, so only its recall is a holdout measurement. Write that
   caveat into the manifest next to the set.
 - [ ] **Pin everything.** Pin the upstream revision and the sha256 of every
@@ -57,8 +68,8 @@ Citations were checked against arXiv on 2026-10-16.
 ## Decision rules
 
 - [ ] **Per-set gates, never a summed holdout.** A round-3 loop script checked
-  the holdout on summed F1. browsesafe-holdout lost 2 TP (F1 0.708 → 0.702) and
-  was accepted because llmail-holdout rose more.
+  the holdout on summed F1. One holdout set lost 2 TP (F1 0.708 → 0.702) and
+  the candidate was accepted because another holdout set rose more.
   **Check:** `ose-eval-gate` checks every set on its own **(gate)**. The fixture
   `test/fixtures/eval-gate/summed-holdout.*` reproduces this case.
 - [ ] **No undocumented thresholds.** The same script rejected dev F1 gains
@@ -66,8 +77,8 @@ Citations were checked against arXiv on 2026-10-16.
   it, then retested and accepted as iteration 21.
   **Check:** every threshold lives in the policy file. `min_dev_f1_gain`
   defaults to 0 **(gate)**. The fixture is `undocumented-threshold.*`.
-- [ ] **Write precedents down as rules.** v0.3.24 lost one TP on deepset-holdout
-  (54 → 53) while FP fell 2 → 0. That decision became the single-sample tolerance:
+- [ ] **Write precedents down as rules.** One accepted version lost one TP on a
+  PRIMARY holdout set (54 → 53) while FP fell 2 → 0. That decision became the single-sample tolerance:
   at most `max_tp_loss` TP lost, precision not down, and the PRIMARY holdout F1
   sum up **(gate)**. The fixture is `single-sample-tolerance.*`.
 - [ ] **Never re-implement the rules in a prompt.** Loop agents call the
@@ -90,7 +101,7 @@ Citations were checked against arXiv on 2026-10-16.
   **(gate)**.
 - [ ] **One change per iteration.** Combined changes cannot be attributed and
   cannot be reverted cleanly.
-- [ ] **Latency creep per rule.** browsesafe p95 rose about 1.3 ms per pattern
+- [ ] **Latency creep per rule.** p95 on the slowest set rose about 1.3 ms per pattern
   in round 3 and about 2.5 ms per pattern in round 4 (48.8 → 74.3 ms against a
   100 ms budget).
   **Check:** set a latency budget and a noise band **(gate)**. Every rule needs a
@@ -112,11 +123,11 @@ Citations were checked against arXiv on 2026-10-16.
   the title, authors and the exact figure. Mark anything unverified as
   unverified.
 - [ ] **Know the ceiling.** Regex rounds had falling returns. Round 4 spent 10
-  accepted iterations on holdout F1 gains of +0.004 (llmail) and +0.061
-  (toolresp), and gained 0 on the human-written stress set (recall 0.167).
-  Filters much cheaper than the protected model can be bypassed in principle and
-  in practice (Fairoze, Garg, Lee, Wang 2025, *Bypassing Prompt Guards in
-  Production with Controlled-Release Prompting*, arXiv:2510.01529).
+  accepted iterations on holdout F1 gains of +0.004 and +0.061 on two sets,
+  and gained 0 on the human-written stress set (recall 0.167). Cheap filters in
+  front of a stronger system can be bypassed in principle and in practice; for
+  one example domain see Fairoze, Garg, Lee, Wang 2025, *Bypassing Prompt Guards
+  in Production with Controlled-Release Prompting*, arXiv:2510.01529.
   **Check:** at each process review, compare marginal holdout gain per iteration
   with the previous round. When it falls toward zero, pause the loop and write an
   honest assessment before changing strategy. Do not keep adding rules.

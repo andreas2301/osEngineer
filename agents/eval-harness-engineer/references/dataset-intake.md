@@ -22,7 +22,7 @@ Fill one block per candidate set in `testdata/eval/SOURCES.md` (or the repo's eq
 
 ## Splitting and contamination
 
-- [ ] **Group split**: all variants of one source case (translations, paraphrases, the same injection string in different hosts) land on one side. Group by the upstream case id or by a normalized-text key.
+- [ ] **Group split**: all variants of one source case (translations, paraphrases, the same payload in different hosts) land on one side. Group by the upstream case id or by a normalized-text key.
 - [ ] **Cross-set overlap check** in the fetch script: exact and normalized (lowercased, whitespace-collapsed) text, plus any shared payload field. Check dev vs holdout vs sealed, and every new set vs every existing one. Exit non-zero on overlap.
 - [ ] **Deduplicate within pools** (keep first occurrence) before sampling.
 - [ ] **Deterministic sampling**: a fixed seed, sorted inputs before sampling, and a documented allocation (stratified, largest remainder). Two runs must produce byte-identical outputs, with output sha256s recorded in the manifest.
