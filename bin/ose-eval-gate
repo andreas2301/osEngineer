@@ -21,7 +21,7 @@ Design constraints:
 
 Metrics file (baseline and candidate):
     {
-      "version": "0.3.24", "git": {"commit": "...", "dirty": false},
+      "version": "1.0.1", "git": {"commit": "...", "dirty": false},
       "change_kind": "detection" | "latency" | "security-hardening",
       "evaluation": "iteration" | "round" | "release",
       "sealed_evaluations": 0, "errors": 0, "corpus_findings": 11015,

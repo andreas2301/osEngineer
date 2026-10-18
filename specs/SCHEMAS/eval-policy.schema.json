@@ -33,7 +33,7 @@
         },
         "single_sample_tolerance": {
           "type": "object",
-          "description": "An F1 drop on one set caused by losing at most max_tp_loss TP is allowed when that set's precision does not drop and the sum of F1 over the PRIMARY holdout sets rises (precedent: safeanalyze v0.3.24, deepset-holdout TP 54 -> 53, FP 2 -> 0).",
+          "description": "An F1 drop on one set caused by losing at most max_tp_loss TP is allowed when that set's precision does not drop and the sum of F1 over the PRIMARY holdout sets rises (example: a PRIMARY holdout set going TP 54 -> 53 while FP goes 2 -> 0).",
           "additionalProperties": false,
           "properties": {
             "enabled": { "type": "boolean", "default": false },

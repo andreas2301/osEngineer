@@ -44,11 +44,15 @@ this project adheres to semantic versioning.
 - **`bin/ose-eval-gate`**: a stdlib-only reference evaluator. It reads a
   policy plus baseline and candidate metrics and returns ACCEPT or REVERT with
   reasons (exit 0/1, or 2 on input errors). Regression fixtures in
-  `test/fixtures/eval-gate/` reproduce real defects from the reference loop:
-  - the summed-holdout check;
-  - the undocumented 0.01 threshold;
-  - the v0.3.24 single-sample tolerance precedent;
-  - a small-set overfit (spanish, dev +0.43 F1 vs holdout +0.14).
+  `test/fixtures/eval-gate/` reproduce real loop defects under generic set
+  names (`primary-a`, `small-subset`, ...), one fixture per defect:
+  - `summed-holdout`: the summed-holdout check;
+  - `undocumented-threshold`: the undocumented 0.01 threshold;
+  - `single-sample-tolerance`: the single-sample tolerance precedent;
+  - `small-set-overfit`: dev +0.43 F1 vs holdout +0.14 on a 52-positive set.
+- **Eval content stays generic.** osEngineer ships no domain eval sets. The
+  consuming repo supplies its own `EVAL_POLICY.json`, labeled cases and eval
+  command; the recipe, agent and gate only read them.
 - **`docs/eval-harness-lessons.md`**: a lessons-learned checklist. It covers
   holdout reuse and sealed sets (arXiv:1506.02629, arXiv:1502.04585), dataset
   artifacts, template-dominated and contaminated sets, dirty-tree and

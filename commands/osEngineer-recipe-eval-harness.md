@@ -31,7 +31,7 @@ Set up a measurement-driven improvement loop for a detector repo, then run it ho
 **Role:** eval-harness-engineer (with researcher, developer, red-team-local, verifier, judge)
 **Output:** `EVAL_POLICY.json`, `testdata/eval/SOURCES.md`, `scripts/fetch_eval.sh` (or the repo's equivalent), an eval command that emits metrics JSON, a decision-rules section in the repo's `CLAUDE.md`, per-round report branches, `docs/ASSESSMENT.md`.
 
-Reference implementation: safeanalyze (prompt-injection scanner), whose loop the lessons in [`docs/eval-harness-lessons.md`](../docs/eval-harness-lessons.md) come from.
+Eval content is domain-specific and comes from the target repo: its `EVAL_POLICY.json` (shape: `specs/SCHEMAS/eval-policy.schema.json`), its labeled cases, and an eval command that writes the metrics JSON. This recipe and `bin/ose-eval-gate` are generic; the lessons they apply are in [`docs/eval-harness-lessons.md`](../docs/eval-harness-lessons.md).
 
 ## Preconditions
 
@@ -60,8 +60,8 @@ Ask at most **one question per step**. Three steps always ask, whatever `--yes` 
 
 ### Step 1 — Scope the detector
 Write down:
-- the positive label ("prompt injection present"),
-- the input families (plain text, HTML, JSON tool output, mail, code, languages),
+- the positive label (for example "secret present" or "spam"),
+- the input families (for example plain text, HTML, JSON, mail, code, languages),
 - the operating modes and their latency budget (for example fast mode at most 100 ms p95),
 - the eval command to build or reuse.
 
@@ -118,7 +118,7 @@ $OSENGINEER_HOME/bin/ose-eval-gate --policy $OSENGINEER_HOME/test/fixtures/eval-
   --candidate $OSENGINEER_HOME/test/fixtures/eval-gate/summed-holdout.candidate.json
 ```
 
-The expected verdict is `REVERT`, naming `browsesafe-holdout`.
+The expected verdict is `REVERT`, naming `primary-b-holdout`.
 
 ### Step 7 — The keep/revert loop (inspired by karpathy/autoresearch)
 Each iteration runs in its own worktree:
@@ -164,20 +164,20 @@ When the marginal holdout gain per iteration falls toward zero, or before any st
 ## Example
 
 ```
-/osEngineer:recipe-eval-harness ~/src/safeanalyze
+/osEngineer:recipe-eval-harness ~/src/my-detector
 ```
 
 Output shape (illustrative):
 ```
 Step 2  datasets: 9 candidates, 7 admitted, 2 rejected (gated; no benign rows)
-Step 3  roles: PRIMARY llmail browsesafe toolresp | RECALL-ONLY multilingual |
-        GUARD-ONLY deepset nemotron spanish | REPORT-ONLY promptprotection-stress |
+Step 3  roles: PRIMARY primary-a primary-b primary-c | RECALL-ONLY recall-a |
+        GUARD-ONLY guard-a small-subset | REPORT-ONLY stress |
         SEALED sealed-2026q4                       Approve? y
 Step 4  fetch_eval.sh: 2 runs byte-identical, 0 overlaps, 15 sha256s recorded
-Step 5  baseline v0.3.45 measured (sealed read 1/1)
-Step 7  iter 43: REVERT  generalization: spanish dev f1 +0.4315 but spanish-holdout +0.1415 (ratio 0.33 < k 0.5)
-        iter 44: ACCEPT  latency-only: browsesafe p95_ms 70.7 -> 44.1 (-37.6 %)
-Step 8  report-maximum-effort-chimichanga-9f7d-2026-10-20   Type 'push' to confirm:
+Step 5  baseline v1.0.0 measured (sealed read 1/1)
+Step 7  iter 43: REVERT  generalization: small-subset dev f1 +0.4315 but small-subset-holdout +0.1415 (ratio 0.33 < k 0.5)
+        iter 44: ACCEPT  latency-only: primary-b p95_ms 70.7 -> 44.1 (-37.6 %)
+Step 8  report-mydevice-2026-10-20   Type 'push' to confirm:
 ```
 
 ## Failure handling

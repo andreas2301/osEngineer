@@ -1,58 +1,58 @@
 {
   "schema_version": 1,
-  "description": "safeanalyze-style policy used by the evaluator regression fixtures.",
+  "description": "Generic policy used by the evaluator regression fixtures. Set names are placeholders; a consumer supplies its own policy and sets.",
   "sets": {
-    "llmail": {
+    "primary-a": {
       "role": "PRIMARY",
       "split": "dev",
-      "holdout": "llmail-holdout"
+      "holdout": "primary-a-holdout"
     },
-    "llmail-holdout": {
+    "primary-a-holdout": {
       "role": "PRIMARY",
       "split": "holdout"
     },
-    "browsesafe": {
+    "primary-b": {
       "role": "PRIMARY",
       "split": "dev",
-      "holdout": "browsesafe-holdout"
+      "holdout": "primary-b-holdout"
     },
-    "browsesafe-holdout": {
+    "primary-b-holdout": {
       "role": "PRIMARY",
       "split": "holdout"
     },
-    "deepset": {
+    "primary-c": {
       "role": "PRIMARY",
       "split": "dev",
-      "holdout": "deepset-holdout"
+      "holdout": "primary-c-holdout"
     },
-    "deepset-holdout": {
+    "primary-c-holdout": {
       "role": "PRIMARY",
       "split": "holdout"
     },
-    "spanish": {
+    "small-subset": {
       "role": "PRIMARY",
       "split": "dev",
-      "holdout": "spanish-holdout"
+      "holdout": "small-subset-holdout"
     },
-    "spanish-holdout": {
+    "small-subset-holdout": {
       "role": "PRIMARY",
       "split": "holdout"
     },
-    "multilingual": {
+    "recall-a": {
       "role": "RECALL-ONLY",
       "split": "dev",
-      "holdout": "multilingual-holdout"
+      "holdout": "recall-a-holdout"
     },
-    "multilingual-holdout": {
+    "recall-a-holdout": {
       "role": "RECALL-ONLY",
       "split": "holdout"
     },
-    "nemotron": {
+    "guard-a": {
       "role": "GUARD-ONLY",
       "split": "dev",
-      "holdout": "nemotron-holdout"
+      "holdout": "guard-a-holdout"
     },
-    "nemotron-holdout": {
+    "guard-a-holdout": {
       "role": "GUARD-ONLY",
       "split": "holdout"
     },
