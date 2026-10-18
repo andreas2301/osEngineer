@@ -20,6 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
+    fail_strict,
+    read_payload,
     bypass_log,
     emit_block,
     emit_context,
@@ -103,8 +105,7 @@ def log_override(repo_root, entry):
         with open(p, "a") as f:
             f.write(json.dumps(record) + "\n")
     except Exception as exc:
-        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError("cannot write override-log.jsonl") from exc
 
 
 def utc_now():
@@ -174,10 +175,7 @@ def build_effective_denylist(globals_, repo_ov, team_ov):
 
 
 def main():
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception as exc:
-        raise ValueError("invalid hook input or data") from exc
+    data = read_payload()
 
     if data.get("tool_name") != "Bash":
         return
@@ -266,6 +264,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        # Diagnose on stderr but exit 0: a hook must never crash the harness
-        # (Claude Code and Kimi Code), whatever arrives on stdin.
-        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, 'PreToolUse', exc)

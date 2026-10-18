@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import count_handoffs, find_osengineer_root, read_state_map
+from osengineer_common import count_handoffs, find_osengineer_root, read_state_map, fail_strict, read_payload
 
 
 def format_state_segment(state, handoffs):
@@ -64,10 +64,7 @@ def build_context_meter(remaining, session):
 
 
 def main():
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception as exc:
-        raise ValueError("invalid hook input or data") from exc
+    data = read_payload()
 
     model = (data.get("model") or {}).get("display_name") or "Claude"
     workspace = data.get("workspace") or {}
@@ -94,6 +91,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        # Diagnose on stderr but exit 0: a hook must never crash the harness
-        # (Claude Code and Kimi Code), whatever arrives on stdin.
-        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, None, exc)

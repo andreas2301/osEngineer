@@ -12,7 +12,7 @@
 #     MICRO_PLAN and is not gated)
 #   - any prompt when state.phase === 'blocked' (advisory, not block)
 #
-# Honours OSE_BYPASS=1. Always exits 0 on parse failure.
+# Honours OSE_BYPASS=1. Blocks (exit 2) on a malformed payload.
 
 import json
 import os
@@ -23,6 +23,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
+    fail_strict,
+    read_payload,
     bypass_log,
     is_repo_profile,
     profile_setting,
@@ -303,10 +305,7 @@ def profile_context(data, repo_root, state):
 
 
 def main():
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception as exc:
-        raise ValueError("invalid hook input or data") from exc
+    data = read_payload()
 
     cwd = data.get("cwd") or os.getcwd()
     repo_root = find_osengineer_root(cwd)
@@ -426,8 +425,7 @@ def main():
                 if hint_block:
                     additional_context = f"{additional_context}\n\n{hint_block}" if additional_context else hint_block
     except Exception as exc:
-        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError("cannot compute routing hints") from exc
 
     emit_context("UserPromptSubmit", additional_context)
 
@@ -436,6 +434,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        # Diagnose on stderr but exit 0: a hook must never crash the harness
-        # (Claude Code and Kimi Code), whatever arrives on stdin.
-        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, 'UserPromptSubmit', exc)

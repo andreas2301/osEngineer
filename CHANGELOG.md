@@ -107,9 +107,12 @@ this project adheres to semantic versioning.
   promising a budget circuit-breaker is removed; none was implemented.
 - `state.yml` values `null` and `~` now read as unset. Before, a
   `current_team: null` line read as a team literally named "null".
-- Hooks validate hook input and context telemetry and report a bad payload
-  on stderr (`invalid hook input or data`) instead of silently doing
-  nothing; they still exit 0 so a bad payload never crashes the harness.
+- Hooks are strict: a payload that is not a JSON object, or any hook fault,
+  fails closed with a stderr diagnosis (`invalid hook input or data`) and
+  exit 2. PreToolUse and UserPromptSubmit guards also print the dual-dialect
+  block, so the action is blocked on Claude Code and Kimi Code. PostToolUse,
+  SessionStart and the statusline cannot stop anything and fail loudly.
+  Before, a bad payload exited 0 (or 1), which let the action proceed.
 - The pre-edit guard blocks a team whose cached `owns_paths` is missing or
   invalid instead of treating it as unrestricted, and the bypass audit log
   write now reports its failure on stderr instead of being swallowed.

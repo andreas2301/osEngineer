@@ -5,14 +5,13 @@
 # phase / team / budget / open handoffs / auto-nudge (if 5+ phases since
 # last evolution).
 
-import json
 import os
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import count_handoffs, emit_context, find_osengineer_root, is_repo_profile, profile_setting, read_state_map
+from osengineer_common import count_handoffs, emit_context, find_osengineer_root, is_repo_profile, profile_setting, read_state_map, fail_strict, read_payload
 
 
 def read_evolution_counter(repo_root):
@@ -27,13 +26,7 @@ def read_evolution_counter(repo_root):
 
 
 def main():
-    raw = sys.stdin.read()
-    try:
-        data = json.loads(raw) if raw.strip() else {}
-    except ValueError as exc:
-        raise ValueError("invalid hook input or data") from exc
-    if not isinstance(data, dict):
-        raise ValueError("invalid hook input or data")
+    data = read_payload()
     cwd = data.get("cwd") or os.getcwd()
     repo_root = find_osengineer_root(cwd)
     if not repo_root:
@@ -72,6 +65,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        # Diagnose on stderr but exit 0: a hook must never crash the harness
-        # (Claude Code and Kimi Code), whatever arrives on stdin.
-        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, 'SessionStart', exc)

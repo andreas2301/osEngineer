@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import emit_context, find_osengineer_root, is_repo_profile, planning_dir, write_state_field
+from osengineer_common import emit_context, find_osengineer_root, is_repo_profile, planning_dir, write_state_field, fail_strict, read_payload
 
 STDIN_TIMEOUT_MS = 10000
 WARNING_THRESHOLD = 35
@@ -26,10 +26,7 @@ STALE_SECONDS = 60
 
 
 def main():
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception as exc:
-        raise ValueError("invalid hook input or data") from exc
+    data = read_payload()
 
     session_id = data.get("session_id")
     if not isinstance(session_id, str) or not session_id or re.search(r"[/\\]|\.\.", session_id):
@@ -103,8 +100,7 @@ def main():
     try:
         warn_path.write_text(json.dumps(warn_data))
     except Exception as exc:
-        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError("cannot load or persist warning state") from exc
 
     if is_repo_profile(repo_root):
         message = (f"Repo profile context {current_level}: {remaining}% remaining. "
@@ -128,6 +124,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        # Diagnose on stderr but exit 0: a hook must never crash the harness
-        # (Claude Code and Kimi Code), whatever arrives on stdin.
-        print(f"{Path(__file__).name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, 'PostToolUse', exc)

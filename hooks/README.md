@@ -1,10 +1,14 @@
 # hooks/
 
 Python hooks adapt local assistant events; shell hooks implement Git checks.
-Python guards read JSON payloads from stdin. Unexpected execution or payload errors
-are reported to stderr with nonzero exit status; known missing optional inputs can
-produce no output. Runners must treat guard failures as failed checks rather than
-assuming that a failed hook granted permission. `OSE_BYPASS=1` is an explicit,
+Python guards read JSON payloads from stdin. Hooks are strict: a payload that is
+not a JSON object, or any unexpected hook error, is reported on stderr and exits 2
+(Claude Code's block signal). The PreToolUse guards (edit, Bash, read) and the
+UserPromptSubmit guard also print the dual-dialect block that Kimi Code honours.
+PostToolUse (the tool already ran), SessionStart and the statusline cannot block,
+so they fail loudly with exit 2 and stderr only. A parseable object without the
+fields a hook acts on is a no-op. Runners must treat guard failures as failed
+checks rather than assuming that a failed hook granted permission. `OSE_BYPASS=1` is an explicit,
 audited bypass in the edit, Bash and prompt guards.
 
 ## Repo profile

@@ -189,6 +189,36 @@ def emit_context(event, text):
     })
 
 
+def read_payload():
+    """Parse stdin as the hook's JSON object; anything else is malformed."""
+    try:
+        data = json.loads(sys.stdin.read())
+    except ValueError as exc:
+        raise ValueError("invalid hook input or data") from exc
+    if not isinstance(data, dict):
+        raise ValueError("invalid hook input or data")
+    return data
+
+
+# Events whose action a hook can still stop. PostToolUse (tool already ran),
+# SessionStart and the statusline can only fail loudly.
+BLOCKABLE_EVENTS = {"PreToolUse", "UserPromptSubmit"}
+
+
+def fail_strict(hook, event, exc):
+    """Strict failure contract: diagnose on stderr, block, exit 2.
+
+    Exit 2 is Claude Code's block signal (stderr reaches the model); the
+    dual-dialect stdout block covers Kimi Code. Never exit 0 or 1 here:
+    both let the action proceed.
+    """
+    message = f"{hook}: {type(exc).__name__}: {exc}"
+    print(message, file=sys.stderr)
+    if event in BLOCKABLE_EVENTS:
+        emit_block(event, f"osEngineer: hook failed, action blocked ({message})")
+    sys.exit(2)
+
+
 def bypass_log(repo_root, hook, reason):
     # An unaudited bypass must fail visibly rather than silently continue.
     p = Path(repo_root) / ".osengineer" / "bypass-log.jsonl"
