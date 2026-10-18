@@ -36,8 +36,6 @@ class ProfileLoader(unittest.TestCase):
                                               "dispatchWords": ["dispatch", "workflow"],
                                               "minSignalTerms": 2, "maxHints": 2,
                                               "projection": "codex"})
-        self.assertEqual(profile["validationProfiles"]["infra"]["configDirs"],
-                         ["planning", ".osengineer", "ansible", "docker", "scripts"])
         self.assertEqual(profile["eval"], {"policy": "EVAL_POLICY.json"})
         self.assertEqual(profile["runners"], {"codex": {"protocol": "codex-exec"}})
         self.assertEqual(profile["handlers"], {})
@@ -88,8 +86,8 @@ class ProfileLoader(unittest.TestCase):
             ({"routing": {"dispatchWords": [""]}}, "routing.dispatchWords"),
             ({"routing": {"minSignalTerms": 0}}, "routing.minSignalTerms"),
             ({"routing": {"projection": "a/b"}}, "routing.projection"),
-            ({"validationProfiles": {"infra": {"configDirs": ["/etc"]}}}, "configDirs"),
-            ({"validationProfiles": {"frontend": {}}}, "validationProfiles"),
+            # The infra config-dir list stays code: the plan-phase gate blocks those paths anyway.
+            ({"validationProfiles": {}}, "unknown keys: validationProfiles"),
             ({"eval": {"policy": "../x.json"}}, "eval.policy"),
             ({"runners": {"codex": {"protocol": "ssh"}}}, "runners.codex.protocol"),
             ({"runners": {"bad name": {"protocol": "env"}}}, "runners"),
@@ -122,7 +120,7 @@ class ProfileSchemaParity(unittest.TestCase):
         props = self.schema["properties"]
         self.assertEqual(set(props), set(config.DEFAULTS) | {"schemaVersion"})
         for key, default in config.DEFAULTS.items():
-            if key in ("validationProfiles", "runners", "handlers"):
+            if key in ("runners", "handlers"):
                 self.assertEqual(props[key]["default"], default, key)
             elif isinstance(default, dict):
                 for sub, value in default.items():

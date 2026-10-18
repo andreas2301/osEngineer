@@ -219,7 +219,8 @@ class RepoProfileHooks(unittest.TestCase):
         result = self.prompt()
         self.assertEqual(result.returncode, 2)
         self.assertEqual(json.loads(result.stdout)['decision'], 'block')
-        self.assertIn('JSONDecodeError', result.stderr)
+        # One loader names the file instead of leaking a parser exception.
+        self.assertIn('ProfileError: .osengineer/profile.json: invalid JSON', result.stderr)
         self.assertNotIn('Traceback', result.stderr)
 
 if __name__ == '__main__':
