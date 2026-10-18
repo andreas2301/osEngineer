@@ -69,7 +69,7 @@ Citations were checked against arXiv on 2026-10-16.
 - [ ] **Write precedents down as rules.** v0.3.24 lost one TP on deepset-holdout
   (54 → 53) while FP fell 2 → 0. That decision became the single-sample tolerance:
   at most `max_tp_loss` TP lost, precision not down, and the PRIMARY holdout F1
-  sum up **(gate)**. The fixture is `v0324-single-sample.*`.
+  sum up **(gate)**. The fixture is `single-sample-tolerance.*`.
 - [ ] **Never re-implement the rules in a prompt.** Loop agents call the
   evaluator and quote its reasons. Prose copies of the rules drift.
 - [ ] **Small gains need significance, not only sign.** When per-sample

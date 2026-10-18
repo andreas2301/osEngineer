@@ -118,7 +118,7 @@ $OSENGINEER_HOME/bin/ose-eval-gate --policy $OSENGINEER_HOME/test/fixtures/eval-
   --candidate $OSENGINEER_HOME/test/fixtures/eval-gate/summed-holdout.candidate.json
 ```
 
-The expected verdict is `REVERT`, naming `browsesafe-holdout`.
+The expected verdict is `REVERT`, naming `primary-b-holdout`.
 
 ### Step 7 — The keep/revert loop (inspired by karpathy/autoresearch)
 Each iteration runs in its own worktree:

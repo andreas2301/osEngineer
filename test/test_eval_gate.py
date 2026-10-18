@@ -1,25 +1,25 @@
 """bin/ose-eval-gate turns an eval policy into an ACCEPT/REVERT verdict.
 
 The decision rules of a detector improvement loop used to live in prose and in
-ad-hoc loop scripts, and three real defects came out of that (safeanalyze,
-rounds 3 and 4):
+ad-hoc loop scripts, and three real defects came out of that:
 
   * Summed holdout. A loop script checked the holdout on the SUM of F1 over the
-    holdout sets, so a candidate that lost 2 TP on browsesafe-holdout was
-    accepted because llmail-holdout rose more. The rule is per set.
+    holdout sets, so a candidate that lost 2 TP on primary-b-holdout was
+    accepted because primary-a-holdout rose more. The rule is per set.
   * Undocumented threshold. The same script rejected iterations whose dev F1
-    gain was below 0.01, a number written nowhere. Iteration 20 was reverted on
-    it, then retested and accepted as iteration 21. A threshold only exists if
-    the policy declares it.
-  * Single-sample tolerance (precedent v0.3.24). deepset-holdout went TP 54 -> 53
-    while FP went 2 -> 0: F1 fell by one sample, precision rose, and the PRIMARY
-    holdout F1 sum rose. That was accepted and became the written tolerance.
+    gain was below 0.01, a number written nowhere. An iteration was reverted on
+    it, then retested and accepted. A threshold only exists if the policy
+    declares it.
+  * Single-sample tolerance. primary-c-holdout went TP 54 -> 53 while FP went
+    2 -> 0: F1 fell by one sample, precision rose, and the PRIMARY holdout F1
+    sum rose. That was accepted and became the written tolerance.
 
-Plus the round-4 lesson that a small set (spanish, 52 positives) can move dev
-F1 by +0.43 while its holdout moves +0.14: the generalization ratio gate.
+Plus the lesson that a small set (small-subset, 52 positives) can move dev F1
+by +0.43 while its holdout moves +0.14: the generalization ratio gate.
 
-The fixtures under test/fixtures/eval-gate/ reproduce those cases with the real
-counts. Everything else is built inline from the shared policy.
+The fixtures under test/fixtures/eval-gate/ reproduce those cases with the
+original counts under generic set names. Everything else is built inline from
+the shared policy.
 """
 import copy
 import json
@@ -117,7 +117,7 @@ class TestRealBugFixtures(Base):
         self.assertGreater(sum(f1(c["sets"][n]) for n in hold),
                            sum(f1(b["sets"][n]) for n in hold))
         r = run_fixture("summed-holdout")
-        self.assertRevert(r, "browsesafe-holdout")
+        self.assertRevert(r, "primary-b-holdout")
 
     def test_no_threshold_unless_the_policy_declares_one(self):
         r = run_fixture("undocumented-threshold")
@@ -133,85 +133,85 @@ class TestRealBugFixtures(Base):
         r = run_fixture("undocumented-threshold", self.policy)
         self.assertAccept(r)
 
-    def test_v0324_single_sample_tolerance_is_accepted(self):
-        r = run_fixture("v0324-single-sample")
+    def test_single_sample_tolerance_is_accepted(self):
+        r = run_fixture("single-sample-tolerance")
         self.assertAccept(r)
         self.assertIn("single-sample tolerance", r.text)
 
-    def test_v0324_without_tolerance_is_reverted(self):
+    def test_without_tolerance_is_reverted(self):
         self.policy["gates"]["single_sample_tolerance"]["enabled"] = False
-        r = run_fixture("v0324-single-sample", self.policy)
-        self.assertRevert(r, "deepset-holdout")
+        r = run_fixture("single-sample-tolerance", self.policy)
+        self.assertRevert(r, "primary-c-holdout")
 
     def test_tolerance_needs_primary_holdout_sum_to_rise(self):
-        c = load("v0324-single-sample.candidate.json")
-        b = load("v0324-single-sample.baseline.json")
-        c["sets"]["llmail-holdout"] = b["sets"]["llmail-holdout"]
+        c = load("single-sample-tolerance.candidate.json")
+        b = load("single-sample-tolerance.baseline.json")
+        c["sets"]["primary-a-holdout"] = b["sets"]["primary-a-holdout"]
         r = run_gate(self.policy, b, c)
-        self.assertRevert(r, "deepset-holdout")
+        self.assertRevert(r, "primary-c-holdout")
 
     def test_tolerance_never_covers_two_lost_tp(self):
-        b = load("v0324-single-sample.baseline.json")
-        c = load("v0324-single-sample.candidate.json")
-        c["sets"]["deepset-holdout"] = counts(203, 343, 52, 0)
+        b = load("single-sample-tolerance.baseline.json")
+        c = load("single-sample-tolerance.candidate.json")
+        c["sets"]["primary-c-holdout"] = counts(203, 343, 52, 0)
         r = run_gate(self.policy, b, c)
-        self.assertRevert(r, "deepset-holdout")
+        self.assertRevert(r, "primary-c-holdout")
 
     def test_small_set_overfit_fails_generalization_ratio(self):
-        r = run_fixture("spanish-overfit")
+        r = run_fixture("small-set-overfit")
         self.assertRevert(r, "generalization")
-        self.assertIn("spanish", r.text)
+        self.assertIn("small-subset", r.text)
 
     def test_generalization_gate_can_be_disabled(self):
         self.policy["gates"]["generalization"]["enabled"] = False
-        r = run_fixture("spanish-overfit", self.policy)
+        r = run_fixture("small-set-overfit", self.policy)
         self.assertAccept(r)
 
 
 class TestRoles(Base):
     def test_precision_drop_on_primary_dev_reverts(self):
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 3)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 3)
         r = run_gate(self.policy, self.base, self.cand)
-        self.assertRevert(r, "llmail")
+        self.assertRevert(r, "primary-a")
 
     def test_guard_only_gain_alone_is_not_an_improvement(self):
-        self.cand["sets"]["nemotron"] = counts(300, 300, 80, 0)
-        self.cand["sets"]["nemotron-holdout"] = counts(300, 300, 81, 0)
+        self.cand["sets"]["guard-a"] = counts(300, 300, 80, 0)
+        self.cand["sets"]["guard-a-holdout"] = counts(300, 300, 81, 0)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertRevert(r, "no measurable improvement")
 
     def test_guard_only_regression_reverts(self):
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
-        self.cand["sets"]["nemotron-holdout"] = counts(300, 300, 35, 1)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["guard-a-holdout"] = counts(300, 300, 35, 1)
         r = run_gate(self.policy, self.base, self.cand)
-        self.assertRevert(r, "nemotron-holdout")
+        self.assertRevert(r, "guard-a-holdout")
 
     def test_recall_only_allows_no_tp_loss(self):
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
-        self.cand["sets"]["multilingual-holdout"] = counts(825, 0, 19, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["recall-a-holdout"] = counts(825, 0, 19, 0)
         r = run_gate(self.policy, self.base, self.cand)
-        self.assertRevert(r, "multilingual-holdout")
+        self.assertRevert(r, "recall-a-holdout")
 
     def test_report_only_never_gates(self):
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
         self.cand["sets"]["stress"] = counts(180, 196, 1, 190)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertAccept(r)
 
     def test_missing_set_is_an_input_error(self):
-        del self.cand["sets"]["llmail-holdout"]
+        del self.cand["sets"]["primary-a-holdout"]
         r = run_gate(self.policy, self.base, self.cand)
-        self.assertInputError(r, "llmail-holdout")
+        self.assertInputError(r, "primary-a-holdout")
 
     def test_unknown_role_is_an_input_error(self):
-        self.policy["sets"]["llmail"]["role"] = "PRIMARYISH"
+        self.policy["sets"]["primary-a"]["role"] = "PRIMARYISH"
         r = run_gate(self.policy, self.base, self.cand)
         self.assertInputError(r, "PRIMARYISH")
 
     def test_inconsistent_counts_are_an_input_error(self):
-        self.cand["sets"]["llmail"]["tp"] = -1
+        self.cand["sets"]["primary-a"]["tp"] = -1
         r = run_gate(self.policy, self.base, self.cand)
-        self.assertInputError(r, "llmail")
+        self.assertInputError(r, "primary-a")
 
 
 class TestSealedSet(Base):
@@ -226,7 +226,7 @@ class TestSealedSet(Base):
             m["sealed_evaluations"] = 1
         self.base["sets"]["sealed-2026q4"] = counts(200, 200, 100, 5)
         self.cand["sets"]["sealed-2026q4"] = counts(200, 200, 98, 5)
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertRevert(r, "sealed-2026q4")
 
@@ -241,31 +241,31 @@ class TestSealedSet(Base):
 class TestLatency(Base):
     def test_latency_only_improvement_is_accepted(self):
         self.cand["change_kind"] = "latency"
-        self.cand["sets"]["browsesafe"]["p95_ms"] = 44.0
-        self.cand["sets"]["browsesafe-holdout"]["p95_ms"] = 48.0
+        self.cand["sets"]["primary-b"]["p95_ms"] = 44.0
+        self.cand["sets"]["primary-b-holdout"]["p95_ms"] = 48.0
         r = run_gate(self.policy, self.base, self.cand)
         self.assertAccept(r)
         self.assertIn("latency", r.text)
 
     def test_latency_only_needs_identical_labeled_counts(self):
-        self.cand["sets"]["browsesafe"]["p95_ms"] = 44.0
-        self.cand["sets"]["nemotron"] = counts(300, 300, 35, 0)
+        self.cand["sets"]["primary-b"]["p95_ms"] = 44.0
+        self.cand["sets"]["guard-a"] = counts(300, 300, 35, 0)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertRevert(r, "no measurable improvement")
 
     def test_noise_is_not_an_improvement(self):
-        self.cand["sets"]["browsesafe"]["p95_ms"] = 67.0  # -4 %, inside 10 % noise
+        self.cand["sets"]["primary-b"]["p95_ms"] = 67.0  # -4 %, inside 10 % noise
         r = run_gate(self.policy, self.base, self.cand)
         self.assertRevert(r, "no measurable improvement")
 
     def test_latency_increase_without_gain_reverts(self):
-        self.cand["sets"]["browsesafe"]["p95_ms"] = 90.0
+        self.cand["sets"]["primary-b"]["p95_ms"] = 90.0
         r = run_gate(self.policy, self.base, self.cand)
         self.assertRevert(r, "latency")
 
     def test_over_budget_reverts_even_with_gain(self):
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
-        self.cand["sets"]["browsesafe"]["p95_ms"] = 120.0
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["primary-b"]["p95_ms"] = 120.0
         r = run_gate(self.policy, self.base, self.cand)
         self.assertRevert(r, "budget")
 
@@ -273,25 +273,25 @@ class TestLatency(Base):
 class TestHygiene(Base):
     def test_stale_version_label_is_refused(self):
         self.cand["version"] = self.base["version"]
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertInputError(r, "version")
 
     def test_dirty_tree_is_refused(self):
         self.cand["git"]["dirty"] = True
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertInputError(r, "dirty")
 
     def test_new_errors_revert(self):
         self.cand["errors"] = 1
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertRevert(r, "errors")
 
     def test_corpus_drop_without_fp_reduction_reverts(self):
         self.cand["corpus_findings"] = 10900
-        self.cand["sets"]["llmail"] = counts(300, 160, 250, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 250, 0)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertRevert(r, "corpus")
 
@@ -315,11 +315,11 @@ class TestPairedBootstrap(Base):
         super().setUp()
         self.policy["gates"]["bootstrap"]["enabled"] = True
         self.policy["gates"]["bootstrap"]["resamples"] = 500
-        self.base["sets"]["llmail"]["predictions"] = predictions(300, 160, 240, 0)
+        self.base["sets"]["primary-a"]["predictions"] = predictions(300, 160, 240, 0)
 
     def with_cand(self, tp):
-        self.cand["sets"]["llmail"] = counts(300, 160, tp, 0)
-        self.cand["sets"]["llmail"]["predictions"] = predictions(300, 160, tp, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, tp, 0)
+        self.cand["sets"]["primary-a"]["predictions"] = predictions(300, 160, tp, 0)
 
     def test_one_sample_gain_is_inside_the_noise(self):
         self.with_cand(241)
@@ -338,14 +338,14 @@ class TestPairedBootstrap(Base):
         self.assertEqual(a.out, b.out)
 
     def test_missing_predictions_fail_explicitly(self):
-        self.cand["sets"]["llmail"] = counts(300, 160, 270, 0)
+        self.cand["sets"]["primary-a"] = counts(300, 160, 270, 0)
         r = run_gate(self.policy, self.base, self.cand)
         self.assertInputError(r, "predictions")
 
     def test_predictions_must_match_counts(self):
         self.with_cand(270)
-        self.cand["sets"]["llmail"]["tp"] = 269
-        self.cand["sets"]["llmail"]["fn"] = 31
+        self.cand["sets"]["primary-a"]["tp"] = 269
+        self.cand["sets"]["primary-a"]["fn"] = 31
         r = run_gate(self.policy, self.base, self.cand)
         self.assertInputError(r, "predictions")
 
