@@ -4,7 +4,8 @@
 # Subcommands:
 #   init <path>                       Run install.sh on a repo or workbench
 #   state                             Show current phase/team/budget
-#   state set <k> <v>                 Update a state.yml field
+#   state set <k> <v>                 Update a state.yml field (phase routes to approve)
+#   approve <phase> [--reason "<t>"]  Human-only: validate and record a phase transition
 #   detect-teams <path>               Auto-detect folder→team mapping
 #                                     (Go modules → coding, ansible/ → infra,
 #                                      *_test.go → testing, docs/ → docs,
@@ -47,6 +48,7 @@ from subprocess import run
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks" / "lib"))
 from osengineer_common import read_state_map, write_state_field
+import phase_gate
 
 SCRIPT_DIR = Path(__file__).resolve().parent.parent
 VERSION_FILE = SCRIPT_DIR / "VERSION"
@@ -136,6 +138,12 @@ def cmd_state(args):
             sys.exit(1)
         key = args[1]
         value = " ".join(args[2:])
+        if key == "phase":
+            cmd_approve([value])
+            return
+        if key in phase_gate.RECORD_FIELDS:
+            print(f"osengineer: {key} is written by `osengineer approve` only", file=sys.stderr)
+            sys.exit(1)
         write_state_field(repo_root, key, value)
         print(f"set {key} = {value}")
         return
@@ -148,6 +156,28 @@ def cmd_state(args):
         sys.exit(0)
     for k, v in state.items():
         print(f"{k}: {v}")
+
+
+def cmd_approve(args):
+    """Human-only phase transition (planning/PROTOCOL.md, "Phase gate")."""
+    flags = parse_flags(args[1:], ["reason"]) if len(args) > 1 else {}
+    if not args or args[0].startswith("--"):
+        print('Usage: osengineer approve <phase> [--reason "<text>"]', file=sys.stderr)
+        sys.exit(1)
+    if os.environ.get("OSE_HEADLESS") == "1":
+        print("osengineer approve: refused in a headless run (OSE_HEADLESS=1) — "
+              "phase transitions need a human", file=sys.stderr)
+        sys.exit(1)
+    repo_root = find_repo_root()
+    if not repo_root or not (repo_root / ".osengineer" / "state.yml").exists():
+        print("osengineer approve: no .osengineer/state.yml in this git repo", file=sys.stderr)
+        sys.exit(1)
+    try:
+        entry = phase_gate.approve(repo_root, args[0], flags.get("reason"))
+    except ValueError as exc:
+        print(f"osengineer approve: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"approved {entry['from']} -> {entry['to']} by {entry['by']}")
 
 
 def cmd_init(args):
@@ -1235,8 +1265,10 @@ def cmd_explain(args):
             "Phase lifecycle: idle → discuss → plan → execute → verify → accepted.\n"
             "Micro-Phase (Hotfix): idle → micro (or hotfix) → accepted (lightweight cycle).\n"
             "`blocked` is a side-state entered on budget overrun or hard-rule violation.\n"
-            "Transitions are gated by hooks: no execute without PHASE_PLAN.md, no\n"
-            "verify without green test run, no merge without VERIFICATION.md (or MICRO_PLAN.md)."
+            "Only a human changes the phase: `osengineer approve <phase>` checks the\n"
+            "transition table and the artifact (PHASE_PLAN.md for execute, VERIFICATION.md\n"
+            "or MICRO_PLAN.md to close) and logs to .osengineer/approvals.jsonl. The\n"
+            "hooks refuse the agent `approve`, `state set phase` and state.yml writes."
         ),
         "hooks": (
             "Ten enforcement hooks live in hooks/osEngineer-*. install.sh copies\n"
@@ -1297,7 +1329,9 @@ def usage():
         "  osengineer init <path>                  Initialise a repo with osEngineer wiring\n"
         "  osengineer upgrade                      Re-run installer against this repo; reconcile version state\n"
         "  osengineer state                        Show .osengineer/state.yml fields\n"
-        "  osengineer state set <k> <v>            Update a state.yml field\n"
+        "  osengineer state set <k> <v>            Update a state.yml field (phase routes to approve)\n"
+        "  osengineer approve <phase> [--reason \"<text>\"]\n"
+        "                                          Human-only: validate and record a phase transition\n"
         "  osengineer detect-teams <path>          Auto-detect team→folder mapping (outputs YAML)\n"
         "  osengineer handoff open --from <t> --to <t> --slug <s> [--closes-when \"<text>\"]\n"
         "  osengineer handoff close <id> [--reason \"<text>\"]\n"
@@ -1349,6 +1383,8 @@ def main():
         cmd_init(rest)
     elif sub == "state":
         cmd_state(rest)
+    elif sub == "approve":
+        cmd_approve(rest)
     elif sub == "detect-teams":
         cmd_detect_teams(rest)
     elif sub == "handoff":

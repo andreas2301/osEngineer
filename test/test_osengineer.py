@@ -90,10 +90,10 @@ class TestState(unittest.TestCase):
         self.assertIn("current_team: coding", result.stdout)
 
     def test_sets_state_field(self):
-        result = run(["state", "set", "phase", "execute"], cwd=str(self.tmp))
+        result = run(["state", "set", "phase", "discuss"], cwd=str(self.tmp))
         self.assertEqual(result.returncode, 0)
         content = (self.tmp / ".osengineer" / "state.yml").read_text()
-        self.assertIn("phase: execute", content)
+        self.assertIn("phase: discuss", content)
 
 
 class TestHandoff(unittest.TestCase):

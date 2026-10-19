@@ -25,14 +25,14 @@ Run a Micro-Phase (lightweight hotfix/feature execution) for a small change to b
 
 ## Steps
 
-1. **Initiate Micro-Phase:** Set state field `phase: micro` (or `hotfix`).
+1. **Initiate Micro-Phase:** Ask the human to run `osengineer approve micro` (or `hotfix`).
 2. **Create Combined Artifact:** Write `planning/active/phase-XXX/MICRO_PLAN.md` using the combined template.
 3. **Execute and Commit:**
    - Write failing test (if code change).
    - Write code to fix.
    - Commit with Conventional Commit tags.
 4. **Verify:** Check off the verification criteria inside `MICRO_PLAN.md`.
-5. **Accept:** Complete the change and transition the state back to `idle`.
+5. **Accept:** Ask the human to run `osengineer approve accepted` (or `idle`); it needs `MICRO_PLAN.md`.
 
 ## Example
 

@@ -35,5 +35,6 @@ Use the template at `planning/TEMPLATES/VERIFICATION.md`. Include:
 
 ## 6. Set state
 
-If all PASS: write `osengineer state set phase verified`. The judge takes over from here.
-If any FAIL: write `osengineer state set phase blocked` and record the failures in `.osengineer/BLOCKED.md`.
+If all PASS: report it; the judge takes over, and the human runs `osengineer approve accepted`.
+If any FAIL: record the failures in `.osengineer/BLOCKED.md` and ask the human to run `osengineer approve blocked`.
+The verifier cannot change the phase itself (planning/PROTOCOL.md "Phase Gate").

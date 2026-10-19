@@ -53,7 +53,8 @@ mid-stream, the developer agent should abort and re-route to `/osEngineer:featur
 
 For ticket `<TICK>` referencing phase plan `phase-NNN-<slug>`:
 
-1. **Transition state.** `osengineer state set phase execute`. Architect
+1. **Transition state.** Ask the human to run `osengineer approve execute`
+   (the agent cannot; see planning/PROTOCOL.md "Phase Gate"). Architect
    routes to the team that owns the affected paths (per repo `AGENTS.md`).
 2. **Create branch.** `git switch -c fix/<TICK>-<slug>` off the default branch.
 3. **Per task in PHASE_PLAN.md:**
@@ -66,7 +67,7 @@ For ticket `<TICK>` referencing phase plan `phase-NNN-<slug>`:
      Message: `refactor(<scope>): <description>`.
    - Each commit notes a rollback hint in its body (`Refs: ADR-NNN`).
 4. **Run full test suite** on the branch. Capture output for VERIFICATION.md.
-5. **Transition to verify.** `osengineer state set phase verify`.
+5. **Transition to verify.** Ask the human to run `osengineer approve verify`.
    Architect dispatches the **verifier** agent, which re-walks each
    acceptance criterion (independent of the developer's claims) and
    writes `planning/active/<phase>/VERIFICATION.md`.
