@@ -244,7 +244,7 @@ Every directory has a `README.md` (human-readable) and `INDEX.md` (bot-navigable
 3. **Optional agents are compacted** — Only load when explicitly invoked.
 4. **Spec-first, test-first, docs-first** — No code without a contract. No commit without a test.
 5. **Graphify is the source of truth** — Query the graph before grepping.
-6. **Token budgets are hard rules** — Exceed 150% of estimate → abort with handoff.
+6. **Budgets are hard rules** — reach 150% of the task budgets (tool calls, wall time) → the circuit breaker blocks the phase until a human approves.
 7. **Live system is read-only for source code** — Workbench → PR. Hotfixes require backport.
 8. **Environment-aware execution** — Adapts to terminal, IDE, web, or daemon contexts.
 9. **Continuous evolution via HITL** — Every 5 phases: "How can I serve you better?"

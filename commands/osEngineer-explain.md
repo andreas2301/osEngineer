@@ -121,7 +121,7 @@ Not all agents run for every task. The dispatch rules:
 
 ### Safety Rules
 
-- **Token budget hard limit:** Exceed 150% of estimate → abort with structured handoff.
+- **Budget hard limit:** Reach 150% of the task budgets (tool calls, wall time) → the circuit breaker blocks the phase and writes `.osengineer/BLOCKED.md`.
 - **Live system read-only:** Never edit source on the live system directly. Workbench → PR.
 - **Circuit breakers:** 3 consecutive failures on same agent → escalate to human.
 - **HITL gates:** Deployments, schema changes, and auth modifications require explicit approval.

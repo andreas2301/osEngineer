@@ -6,6 +6,39 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Added — budget circuit breaker (it was documented but not implemented)
+
+- **Per-task budgets in PHASE_PLAN.md.** The frontmatter is now a JSON object
+  (YAML 1.2 flow syntax) validated by `repo_profile/phase_plan.py` against
+  `specs/SCHEMAS/phase-plan.schema.json`. The schema is closed, and every task
+  needs a `budget`: `tool_calls` and `wall_minutes` are enforced, `tokens` is
+  optional and only recorded. `token_budget` and `token_estimate` are removed.
+  Breaking: existing plans need the new frontmatter.
+- **The plan is validated where it is used, and invalid plans are refused.**
+  This covers headless `osengineer run`, plan-gated slash commands
+  (prompt-guard), non-plan edits in `execute` (pre-edit-guard) and the
+  post-tool meter. More than one active plan is an error.
+- **Metering** (`hooks/lib/osengineer_budget.py`). While the phase is
+  execute, micro or hotfix, post-tool counts tool calls and wall time (gaps
+  between calls up to `budget.idleSeconds`) per `phase_id`. It also adds
+  tokens from the Claude Code transcript. The counters are stored as
+  `budget_*` in `runtime.yml`. `osengineer run` adds the run's wall time for
+  every harness and writes a `usage` block to `RUN.json`: tool calls, wall
+  time, tokens, the estimate, the ratio, the timeout and the breaker result.
+- **The breaker.** It warns once at `budget.warnPct` (default 100). At
+  `budget.tripPct` (default 150) it:
+  - writes `.osengineer/BLOCKED.md` with the evidence;
+  - logs `by: circuit-breaker` to `approvals.jsonl`;
+  - sets `phase: blocked`.
+  Edits, every Bash call and `osengineer run` are then refused. Only a human
+  can leave `blocked`, by running `osengineer approve`. Headless runs are
+  given at most the wall time left before `tripPct`.
+- **The judge's cost rule and the docs now match what is enforced.** The old
+  rules were "tokens > 200%" for BLOCK and "≤ 150%" for MERGE. Both now use the
+  measured ratio against `budget.tripPct`. Tokens are informational only. The
+  updated docs are `trust/circuit-breakers.md`, the hook headers and README,
+  and the planner, verifier and budget-tracker references.
+
 ### Changed — evolve: the loop proposes, the owner decides
 
 - **`osengineer evolve accept` no longer writes into the shared skill home.**

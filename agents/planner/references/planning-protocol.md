@@ -31,12 +31,13 @@ Rules for tasks:
 
 ## Step 4: Token Budgeting
 
-```
-total_estimate = sum(task_estimates)
-circuit_breaker = total_estimate * 1.5
-```
+Give every task a `budget` in the PHASE_PLAN frontmatter: `tool_calls` and
+`wall_minutes` (enforced), optionally `tokens` (recorded only). The phase
+budget is their sum; the circuit breaker trips at `budget.tripPct` (150%) of
+it (trust/circuit-breakers.md). The frontmatter must validate against
+`specs/SCHEMAS/phase-plan.schema.json` or execution is refused.
 
-If total_estimate > 20K tokens, split into multiple phases.
+If the phase budget exceeds about 150 tool calls or 90 wall minutes, split into multiple phases.
 
 ## Step 5: Validation
 

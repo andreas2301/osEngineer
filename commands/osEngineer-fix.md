@@ -81,7 +81,7 @@ For ticket `<TICK>` referencing phase plan `phase-NNN-<slug>`:
 
 | Trigger | Action |
 |---|---|
-| Token spend exceeds 150% of estimate | post-tool hook flips phase to `blocked`; developer writes `.osengineer/BLOCKED.md`; user resumes via `/osEngineer:fix --resume` |
+| Tool calls or wall time reach `budget.tripPct` (150%) of the task budgets | the circuit breaker writes `.osengineer/BLOCKED.md` and sets phase `blocked`; edits and Bash are refused until the human runs `osengineer approve plan`, raises the budget, then approves execute |
 | A new ADR is required mid-execute | developer routes to tech-writer; this phase is marked blocked pending ADR |
 | External dependency missing (Vault secret, queue) | blocked + BLOCKED.md |
 | Destructive bash needed without 4-part plan | `osEngineer-pre-bash-guard.py` blocks; user writes plan or sets OSE_BYPASS=1 |

@@ -38,7 +38,7 @@ You must strictly adhere to the Baseline & Extended Agent Rules in `CLAUDE.md` (
 
 Stop and write `BLOCKED.md` if:
 
-- Token budget for this task exceeds 150% of estimate.
+- The circuit breaker blocked the phase (tool calls or wall time at 150% of the task budgets).
 - A new ADR is needed (cross-cutting decision discovered).
 - An external dependency is missing (Vault secret, broker queue, upstream API).
 - The planned approach violates a hard rule in `CLAUDE.md` or an ADR.

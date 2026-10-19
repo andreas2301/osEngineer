@@ -28,15 +28,17 @@ You are the budget-tracker agent in osEngineer. Phases overrun budgets. You make
 
 ### 1. Read Estimate
 
-From `PHASE_PLAN.md`:
-```yaml
-total_estimate: 14500  # tokens
-circuit_breaker: 21750  # 150%
-```
+Sum the task `budget`s in the `PHASE_PLAN.md` frontmatter (`tool_calls`,
+`wall_minutes`, optional `tokens`); the circuit breaker trips at
+`budget.tripPct` (150%) of that sum (trust/circuit-breakers.md).
 
 ### 2. Measure Actual
 
-If running in a system that exposes token usage (e.g., zeroclaw logs):
+Read `budget_tool_calls`, `budget_wall_seconds`, `budget_tokens` and
+`budget_ratio_pct` with `osengineer state`, and the `usage` block of
+`.osengineer/runs/<id>/RUN.json` for headless runs.
+
+If running in a system that exposes more token usage (e.g., zeroclaw logs):
 ```bash
 # Extract from zeroclaw logs
 grep -E "tokens_used|input_tokens|output_tokens" /var/log/zeroclaw/*.log | tail -20

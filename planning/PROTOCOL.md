@@ -40,8 +40,8 @@ Cross-repo, multi-session phase lifecycle. State persists in `.osengineer/state.
      - Write code (`feat(scope): green — <one-line>`)
      - Refactor (`refactor(scope): <description>`)
   3. Atomic commits only. No squashing until merge.
-- **Token budget:** Per-task estimate × 1.5 (circuit-breaker).
-- **Abort rule:** If a task exceeds 150% of estimate, stop, write `BLOCKED.md`, and hand off.
+- **Budget:** Per-task `budget` (`tool_calls`, `wall_minutes`, optional `tokens`) in the PHASE_PLAN frontmatter.
+- **Abort rule:** The circuit breaker (trust/circuit-breakers.md) trips at `budget.tripPct` (150%) of the phase budget: it writes `.osengineer/BLOCKED.md`, sets phase `blocked`, and the guards stop edits and Bash until a human approves.
 
 ### 4. Verify
 - **Input:** Executed branch.

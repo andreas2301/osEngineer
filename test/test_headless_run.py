@@ -10,9 +10,9 @@ Safety properties that only matter headlessly, and are asserted here:
   * OSE_HEADLESS=1 must reach the harness child, because that is what makes the
     denylist absolute (see test_selfauth_guard). A runner that forgets it gives
     the agent back its self-authorisation route.
-  * Budget is enforced by the runner, out of process. post-tool.py's docstring
-    promises a 150% circuit-breaker, BLOCKED.md and a phase transition; its body
-    does none of that, so nothing in-session can be trusted to stop a runaway.
+  * Budget is also enforced by the runner, out of process: the harness gets at
+    most the wall time left before budget.tripPct (test_circuit_breaker), so a
+    harness without the post-tool hook is still bounded.
   * A run must be resumable/auditable: a transcript on disk, not just stdout.
 
 Tests drive a FAKE harness binary so nothing here spends tokens or needs network.
