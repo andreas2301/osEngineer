@@ -17,6 +17,8 @@ import unittest
 import uuid
 from pathlib import Path
 
+from test_headless_run import HeadlessBase, make_repo, run_cli
+
 ROOT = Path(__file__).resolve().parent.parent
 HOOKS = ROOT / "hooks"
 
@@ -182,6 +184,55 @@ class Breaker(BreakerBase):
     def test_bash_is_not_refused_outside_blocked(self):
         bash = self.hook("pre-bash-guard", {"tool_name": "Bash", "tool_input": {"command": "ls"}})
         self.assertEqual(bash.stdout.strip(), "")
+
+
+class HeadlessRunMetering(HeadlessBase):
+    """`osengineer run` meters wall time for every harness, records usage in
+    RUN.json, and caps the child at the wall budget left before tripPct."""
+
+    def repo(self, runtime=None, wall_minutes=30):
+        repo = make_repo(self.tmp)
+        (repo / ".osengineer/.gitignore").write_text("runtime.yml\n.state.lock\n")
+        (repo / "planning/active/phase-1/PHASE_PLAN.md").write_text(
+            plan_text(tool_calls=50, wall_minutes=wall_minutes, phase_id="phase-001-test"))
+        if runtime:
+            (repo / ".osengineer/runtime.yml").write_text(runtime)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "setup"], cwd=repo, check=True)
+        return repo
+
+    def run_json(self, repo):
+        (run_dir,) = [d for d in (repo / ".osengineer/runs").iterdir() if d.is_dir()]
+        return json.loads((run_dir / "RUN.json").read_text())
+
+    def test_run_records_usage_against_the_estimate(self):
+        repo = self.repo()
+        proc = run_cli(repo, ["run", "fix", "T"], self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        usage = self.run_json(repo)["usage"]
+        self.assertEqual(usage["phase_id"], "phase-001-test")
+        self.assertEqual(usage["estimate"], {"tool_calls": 50, "wall_minutes": 30, "tokens": None})
+        self.assertEqual(usage["tool_calls"], 0)
+        self.assertIsNone(usage["tokens"])
+        self.assertGreaterEqual(usage["wall_seconds"], 0)
+        self.assertIn("ratio_pct", usage)
+        self.assertIsNone(usage["breaker"])
+        rt = runtime_map(repo)
+        self.assertEqual(rt["budget_phase"], "phase-001-test")
+        self.assertGreater(float(rt["budget_wall_seconds"]), 0)
+
+    def test_run_is_capped_at_the_remaining_wall_budget_and_trips(self):
+        # 1 minute budget, trip at 150% = 90 s, 89 s already used: 1 s left.
+        repo = self.repo("budget_phase: phase-001-test\nbudget_wall_seconds: 89.0\nbudget_tool_calls: 0\n",
+                         wall_minutes=1)
+        proc = run_cli(repo, ["run", "fix", "T"], self.env(FAKE_HARNESS_MODE="sleep"))
+        self.assertNotEqual(proc.returncode, 0)
+        data = self.run_json(repo)
+        self.assertEqual(data["status"], "timeout")
+        self.assertEqual(data["usage"]["breaker"], "tripped")
+        self.assertLessEqual(data["usage"]["timeout_seconds"], 1)
+        self.assertIn("phase: blocked", (repo / ".osengineer/state.yml").read_text())
+        self.assertIn("headless run", (repo / ".osengineer/BLOCKED.md").read_text())
 
 
 if __name__ == "__main__":

@@ -48,6 +48,9 @@ mode = os.environ.get("FAKE_HARNESS_MODE", "ok")
 if mode == "fail":
     print("boom", file=sys.stderr)
     sys.exit(3)
+if mode == "sleep":
+    import time
+    time.sleep(float(os.environ.get("FAKE_HARNESS_SLEEP", "5")))
 print(json.dumps({"type": "result", "text": "done"}))
 sys.exit(0)
 """
