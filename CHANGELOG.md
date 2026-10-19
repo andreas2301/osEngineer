@@ -6,6 +6,14 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-19
+
+0.5.0 was never tagged. This release ships both: loop 2 (enforced controls) first, then
+the 0.5.0 content under "Included from the untagged 0.5.0".
+
+**Breaking:** PHASE_PLAN frontmatter is now JSON (validated against its schema); convert
+existing YAML plans. Phase changes need the human-run `osengineer approve`.
+
 ### Added
 
 #### Ponytail rules: reuse ladder, never-cut list, review order, shortcut ledger
@@ -153,9 +161,9 @@ this project adheres to semantic versioning.
   the same way, `OSE_BYPASS` included. BLOCKED.md stays tracked, not
   gitignored, so the human sees it.
 
-## [0.5.0] — unreleased (date set when tagged)
+### Included from the untagged 0.5.0
 
-### Added — evaluation harness for detectors, classifiers and scanners
+#### Added — evaluation harness for detectors, classifiers and scanners
 
 - **`/osEngineer:recipe-eval-harness`** (`commands/osEngineer-recipe-eval-harness.md`):
   a nine-step recipe that sets up a measured keep/revert improvement loop for a
@@ -206,7 +214,7 @@ this project adheres to semantic versioning.
   version-label hygiene, latency creep, report-branch sprawl, citation
   verification, and the regex ceiling (arXiv:2510.01529).
 
-### Added — repo profile (scoped coding skill and portable task runtime)
+#### Added — repo profile (scoped coding skill and portable task runtime)
 
 - **Repo-profile mode in the hooks.** A repository opts in with
   `.osengineer/profile.json` (`"profile": "repo"`) or
@@ -234,7 +242,7 @@ this project adheres to semantic versioning.
 - **Usage learning receipts** (`repo_profile/learning.py`): record, summarize
   and compare sanitized task receipts.
 
-### Added — Codex CLI as a supported harness
+#### Added — Codex CLI as a supported harness
 
 - **`RUNTIMES=codex`** (menu option 3) wires the per-repo `.codex/hooks.json`
   with the session-start, prompt, edit and Bash guards, installs the commands
@@ -253,7 +261,7 @@ this project adheres to semantic versioning.
   runner executable that gets the `codex exec` protocol in `repo_runtime`.
   Before, this name was hard-coded.
 
-### Added — one profile configuration with fact detection
+#### Added — one profile configuration with fact detection
 
 - **`repo_profile/config.py`** is the single loader for
   `.osengineer/profile.json`, shared by the hooks, `bin/osengineer`,
@@ -282,7 +290,7 @@ this project adheres to semantic versioning.
   `providers.linear.endpoint`, `providers.notion.endpoint` and `apiVersion`,
   and `providers.secrets.schemes` (`op`, `vault`; the default is `op` only).
 
-### Changed
+#### Changed
 
 - **Migrated the entire enforcement layer from Node.js to Python 3.** All
   Claude/Kimi hooks (`osEngineer-prompt-guard`, `-pre-edit-guard`,
@@ -312,7 +320,7 @@ this project adheres to semantic versioning.
   `policy` or `planDirectory`. Uninstall keeps user keys and removes only the
   repo-profile switch.
 
-### Fixed
+#### Fixed
 
 - The PostToolUse hook now records the statusline bridge value as
   `context_used_pct` (context-window occupancy) instead of `budget_used`
