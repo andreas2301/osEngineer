@@ -17,6 +17,7 @@ osEngineer enforcement layer. Installed by `install.sh`. All hooks honour
 - [osEngineer-read-guard.py](osEngineer-read-guard.py) — `PreToolUse` on Write/Edit: advisory "read before edit" reminder (no-op on Claude Code itself which enforces natively)
 - [osEngineer-post-tool.py](osEngineer-post-tool.py) — `PostToolUse`: track context window; mirror used_pct into `state.yml`; emit warnings at `context.warnPct` / `criticalPct` remaining (default 35% / 25%)
 - [osEngineer-session-start.py](osEngineer-session-start.py) — `SessionStart`: emit banner with phase / team / budget / open handoffs / auto-nudge
+- [osEngineer-subagent-start.py](osEngineer-subagent-start.py) — `SubagentStart`: re-inject the same banner plus the agent rules (`templates/agent-rules.md`) into every subagent (Claude Code, Codex; Kimi drops SubagentStart output)
 
 ## Statusline
 

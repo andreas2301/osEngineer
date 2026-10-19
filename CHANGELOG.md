@@ -23,6 +23,36 @@ this project adheres to semantic versioning.
   on a non-git or dirty skill home, on a proposal with missing fields, and on
   an existing pattern or branch. Nothing is ever merged automatically.
 
+### Added
+
+- **SubagentStart hook** (`hooks/osEngineer-subagent-start.py`): SessionStart
+  context never reaches subagents, so every subagent now gets the session-start
+  state banner (shared via `osengineer_common.state_banner`) plus the agent
+  rules. Wired for Claude Code (`.claude/settings.json`) and Codex
+  (`.codex/hooks.json`). Kimi runs SubagentStart hooks but drops their output,
+  so it is not wired there; this gap is documented.
+- **Agent rules from one source** (`templates/agent-rules.md`): install.sh
+  writes it into CLAUDE.md, and the prompt guard's re-injection and the
+  subagent-start hook read it. The inline copies in install.sh, the prompt
+  guard and the developer agent are gone. New rules: push back with a simpler
+  approach, surface multiple interpretations, remove only what your own change
+  made unused, match the existing style, trace every changed line to the
+  request (also a reviewer checklist item), a trivial-task exception, fail
+  loudly at real boundaries with no defensive code for impossible states, and a
+  **Skipped / risks** footer closing every agent report.
+- `test/test_docs_drift.py`: SKILL.md paths, hook names in live docs, commands
+  named by hooks, and the judge verdict set must match the tree.
+
+### Fixed
+
+- SKILL.md listed flat `agents/<name>.md` paths; it now lists `agents/<name>/AGENT.md`.
+- Live docs (`docs/premortem_analysis.md`, `trust/denylist.md`, `agents/INDEX.md`)
+  named Node-era `.js` hooks; they now name the `.py` hooks.
+- The post-tool critical warning pointed to `/osEngineer:pause-work`, which never
+  existed; it now advises a checkpoint commit.
+- The judge frontmatter promised BLOCK / FLAG / PASS while the body, merge
+  criteria and override protocol use MERGE / BLOCK; it is MERGE / BLOCK throughout.
+
 ## [0.5.0] — unreleased (date set when tagged)
 
 ### Added — evaluation harness for detectors, classifiers and scanners

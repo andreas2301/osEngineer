@@ -254,6 +254,57 @@ def planning_dir(repo_root):
     return Path(repo_root) / "planning"
 
 
+def read_evolution_counter(repo_root):
+    p = Path(repo_root) / ".osengineer" / "evolution-counter.yml"
+    if not p.exists():
+        return None
+    try:
+        m = re.search(r"^phases_since_last_evolution:\s*(\d+)", p.read_text(), re.MULTILINE)
+        return int(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+def state_banner(repo_root):
+    """Phase/team/budget/handoff banner shared by the SessionStart and
+    SubagentStart hooks; None when the repo has no state.yml."""
+    state = read_state_map(repo_root)
+    if not state:
+        return None
+
+    handoffs = count_handoffs(repo_root)
+    counter = read_evolution_counter(repo_root)
+
+    repo_profile = is_repo_profile(repo_root)
+    lines = ["## Repo profile state" if repo_profile else "## osEngineer state"]
+    lines.append(f"- phase: {state.get('phase') or 'idle'}")
+    if state.get("current_team"):
+        lines.append(f"- team: {state['current_team']}")
+    if state.get("budget_used") is not None:
+        lines.append(f"- budget used: {state['budget_used']}%")
+    if state.get("context_used_pct") is not None:
+        lines.append(f"- context window used: {state['context_used_pct']}% (not task spend)")
+    if handoffs > 0:
+        lines.append(f"- open handoffs: {handoffs}")
+    if repo_profile:
+        lines.append(f"- policy: {profile_setting(repo_root, 'policy')}; plan references: {profile_setting(repo_root, 'planDirectory')}/; "
+                     f"skill registry: {profile_setting(repo_root, 'skillRegistry')}")
+    if not repo_profile and counter is not None and counter >= 5:
+        lines.append(f"- ⚙ {counter} phases since last /osEngineer:evolve — consider running it to surface improvement proposals.")
+    if state.get("phase") == "blocked":
+        lines.append("- ⚠ phase is BLOCKED. See .osengineer/BLOCKED.md for resume instructions.")
+    return "\n".join(lines)
+
+
+# Single source of the agent rules: install.sh writes it into CLAUDE.md and
+# the hooks re-inject it where CLAUDE.md context does not reach.
+AGENT_RULES = Path(__file__).resolve().parents[2] / "templates" / "agent-rules.md"
+
+
+def agent_rules():
+    return AGENT_RULES.read_text().strip()
+
+
 def datetime_utc_iso():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()

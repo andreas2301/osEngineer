@@ -1,6 +1,6 @@
 # osEngineer denylist (machine-readable contract)
 
-This file is the **single source of truth** for which Bash commands `hooks/osEngineer-pre-bash-guard.js` blocks when no active 4-part plan exists at `.osengineer/current-plan.md`. The hook reads the JSON block below at runtime — edit this file to change enforcement; no codegen step required.
+This file is the **single source of truth** for which Bash commands `hooks/osEngineer-pre-bash-guard.py` blocks when no active 4-part plan exists at `.osengineer/current-plan.md`. The hook reads the JSON block below at runtime — edit this file to change enforcement; no codegen step required.
 
 The JSON block must remain parseable JSON inside a single \`\`\`json … \`\`\` fence. The hook tolerates whitespace and comments outside the fence but treats the JSON itself strictly.
 
