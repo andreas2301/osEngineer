@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # osEngineer-pre-bash-guard.py — Claude PreToolUse hook on Bash.
 #
+# Blocks every Bash call while phase is blocked (the budget circuit breaker
+# trips into blocked; see trust/circuit-breakers.md).
 # Blocks destructive bash commands without an active 4-part plan
 # (.osengineer/current-plan.md). The 4-part plan must contain Touch/Change/
 # Impact/Rollback sections.
@@ -202,11 +204,21 @@ def main():
         if not headless:
             return
 
+    state = read_state_map(repo_root)
+    if state and state.get("phase") == "blocked":
+        # The budget circuit breaker (or a human) stopped the phase; nothing
+        # runs until a human moves it out of blocked.
+        emit_block(
+            "PreToolUse",
+            "osEngineer: Bash denied while phase is blocked (see .osengineer/BLOCKED.md). "
+            "A human must approve leaving blocked first.",
+        )
+        return
+
     globals_ = load_patterns()
     repo_ov_path = Path(repo_root) / ".osengineer" / "denylist-overrides.json"
     repo_ov = load_override_file(repo_root, repo_ov_path, "repo")
 
-    state = read_state_map(repo_root)
     current_team = state.get("current_team") if state else None
     team_ov = None
     if current_team:

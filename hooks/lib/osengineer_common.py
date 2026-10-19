@@ -127,42 +127,67 @@ def path_matches_any(file_path, globs):
     return False
 
 
-def write_state_field(repo_root, key, value):
+def _is_runtime_field(key):
+    # budget_* are the circuit breaker's per-tool-call usage counters.
+    return key in RUNTIME_FIELDS or key.startswith("budget_")
+
+
+def update_state_fields(repo_root, fn):
+    """Atomically apply fn(current state map) -> {key: value} under the state lock.
+
+    Each key goes to runtime.yml (volatile counters) or state.yml, as with
+    write_state_field. Holding one lock across read and write keeps counters
+    exact when hooks for parallel tool calls race.
+    """
     d = Path(repo_root) / ".osengineer"
     d.mkdir(parents=True, exist_ok=True)
-    state_path = d / ("runtime.yml" if key in RUNTIME_FIELDS else "state.yml")
     lock_path = d / ".state.lock"
-    tmp_name = None
     with open(lock_path, "a") as lock_f:
         fcntl.flock(lock_f, fcntl.LOCK_EX)
         try:
-            raw = state_path.read_text() if state_path.exists() else ""
-            lines = raw.splitlines()
-            found = False
+            current = read_state_map(repo_root) or {}
+            updates = fn(current) or {}
+            for name in ("runtime.yml", "state.yml"):
+                part = {k: v for k, v in updates.items() if (name == "runtime.yml") == _is_runtime_field(k)}
+                if part:
+                    _rewrite_fields(d, d / name, part)
+        finally:
+            fcntl.flock(lock_f, fcntl.LOCK_UN)
+        return updates
+
+
+def _rewrite_fields(d, state_path, updates):
+    tmp_name = None
+    try:
+        raw = state_path.read_text() if state_path.exists() else ""
+        lines = raw.splitlines()
+        for key, value in updates.items():
             for i, line in enumerate(lines):
                 if re.match(r"^" + re.escape(key) + r":", line):
                     lines[i] = f"{key}: {value}"
-                    found = True
                     break
-            if not found:
+            else:
                 lines.append(f"{key}: {value}")
-            content = "\n".join(lines) + "\n"
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=str(d), prefix=".state.", delete=False
-            ) as tmp_f:
-                tmp_name = tmp_f.name
-                tmp_f.write(content)
-                tmp_f.flush()
-                os.fsync(tmp_f.fileno())
-            os.replace(tmp_name, state_path)
-            tmp_name = None
-        finally:
-            fcntl.flock(lock_f, fcntl.LOCK_UN)
-            if tmp_name is not None:
-                try:
-                    os.unlink(tmp_name)
-                except OSError:
-                    pass
+        content = "\n".join(lines) + "\n"
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=str(d), prefix=".state.", delete=False
+        ) as tmp_f:
+            tmp_name = tmp_f.name
+            tmp_f.write(content)
+            tmp_f.flush()
+            os.fsync(tmp_f.fileno())
+        os.replace(tmp_name, state_path)
+        tmp_name = None
+    finally:
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+
+
+def write_state_field(repo_root, key, value):
+    update_state_fields(repo_root, lambda _current: {key: value})
 
 
 def emit_json(obj):
