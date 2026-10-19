@@ -82,3 +82,14 @@ jobs:
             fi
           done < <(git rev-list "${{ steps.range.outputs.base }}..${{ steps.range.outputs.head }}")
           exit $fail
+
+      # Test-first ordering across the PR range (see docs/tdd-check.md). The
+      # markdown report, including every Risk-Exception, goes to the job
+      # summary so a human reviews each one. Red verification stays off: it runs
+      # the full suite once per test commit, which takes minutes each.
+      - name: Test-first ordering
+        run: |
+          set -o pipefail
+          python3 bin/ose-tdd-check --markdown \
+            "${{ steps.range.outputs.base }}..${{ steps.range.outputs.head }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
