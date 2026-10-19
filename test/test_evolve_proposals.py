@@ -73,9 +73,11 @@ class EvolveCase(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def run_cli(self, *args, headless=False, home=None):
+    def run_cli(self, *args, headless=False, home=None, path_prefix=None):
         env = {k: v for k, v in os.environ.items()
                if k not in ("OSE_HEADLESS", "OSE_BYPASS")}
+        if path_prefix:
+            env["PATH"] = f"{path_prefix}{os.pathsep}{env.get('PATH', '')}"
         env.update(GIT_ID)
         env["OSENGINEER_HOME"] = str(home or self.home)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -191,6 +193,49 @@ class TestPromoteIsHumanOnly(EvolveCase):
                       f"{branch[0]}:memory/patterns/queue-declare-before-bind.md").stdout
         self.assertIn("bind before declare races", pattern)
         self.assertIn("status: promoted", self.proposal_path().read_text())
+
+
+class TestPromoteMarksTheOriginalProposal(EvolveCase):
+    """The EP-NNN proposal the loop opened records that a human promoted it,
+    and where to review it, so `evolve status` no longer lists it as open."""
+
+    def original(self):
+        d = self.repo / ".osengineer" / "evolution-proposals"
+        files = sorted(d.glob("EP-001-*.md"))
+        self.assertEqual(len(files), 1, files)
+        return files[0].read_text()
+
+    def test_promote_marks_original_with_branch(self):
+        self.propose_and_accept()
+        r = self.run_cli("evolve", "promote", "EP-001")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = self.original()
+        self.assertRegex(text, r"(?m)^status: promoted$")
+        self.assertRegex(text, r"(?m)^promoted_branch: evolve/ep-001-queue-declare-before-bind$")
+        self.assertRegex(text, r"(?m)^promoted_at: \S+")
+        self.assertRegex(text, r"(?m)^skill_proposal: \.osengineer/evolve/proposals/EP-001\.md$")
+        self.assertNotIn("promoted_pr:", text)
+        status = self.run_cli("evolve", "status").stdout
+        self.assertIn("open proposals: 0", status)
+        self.assertIn("closed proposals: 1", status)
+
+    def test_promote_with_pr_links_the_pr(self):
+        origin = Path(self._tmp.name) / "origin.git"
+        git(origin.parent, "init", "-q", "--bare", str(origin))
+        git(self.home, "remote", "add", "origin", str(origin))
+        fake = Path(self._tmp.name) / "fakebin"
+        fake.mkdir()
+        gh = fake / "gh"
+        gh.write_text("#!/bin/sh\necho https://github.com/o/r/pull/7\n")
+        gh.chmod(0o755)
+        self.propose_and_accept()
+        r = self.run_cli("evolve", "promote", "EP-001", "--pr", path_prefix=str(fake))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = self.original()
+        self.assertRegex(text, r"(?m)^status: promoted$")
+        self.assertRegex(text, r"(?m)^promoted_pr: https://github.com/o/r/pull/7$")
+        self.assertIn("promoted_pr: https://github.com/o/r/pull/7",
+                      self.proposal_path().read_text())
 
 
 if __name__ == "__main__":
