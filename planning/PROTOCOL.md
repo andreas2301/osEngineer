@@ -58,6 +58,14 @@ Cross-repo, multi-session phase lifecycle. State persists in `.osengineer/state.
 - Red-Team-Local runs security scan.
 - Human does final PR merge (HITL gate).
 - Post-merge: append retrospective to `memory/retrospectives/`.
+- Patterns the retrospective surfaces are not written to `memory/patterns/` by
+  the judge or the retro. They become evolution proposals
+  (`osengineer evolve propose`, then `evolve accept`, which writes only
+  `.osengineer/evolve/proposals/<id>.md` in the target repo). A human runs
+  `osengineer evolve promote <id> --pr`, which commits the pattern on an
+  `evolve/<id>-<slug>` branch of the skill home and opens a PR; the pattern lands
+  in `memory/patterns/` only when that PR is merged. See
+  `commands/osEngineer-evolve.md`.
 
 ---
 
@@ -73,6 +81,10 @@ A phase enters **Blocked** when:
 1. Write `BLOCKED.md` with root cause, options, and recommendation.
 2. Return to Discuss or Plan with new constraints.
 3. Do NOT hack around the blocker.
+
+`.osengineer/BLOCKED.md` (written by the circuit breaker) is deliberately not
+gitignored: it stays tracked and visible in `git status` so the human sees it.
+While the phase is `blocked` the agent cannot edit or delete it.
 
 ---
 
@@ -142,11 +154,15 @@ tracked and append-only. `state set` refuses the two record fields.
 Code, Kimi Code and Codex:
 
 - `osEngineer-pre-edit-guard` refuses any Write/Edit/MultiEdit/NotebookEdit, or
-  Codex `apply_patch`, that targets `.osengineer/state.yml` or `approvals.jsonl`.
+  Codex `apply_patch`, that targets `.osengineer/state.yml`, `approvals.jsonl`
+  or `runtime.yml` (the breaker's `budget_*` counters and context telemetry;
+  hooks write it in code, which the guards do not see). While the phase is
+  `blocked` it also refuses `.osengineer/BLOCKED.md`.
 - `osEngineer-pre-bash-guard` refuses `osengineer approve` and `osengineer state
   set phase*`, including through a path, an interpreter, `bash -c`, `$(...)` or
   env prefixes. It also refuses any command that names `write_state_field`, and
-  any command that names `state.yml`/`approvals.jsonl` while redirecting into
+  any command that names `state.yml`/`approvals.jsonl`/`runtime.yml` (and
+  `BLOCKED.md` while blocked) while redirecting into
   them or running a writer (`sed -i`, `tee`, `cp`/`mv`/`rm`, `python`/`node`/
   `perl`/`awk`, `git checkout`/`restore`, …). Reads such as `cat`, `grep` and
   `git add`/`diff` still pass.

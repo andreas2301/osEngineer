@@ -261,7 +261,7 @@ osEngineer is **standalone** but integrates with these tools when available:
 
 ## Contributing
 
-This skill evolves via retrospectives and the HITL evolution protocol. After each phase, findings are appended to `memory/retrospectives/`. Validated patterns are promoted to `memory/patterns/`. Use `/osEngineer:evolve` anytime to propose improvements.
+This skill evolves via retrospectives and the HITL evolution protocol. After each phase, findings are appended to `memory/retrospectives/`. Validated patterns become evolution proposals; a human promotes one with `osengineer evolve promote <id> --pr`, and it reaches `memory/patterns/` when that PR merges. Use `/osEngineer:evolve` anytime to propose improvements.
 
 ## License
 
