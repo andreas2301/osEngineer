@@ -167,6 +167,18 @@ class TestContextUsesOnlyCodexFields(unittest.TestCase):
             self.assertEqual(hso["hookEventName"], "SessionStart")
             self.assertTrue(hso["additionalContext"])
 
+    def test_subagent_start_context_reaches_the_subagent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            payload = {"session_id": "s", "turn_id": "t", "cwd": str(repo),
+                       "hook_event_name": "SubagentStart", "agent_id": "a", "agent_type": "worker"}
+            proc = run_adapter("osEngineer-subagent-start.py", payload, repo)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            out = json.loads(proc.stdout)
+            self.assertEqual(set(out), {"hookSpecificOutput"}, f"unsupported keys reach Codex: {out}")
+            self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "SubagentStart")
+            self.assertIn("Baseline", out["hookSpecificOutput"]["additionalContext"])
+
 
 class TestAdapterRefusesArbitraryScripts(unittest.TestCase):
     def test_unknown_script_is_an_explicit_error(self):
