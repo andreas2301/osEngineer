@@ -19,6 +19,7 @@ from osengineer_common import (
     update_state_fields,
 )
 from repo_profile import phase_plan
+import phase_gate
 
 # Phases that spend budget. discuss/plan author the plan; blocked has stopped.
 SPENDING_PHASES = ("execute", "micro", "hotfix")
@@ -152,8 +153,9 @@ def check(repo_root, plan_path, plan, estimate, usage, source):
     """Apply the warn/trip thresholds to fresh usage; return a message or None.
 
     Tripping is the one automatic transition into `blocked`: it writes
-    .osengineer/BLOCKED.md and sets phase=blocked (blocked_from keeps the phase
-    to resume). Leaving `blocked` is a human decision.
+    .osengineer/BLOCKED.md, appends {by: circuit-breaker} to approvals.jsonl
+    and sets phase=blocked (blocked_from records the phase it stopped).
+    Leaving `blocked` is a human `osengineer approve` (hooks/lib/phase_gate.py).
     """
     cfg = load_profile(repo_root)["budget"]
     pct = int(usage["budget_ratio_pct"])
@@ -176,12 +178,29 @@ def check(repo_root, plan_path, plan, estimate, usage, source):
             "- continue with more budget: raise the task budgets in the PHASE_PLAN.md, then approve;",
             "- split the task into a new phase, or abandon it.",
             "",
-            "Leaving `blocked` needs a human: `osengineer approve` where it exists, otherwise",
-            f"`osengineer state set phase {state.get('phase')}` run by the human outside the agent session.",
+            "Leaving `blocked` needs a human: `osengineer approve plan` (or `discuss`) in their own",
+            "terminal, then `osengineer approve execute` once the budget is raised or the task split.",
             "If usage is still at or above budget.tripPct the breaker trips again on the next tool call.",
             "",
         ])
         (Path(repo_root) / BLOCKED_REL).write_text(body)
+        # The one automatic transition: logged with the human approvals so
+        # every phase change is in .osengineer/approvals.jsonl.
+        phase_gate.log_transition(repo_root, {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "from": state.get("phase"),
+            "to": "blocked",
+            "by": "circuit-breaker",
+            "reason": f"{plan['phase_id']} used {pct}% of its budget (budget.tripPct {cfg['tripPct']}%) [{source}]",
+            "evidence": {
+                "file": BLOCKED_REL,
+                "plan": rel,
+                "tool_calls": int(usage["budget_tool_calls"]),
+                "wall_seconds": float(usage["budget_wall_seconds"]),
+                "tokens": None if usage.get("budget_tokens") is None else int(usage["budget_tokens"]),
+                "estimate": estimate,
+            },
+        })
         update_state_fields(repo_root, lambda _cur: {"phase": "blocked", "blocked_from": state.get("phase")})
         return (f"osEngineer CIRCUIT BREAKER TRIPPED: {plan['phase_id']} used {pct}% of its budget "
                 f"(trip at {cfg['tripPct']}%). Phase is now blocked; STOP. Edits and Bash are refused until a "

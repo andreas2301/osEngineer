@@ -77,6 +77,14 @@ def approver(repo_root):
     return email or getpass.getuser()
 
 
+def log_transition(repo_root, entry):
+    """Append one phase change to .osengineer/approvals.jsonl, the single log
+    of every transition (human approvals and the circuit breaker's trip)."""
+    log = Path(repo_root) / ".osengineer" / "approvals.jsonl"
+    with log.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 def approve(repo_root, target, reason=None):
     """Validate and apply one transition; returns the log entry. Raises
     ValueError with the refusal reason."""
@@ -93,9 +101,7 @@ def approve(repo_root, target, reason=None):
     }
     if reason:
         entry["reason"] = reason
-    log = Path(repo_root) / ".osengineer" / "approvals.jsonl"
-    with log.open("a") as f:
-        f.write(json.dumps(entry) + "\n")
+    log_transition(repo_root, entry)
     write_state_field(repo_root, "phase", target)
     write_state_field(repo_root, "phase_approved_by", entry["by"])
     write_state_field(repo_root, "phase_approved_at", entry["ts"])
