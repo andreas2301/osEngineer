@@ -6,6 +6,15 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **`bin/ose-tdd-check`**: checks test-first ordering on a commit range. Each
+  production commit needs a preceding `test(...)` commit, or an
+  architect-granted `Risk-Exception: <class> — <reason>` trailer (docs, config,
+  rename, trivial, revert, generated). Every exception is listed. CI runs it on
+  PR ranges and writes the report to the job summary. `--verify-red` (opt-in)
+  confirms the test commit fails. See `docs/tdd-check.md`.
+
 ## [0.5.0] — unreleased (date set when tagged)
 
 ### Added — evaluation harness for detectors, classifiers and scanners

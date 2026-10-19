@@ -9,6 +9,8 @@ for the concept overview.
 Key operational facts:
 - **Conventional Commits** are enforced by the `commit-msg` git hook.
 - **TDD** is enforced for production code: red → green → refactor, atomic commits.
+  CI checks the order with `bin/ose-tdd-check`; only the architect may grant a
+  `Risk-Exception: <class> — <reason>` trailer (see `docs/tdd-check.md`).
 - **Destructive bash** is blocked without an active 4-part plan.
 - **Override any rule** with `OSE_BYPASS=1` — every bypass logged.
 
