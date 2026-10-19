@@ -10,7 +10,9 @@
 # hardcoded baseline so enforcement is never silently disabled.
 #
 # Per-team overrides can `disabled`, `downgraded_to_warning`, or `added` patterns.
-# Honours OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl).
+# Honours OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl), except for
+# phase self-transitions (`osengineer approve`, `state set phase`, writes to
+# state.yml/approvals.jsonl): those are refused in every phase, bypass or not.
 
 import json
 import os
@@ -28,6 +30,7 @@ from osengineer_common import (
     find_osengineer_root,
     read_state_map,
 )
+import phase_gate
 
 STDIN_TIMEOUT_MS = 3000
 
@@ -190,6 +193,15 @@ def main():
         return
 
     headless = os.environ.get("OSE_HEADLESS") == "1"
+
+    route = phase_gate.agent_route(cmd)
+    if route:
+        # Approving a phase is the human's act; a bypass in the hook env must
+        # not hand it to the agent.
+        if os.environ.get("OSE_BYPASS") == "1":
+            bypass_log(repo_root, "pre-bash-guard", "OSE_BYPASS=1 not honoured for phase approval")
+        emit_block("PreToolUse", f"osEngineer: command {route}. " + phase_gate.REFUSAL)
+        return
 
     if os.environ.get("OSE_BYPASS") == "1":
         # OSE_BYPASS is the human's escape hatch, not the runner's: in a

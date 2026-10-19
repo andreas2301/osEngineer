@@ -4,6 +4,8 @@
 # Blocks edits during `discuss`/`plan` phases (planning is read-only by design).
 # Blocks edits to the configured live system at all times.
 # Blocks the agent authoring .osengineer/current-plan.md (self-authorisation guard).
+# Blocks edits to .osengineer/state.yml and approvals.jsonl in every phase —
+# only `osengineer approve`, run by a human, changes the phase.
 # Blocks edits to paths outside the current team's owns_paths when in `execute`
 # phase with a `current_team` set.
 #
@@ -11,7 +13,7 @@
 #   .osengineer/state.yml          — phase + current_team
 #   .osengineer/teams/<id>.json    — current team's owns_paths globs
 #
-# Honours OSE_BYPASS=1.
+# Honours OSE_BYPASS=1, except for the state files (refused and logged).
 
 import json
 import os
@@ -33,6 +35,7 @@ from osengineer_common import (
     read_team_cache,
     read_workbench_field,
 )
+import phase_gate
 
 
 def main():
@@ -45,10 +48,6 @@ def main():
 
     cwd = data.get("cwd") or os.getcwd()
     repo_root = find_osengineer_root(cwd)
-    if repo_root and os.environ.get("OSE_BYPASS") == "1":
-        bypass_log(repo_root, "pre-edit-guard", "OSE_BYPASS=1")
-        return
-
     file_path = (
         data.get("tool_input", {}).get("file_path")
         or data.get("tool_input", {}).get("path")
@@ -57,7 +56,21 @@ def main():
         or ""
     )
 
-    repo_root = find_osengineer_root(cwd)
+    if repo_root:
+        target = Path(file_path)
+        if not target.is_absolute():
+            target = Path(cwd) / target
+        protected = {(Path(repo_root) / ".osengineer" / f).resolve() for f in phase_gate.PROTECTED_FILES}
+        if target.resolve() in protected:
+            if os.environ.get("OSE_BYPASS") == "1":
+                bypass_log(repo_root, "pre-edit-guard", "OSE_BYPASS=1 not honoured for phase approval")
+            emit_block("PreToolUse", f"osEngineer: refusing to edit .osengineer/{target.name}. " + phase_gate.REFUSAL)
+            return
+
+    if repo_root and os.environ.get("OSE_BYPASS") == "1":
+        bypass_log(repo_root, "pre-edit-guard", "OSE_BYPASS=1")
+        return
+
     if repo_root:
         # The 4-part plan is the human authorisation for denylisted commands;
         # the constrained agent must never be able to author it.
@@ -123,7 +136,7 @@ def main():
         if not re.match(artifact_pattern, rel):
             emit_block(
                 "PreToolUse",
-                f"osEngineer: cannot edit {Path(file_path).name} during {state['phase']} phase — only {planning_name}/ and .osengineer/ artifacts are editable. Transition to execute phase first (`osengineer state set phase execute`).",
+                f"osEngineer: cannot edit {Path(file_path).name} during {state['phase']} phase — only {planning_name}/ and .osengineer/ artifacts are editable. Ask the human to approve the move to execute (they run `osengineer approve execute`; you cannot).",
             )
             return
 
