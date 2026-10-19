@@ -124,7 +124,7 @@ def account(repo_root, plan, estimate, *, tool_call=False, wall_seconds=0.0,
                 tokens = int(_num(tokens)) + got[0]
                 updates.update(budget_transcript=transcript_path, budget_transcript_offset=got[1],
                                budget_last_message=got[2] or "null", budget_tokens=tokens)
-        updates.update(budget_tool_calls=calls, budget_wall_seconds=f"{wall:.1f}",
+        updates.update(budget_tool_calls=calls, budget_wall_seconds=f"{wall:.3f}",
                        budget_ratio_pct=ratio_pct(calls, wall, estimate),
                        budget_warned=cur.get("budget_warned") or "0")
         if tokens is not None:

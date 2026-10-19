@@ -66,6 +66,8 @@ def make_repo(tmp, phase="plan", plan=True, dirty=False):
     subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=repo, check=True)
     (repo / ".osengineer").mkdir()
+    # As install.sh writes it: hook-written runtime files never dirty the tree.
+    (repo / ".osengineer" / ".gitignore").write_text("runtime.yml\n.state.lock\n")
     (repo / ".osengineer" / "state.yml").write_text(
         f"phase: {phase}\ncurrent_team: null\nbudget_used: 0\n"
     )
