@@ -6,6 +6,23 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Changed — evolve: the loop proposes, the owner decides
+
+- **`osengineer evolve accept` no longer writes into the shared skill home.**
+  It used to write `memory/patterns/<slug>.md` straight into the skill
+  checkout from any target repo, with no review and no commit. Now it writes
+  a change proposal to the target repo's `.osengineer/evolve/proposals/<id>.md`.
+  The proposal has sections for what changes, why, risk, how to revert,
+  evidence and the pattern. New flags: `--why`, `--risk`, `--evidence`.
+  `--pattern-slug` must be lowercase letters, digits and dashes.
+- **New `osengineer evolve promote <id> [--pr]`**, run by a human. It commits
+  the pattern as `docs(patterns): add <slug>` on a new `evolve/<id>-<slug>`
+  branch of the skill home git checkout. The working tree and the
+  checked-out branch are left as they were. With `--pr` and `gh`, it pushes
+  the branch and opens a PR. It refuses in headless runs (`OSE_HEADLESS=1`),
+  on a non-git or dirty skill home, on a proposal with missing fields, and on
+  an existing pattern or branch. Nothing is ever merged automatically.
+
 ## [0.5.0] — unreleased (date set when tagged)
 
 ### Added — evaluation harness for detectors, classifiers and scanners

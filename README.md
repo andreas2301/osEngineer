@@ -139,7 +139,7 @@ Runs verification protocol: tests, e2e tracer bullets, cost recalibration.
 /osEngineer:evolve
 ```
 
-Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto-nudges you with 3 improvement options. You select one, skip, or propose your own. Accepted proposals are appended to `memory/patterns/`.
+Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto-nudges you with 3 improvement options. You select one, skip, or propose your own. Accepted proposals are written to the target repo's `.osengineer/evolve/proposals/`; you then run `osengineer evolve promote <id> --pr` to open a skill-home PR for review. Nothing is merged automatically.
 
 ### Sandbox (containerized local testing)
 
