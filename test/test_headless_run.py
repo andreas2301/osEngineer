@@ -53,6 +53,9 @@ sys.exit(0)
 """
 
 
+VALID_PLAN = '---\n{"phase_id": "phase-001-test", "goal": "A valid test phase plan.", "tasks": [{"id": "T1", "description": "d", "acceptance": "a", "budget": {"tool_calls": 50, "wall_minutes": 30}}]}\n---\n# Phase 1\n'
+
+
 def make_repo(tmp, phase="plan", plan=True, dirty=False):
     repo = Path(tmp) / "repo"
     repo.mkdir(parents=True)
@@ -66,7 +69,7 @@ def make_repo(tmp, phase="plan", plan=True, dirty=False):
     if plan:
         d = repo / "planning" / "active" / "phase-1"
         d.mkdir(parents=True)
-        (d / "PHASE_PLAN.md").write_text("# Phase 1\n\n## Tasks\n- [ ] t1\n")
+        (d / "PHASE_PLAN.md").write_text(VALID_PLAN)
     (repo / "m.py").write_text("x=1\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "i"], cwd=repo, check=True)
