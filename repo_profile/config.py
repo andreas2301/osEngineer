@@ -23,6 +23,7 @@ DEFAULTS = {
                 "dispatchWords": ["dispatch", "workflow"],
                 "minSignalTerms": 2, "maxHints": 2, "projection": "codex"},
     "eval": {"policy": "EVAL_POLICY.json"},
+    "budget": {"warnPct": 100, "tripPct": 150, "idleSeconds": 900},
     "handlers": {},
 }
 
@@ -136,6 +137,14 @@ def validate(data):
         "maxHints": lambda v, k: _int(v, k, 0, 20), "projection": projection})
 
     out["eval"] = _section(data, "eval", {"policy": _rel_path})
+
+    # Percent of the PHASE_PLAN task budgets used (trust/circuit-breakers.md).
+    budget_pct = lambda v, k: _int(v, k, 1, 1000)
+    out["budget"] = _section(data, "budget", {
+        "warnPct": budget_pct, "tripPct": budget_pct,
+        "idleSeconds": lambda v, k: _int(v, k, 1, 86400)})
+    if out["budget"]["warnPct"] > out["budget"]["tripPct"]:
+        _fail("budget.warnPct", "must not exceed budget.tripPct")
 
     if "handlers" in data:
         _keys(data["handlers"], data["handlers"], "handlers")

@@ -17,7 +17,7 @@
 #   4. .osengineer/bypass-log.jsonl (touched empty)
 #   5. .git/hooks/{commit-msg,pre-commit,post-commit} ← copies of osEngineer-* scripts
 #   6. .claude/agents/*.md              ← copies of mandatory agent role files
-#   7. .claude/settings.json            ← merged (never overwritten); 6 Claude hooks wired
+#   7. .claude/settings.json            ← merged (never overwritten); 7 Claude hooks wired
 #   8. AGENTS.md (root)                 ← template dropped if absent (with osEngineer frontmatter)
 #   9. CLAUDE.md (root)                 ← osEngineer section appended if absent
 #  10. $KIMI_CODE_HOME/config.toml      ← [[hooks]] merged when the kimi runtime is chosen
@@ -668,7 +668,11 @@ MD
     fi
   fi
 
-  # 7. CLAUDE.md osEngineer section
+  # 7. CLAUDE.md osEngineer section. The agent rules come from their single
+  # source, templates/agent-rules.md (the hooks re-inject the same file).
+  # A separate assignment so set -e aborts if the file is missing.
+  local agent_rules
+  agent_rules=$(cat "$SCRIPT_DIR/templates/agent-rules.md")
   if [ ! -f "$repo/CLAUDE.md" ]; then
     cat > "$repo/CLAUDE.md" <<MD
 # $repo_name
@@ -685,21 +689,7 @@ Key operational facts:
 - **Destructive bash** is blocked without an active 4-part plan.
 - **Override any rule** with \`OSE_BYPASS=1\` — every bypass logged.
 
-## Baseline & Extended Agent Rules
-
-### Baseline Rules
-1. **Think Before Coding**: State assumptions explicitly. If an instruction is ambiguous, name what is confusing and ask instead of guessing.
-2. **Simplicity First**: Write the minimum code that solves the problem. No speculative abstractions or flexibility that wasn't explicitly requested.
-3. **Surgical Changes**: Touch only what the task requires. Do not "improve" adjacent code, reformat, or refactor things that aren't broken.
-4. **Goal-Driven Execution**: Turn vague instructions into verifiable targets. Create tests first to reproduce the issue, then loop until it passes.
-
-### Extended Agent Rules
-5. **Set Hard Token Budgets**: Stop runaway iterations by placing strict context limits.
-6. **Expose Conflicts**: Don't blindly average contradictory patterns in the codebase.
-7. **Read Before Writing**: Scan existing code before making edits to prevent duplication.
-8. **Test Real Logic**: Ensure tests validate actual logic rather than just running to pass.
-9. **Use Checkpoints**: Utilize checkpoints for long-running, multi-step tasks.
-10. **Fail Explicitly**: Avoid silent failures that just appear successful.
+$agent_rules
 
 ## graphify
 
@@ -722,21 +712,7 @@ Key operational facts:
 - **Destructive bash** is blocked without an active 4-part plan.
 - **Override any rule** with \`OSE_BYPASS=1\` — every bypass logged.
 
-## Baseline & Extended Agent Rules
-
-### Baseline Rules
-1. **Think Before Coding**: State assumptions explicitly. If an instruction is ambiguous, name what is confusing and ask instead of guessing.
-2. **Simplicity First**: Write the minimum code that solves the problem. No speculative abstractions or flexibility that wasn't explicitly requested.
-3. **Surgical Changes**: Touch only what the task requires. Do not "improve" adjacent code, reformat, or refactor things that aren't broken.
-4. **Goal-Driven Execution**: Turn vague instructions into verifiable targets. Create tests first to reproduce the issue, then loop until it passes.
-
-### Extended Agent Rules
-5. **Set Hard Token Budgets**: Stop runaway iterations by placing strict context limits.
-6. **Expose Conflicts**: Don't blindly average contradictory patterns in the codebase.
-7. **Read Before Writing**: Scan existing code before making edits to prevent duplication.
-8. **Test Real Logic**: Ensure tests validate actual logic rather than just running to pass.
-9. **Use Checkpoints**: Utilize checkpoints for long-running, multi-step tasks.
-10. **Fail Explicitly**: Avoid silent failures that just appear successful.
+$agent_rules
 MD
     log "  + osEngineer section appended to CLAUDE.md"
   fi
@@ -828,6 +804,8 @@ def cmd(script):
 
 # SessionStart output is discarded by Kimi, and PostToolUse early-returns on a
 # statusline bridge file Kimi cannot produce, so only these four are wired.
+# SubagentStart is not wired either: Kimi awaits it but drops its output, so
+# Kimi subagents get no rule/state re-injection.
 entries = [
     {"event": "UserPromptSubmit",
      "command": cmd("osEngineer-prompt-guard.py"), "timeout": 30},
@@ -1003,6 +981,7 @@ def handler(script):
 
 ose = {
     "SessionStart": [{"hooks": [handler("osEngineer-session-start.py")]}],
+    "SubagentStart": [{"hooks": [handler("osEngineer-subagent-start.py")]}],
     "UserPromptSubmit": [{"hooks": [handler("osEngineer-prompt-guard.py")]}],
     "PreToolUse": [
         {"matcher": "apply_patch|Edit|Write", "hooks": [handler("osEngineer-pre-edit-guard.py")]},
@@ -1127,6 +1106,10 @@ ose_entries = {
     }],
     "SessionStart": [{
         "hooks": [{"type": "command", "command": f'python3 "{Path(hooks_dir) / "osEngineer-session-start.py"}"', "description": "osEngineer banner"}],
+    }],
+    # SessionStart context never reaches subagents; re-inject rules + state.
+    "SubagentStart": [{
+        "hooks": [{"type": "command", "command": cmd("osEngineer-subagent-start.py"), "description": "osEngineer subagent rules + state"}],
     }],
 }
 

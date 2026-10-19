@@ -6,6 +6,137 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+#### Budget circuit breaker (it was documented but not implemented)
+
+- **Per-task budgets in PHASE_PLAN.md.** The frontmatter is now a JSON object
+  (YAML 1.2 flow syntax) validated by `repo_profile/phase_plan.py` against
+  `specs/SCHEMAS/phase-plan.schema.json`. The schema is closed, and every task
+  needs a `budget`: `tool_calls` and `wall_minutes` are enforced, `tokens` is
+  optional and only recorded. `token_budget` and `token_estimate` are removed.
+  Breaking: existing plans need the new frontmatter.
+- **The plan is validated where it is used, and invalid plans are refused.**
+  This covers headless `osengineer run`, plan-gated slash commands
+  (prompt-guard), non-plan edits in `execute` (pre-edit-guard) and the
+  post-tool meter. More than one active plan is an error.
+- **Metering** (`hooks/lib/osengineer_budget.py`). While the phase is
+  execute, micro or hotfix, post-tool counts tool calls and wall time (gaps
+  between calls up to `budget.idleSeconds`) per `phase_id`. It also adds
+  tokens from the Claude Code transcript. The counters are stored as
+  `budget_*` in `runtime.yml`. `osengineer run` adds the run's wall time for
+  every harness and writes a `usage` block to `RUN.json`: tool calls, wall
+  time, tokens, the estimate, the ratio, the timeout and the breaker result.
+- **The breaker.** It warns once at `budget.warnPct` (default 100). At
+  `budget.tripPct` (default 150) it:
+  - writes `.osengineer/BLOCKED.md` with the evidence;
+  - logs `by: circuit-breaker` to `approvals.jsonl`;
+  - sets `phase: blocked`.
+  Edits, every Bash call and `osengineer run` are then refused. Only a human
+  can leave `blocked`, by running `osengineer approve`. Headless runs are
+  given at most the wall time left before `tripPct`.
+- **The judge's cost rule and the docs now match what is enforced.** The old
+  rules were "tokens > 200%" for BLOCK and "≤ 150%" for MERGE. Both now use the
+  measured ratio against `budget.tripPct`. Tokens are informational only. The
+  updated docs are `trust/circuit-breakers.md`, the hook headers and README,
+  and the planner, verifier and budget-tracker references.
+
+#### Human phase gate
+
+- **`osengineer approve <phase> [--reason "<t>"]`** is now the only way to
+  change the phase (`hooks/lib/phase_gate.py`). It checks:
+  - an explicit transition table: Discuss → Plan → Execute → Verify → Accepted,
+    plus Blocked and the micro/hotfix Micro-Phase;
+  - the prerequisite artifact for the target phase: `PHASE_PLAN.md` before
+    `execute`, `VERIFICATION.md` or `MICRO_PLAN.md` before closing.
+
+  It records `phase_approved_by`/`phase_approved_at` in `state.yml` and appends
+  each approval to `.osengineer/approvals.jsonl`. Headless runs refuse it.
+  See `planning/PROTOCOL.md` "Phase Gate".
+
+#### Tooling and agent rules
+
+- **SubagentStart hook** (`hooks/osEngineer-subagent-start.py`): SessionStart
+  context never reaches subagents, so every subagent now gets the session-start
+  state banner (shared via `osengineer_common.state_banner`) plus the agent
+  rules. Wired for Claude Code (`.claude/settings.json`) and Codex
+  (`.codex/hooks.json`). Kimi runs SubagentStart hooks but drops their output,
+  so it is not wired there; this gap is documented.
+- **Agent rules from one source** (`templates/agent-rules.md`): install.sh
+  writes it into CLAUDE.md, and the prompt guard's re-injection and the
+  subagent-start hook read it. The inline copies in install.sh, the prompt
+  guard and the developer agent are gone. New rules: push back with a simpler
+  approach, surface multiple interpretations, remove only what your own change
+  made unused, match the existing style, trace every changed line to the
+  request (also a reviewer checklist item), a trivial-task exception, fail
+  loudly at real boundaries with no defensive code for impossible states, and a
+  **Skipped / risks** footer closing every agent report.
+- `test/test_docs_drift.py`: SKILL.md paths, hook names in live docs, commands
+  named by hooks, and the judge verdict set must match the tree.
+- **`bin/ose-tdd-check`**: checks test-first ordering on a commit range. Each
+  production commit needs a preceding `test(...)` commit, or an
+  architect-granted `Risk-Exception: <class> — <reason>` trailer (docs, config,
+  rename, trivial, revert, generated). Every exception is listed. CI runs it on
+  PR ranges and writes the report to the job summary. `--verify-red` (opt-in)
+  confirms the test commit fails. See `docs/tdd-check.md`.
+
+### Changed
+
+#### Evolve: the loop proposes, the owner decides
+
+- **`osengineer evolve accept` no longer writes into the shared skill home.**
+  It used to write `memory/patterns/<slug>.md` straight into the skill
+  checkout from any target repo, with no review and no commit. Now it writes
+  a change proposal to the target repo's `.osengineer/evolve/proposals/<id>.md`.
+  The proposal has sections for what changes, why, risk, how to revert,
+  evidence and the pattern. New flags: `--why`, `--risk`, `--evidence`.
+  `--pattern-slug` must be lowercase letters, digits and dashes.
+- **New `osengineer evolve promote <id> [--pr]`**, run by a human. It commits
+  the pattern as `docs(patterns): add <slug>` on a new `evolve/<id>-<slug>`
+  branch of the skill home git checkout. The working tree and the
+  checked-out branch are left as they were. With `--pr` and `gh`, it pushes
+  the branch and opens a PR. It refuses in headless runs (`OSE_HEADLESS=1`),
+  on a non-git or dirty skill home, on a proposal with missing fields, and on
+  an existing pattern or branch. Nothing is ever merged automatically.
+- **`evolve promote` closes the loop on the original proposal.** The
+  `EP-NNN` file in `.osengineer/evolution-proposals/` gets `status: promoted`,
+  `promoted_at`, `promoted_branch`, a `skill_proposal` link and, with `--pr`,
+  `promoted_pr` (also written to the skill proposal). `evolve status` counts it
+  as closed.
+
+#### Human phase gate
+
+- `osengineer state set phase <p>` routes through `approve`, so `idle → execute`
+  in one step is no longer accepted. Other keys work as before, except that the
+  `phase_approved_*` record fields are refused.
+- The guards refuse the agent every route to a phase change, in every phase and
+  on all three harnesses:
+  - `pre-edit-guard` blocks any edit of `state.yml` or `approvals.jsonl`;
+  - `pre-bash-guard` blocks `approve`, `state set phase` and best-effort shell
+    writes to those files.
+
+  `OSE_BYPASS` does not lift these blocks; the refused bypass is logged.
+- The discuss/plan edit block now asks the human to approve the move to
+  execute; it no longer tells the agent to run `state set phase execute`.
+  `/osEngineer:feature`, `fix` and `hotfix` and the verifier protocol now ask
+  the human to approve as well.
+
+### Fixed
+
+- SKILL.md listed flat `agents/<name>.md` paths; it now lists `agents/<name>/AGENT.md`.
+- Live docs (`docs/premortem_analysis.md`, `trust/denylist.md`, `agents/INDEX.md`)
+  named Node-era `.js` hooks; they now name the `.py` hooks.
+- The post-tool critical warning pointed to `/osEngineer:pause-work`, which never
+  existed; it now advises a checkpoint commit.
+- The judge frontmatter promised BLOCK / FLAG / PASS while the body, merge
+  criteria and override protocol use MERGE / BLOCK; it is MERGE / BLOCK throughout.
+- The agent could rewrite `.osengineer/runtime.yml` before a breaker trip and
+  reset its own `budget_*` counters. The edit and bash guards (Codex
+  `apply_patch` included) now refuse it like `state.yml`; hooks still write it
+  in code. While the phase is `blocked`, `.osengineer/BLOCKED.md` is refused
+  the same way, `OSE_BYPASS` included. BLOCKED.md stays tracked, not
+  gitignored, so the human sees it.
+
 ## [0.5.0] — unreleased (date set when tagged)
 
 ### Added — evaluation harness for detectors, classifiers and scanners

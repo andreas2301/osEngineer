@@ -42,23 +42,23 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 
 ### Mandatory (loaded into context by default)
 
-- `agents/architect.md` — repo-level orchestration & team coordination
-- `agents/verifier.md` — phase verification & acceptance gate
-- `agents/developer.md` — primary implementation agent
-- `agents/reviewer.md` — code review agent
-- `agents/judge.md` — merge gate / architectural judge
-- `agents/red-team-local.md` — per-PR security scan
-- `agents/red-team-architect.md` — cross-repo invariant checks
-- `agents/tech-writer.md` — docs & contract authoring
-- `agents/researcher.md` — discovery & graph query agent
-- `agents/planner.md` — phase planning agent
-- `agents/live-system-operator.md` — Docker ops, hotfixes, log inspection
-- `agents/metrics-onboarding.md` — promauto setup, test generation, endpoint wiring
-- `agents/topology-validator.md` — code vs ansible drift, schema consistency
-- `agents/cert-monitor.md` — expiry tracking, renewal scripts
-- `agents/health-verifier.md` — container health, metrics endpoints
-- `agents/scope-manager.md` — context window optimization for large workbenches
-- `agents/sandbox-provisioner.md` — swarm sandbox & mission provisioner
+- `agents/architect/AGENT.md` — repo-level orchestration & team coordination
+- `agents/verifier/AGENT.md` — phase verification & acceptance gate
+- `agents/developer/AGENT.md` — primary implementation agent
+- `agents/reviewer/AGENT.md` — code review agent
+- `agents/judge/AGENT.md` — merge gate / architectural judge
+- `agents/red-team-local/AGENT.md` — per-PR security scan
+- `agents/red-team-architect/AGENT.md` — cross-repo invariant checks
+- `agents/tech-writer/AGENT.md` — docs & contract authoring
+- `agents/researcher/AGENT.md` — discovery & graph query agent
+- `agents/planner/AGENT.md` — phase planning agent
+- `agents/live-system-operator/AGENT.md` — Docker ops, hotfixes, log inspection
+- `agents/metrics-onboarding/AGENT.md` — promauto setup, test generation, endpoint wiring
+- `agents/topology-validator/AGENT.md` — code vs ansible drift, schema consistency
+- `agents/cert-monitor/AGENT.md` — expiry tracking, renewal scripts
+- `agents/health-verifier/AGENT.md` — container health, metrics endpoints
+- `agents/scope-manager/AGENT.md` — context window optimization for large workbenches
+- `agents/sandbox-provisioner/AGENT.md` — swarm sandbox & mission provisioner
 - `planning/PROTOCOL.md` — osEngineer phase lifecycle
 - `discovery/repo-discovery.md` — auto-discover project repos
 - `trust/circuit-breakers.md` — token budget & abort rules
@@ -66,12 +66,12 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 
 ### Optional (compacted; loaded only when explicitly invoked)
 
-- `agents/dba.md` — database schema agent
-- `agents/qa.md` — testing specialist
-- `agents/ui-ux-designer.md` — UI/UX reasoning rules
-- `agents/sync-agent.md` — live ↔ workbench synchronization
-- `agents/budget-tracker.md` — token spend tracking
-- `agents/eval-harness-engineer.md` — evaluation harness & keep/revert loop for detectors
+- `agents/dba/AGENT.md` — database schema agent
+- `agents/qa/AGENT.md` — testing specialist
+- `agents/ui-ux-designer/AGENT.md` — UI/UX reasoning rules
+- `agents/sync-agent/AGENT.md` — live ↔ workbench synchronization
+- `agents/budget-tracker/AGENT.md` — token spend tracking
+- `agents/eval-harness-engineer/AGENT.md` — evaluation harness & keep/revert loop for detectors
 - `integrations/confluence-mcp.md` — Atlassian Confluence MCP
 - `integrations/vault-mcp.md` — HashiCorp Vault MCP
 - `integrations/playwright-mcp.md` — browser testing MCP

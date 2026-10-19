@@ -6,7 +6,7 @@ This premortem assumes the `osEngineer` platform has encountered critical failur
 
 ## 1. What We Are Doing Great (The Core Strengths)
 
-*   **Dynamic Visual Statusline:** The `osEngineer-statusline.js` provides beautiful, non-intrusive console telemetry without polluting the prompt or prompt history.
+*   **Dynamic Visual Statusline:** The `osEngineer-statusline.py` provides beautiful, non-intrusive console telemetry without polluting the prompt or prompt history.
 *   **Isolated Containment (Mission Sandbox):** The Docker-enclosed AMQP/Vault testing separates functional execution from the workbench host, preventing host filesystem pollution.
 *   **State Decoupling:** Storing execution states in `.osengineer/state.yml` ensures multi-agent runs are robust to session restarts and terminal crashes.
 *   **Strict Pre-Commit Guards:** Formatting and Conventional Commit validations are executed cleanly at the OS level, keeping the git history pristine.
@@ -16,12 +16,12 @@ This premortem assumes the `osEngineer` platform has encountered critical failur
 ## 2. Context Bleed, Drain & Token Waste Analysis
 
 ### A. Context Bleed (Accumulated Context Over-Injection)
-*   **The Issue:** `osEngineer-prompt-guard.js` injects `additionalContext` on **every single user prompt** (`UserPromptSubmit`).
+*   **The Issue:** `osEngineer-prompt-guard.py` injects `additionalContext` on **every single user prompt** (`UserPromptSubmit`).
 *   **The Bleed:** While a single state injection is small (`osEngineer state: phase=discuss · team=infra · budget=10%`), in 100+ turn autonomous runs, the assistant context history accumulates a redundant history of identical status updates.
 *   **The Drain:** When Claude Code auto-compacts the history to fit the context window, early critical context (such as design schemas and initial phase plans) is lost while repeated prompt-guard injections remain.
 
 ### B. Disk I/O & Telemetry Token Waste
-*   **The Issue:** `osEngineer-post-tool.js` performs heavy disk I/O—parsing temporary session metric files (`claude-ctx-{session}.json`) and writing warn-state logs—on **every single tool call**.
+*   **The Issue:** `osEngineer-post-tool.py` performs heavy disk I/O—parsing temporary session metric files (`claude-ctx-{session}.json`) and writing warn-state logs—on **every single tool call**.
 *   **The Waste:** On slower Windows filesystems or locked developer environments, high-frequency tool calls (e.g. editing multiple files) introduce disk read/write lockups, wasting cycles and slightly lagging tool execution.
 
 ### C. Git Interactive Lockups (Terminal Freezes)
@@ -61,7 +61,7 @@ graph TD
 ## 4. Finalized Resolutions & System Upgrades
 
 ### Fix A: Context-Aware Adaptive Injection (The Amnesia Guard)
-*   **Implementation:** Developed a dual-mode telemetry guard inside `hooks/osEngineer-prompt-guard.js`.
+*   **Implementation:** Developed a dual-mode telemetry guard inside `hooks/osEngineer-prompt-guard.py`.
 *   **Normal Mode (Debounced):** Under ordinary runs, the guard compares current status to the last session prompt. If unchanged, it injects an ultra-compact `state: active (unchanged)` micro-tag to avoid padding the history, saving up to 80% token bloat.
 *   **Amnesia Guard Mode (Adaptive Injection):** If context capacity degrades and remaining capacity crosses `<= 40%` (as parsed from the active `claude-ctx-${sessionId}.json`), the guard automatically transitions to injecting a hyper-dense guardrail containing the active phase name, the first 15 lines of the active `PHASE_PLAN.md` (high-level target directives), and a list of core architectural constraints (e.g. commit rules, owns_paths, TDD). This guarantees that even if Claude Code auto-compacts early history turns, the model **never** suffers from amnesia or cognitive drift.
 

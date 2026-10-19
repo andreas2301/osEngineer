@@ -2,6 +2,7 @@
 
 ## Correctness
 - [ ] Logic matches the task description in `PHASE_PLAN.md`.
+- [ ] Every changed line traces to the request (task, plan item or bug); flag unrelated edits as scope creep.
 - [ ] Error paths are handled (no naked panics, no silent failures).
 - [ ] Race conditions: shared state uses sync primitives.
 - [ ] Resource leaks: files closed, connections released, contexts cancelled.

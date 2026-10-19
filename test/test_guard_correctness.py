@@ -209,7 +209,7 @@ class TestPromptGuardGatesRealVerbs(unittest.TestCase):
             repo = make_repo(tmp, phase="plan")
             phase_dir = repo / "planning" / "active" / "phase-1"
             phase_dir.mkdir(parents=True)
-            (phase_dir / "PHASE_PLAN.md").write_text("# Phase 1\n")
+            (phase_dir / "PHASE_PLAN.md").write_text('---\n{"phase_id": "phase-001-test", "goal": "A valid test phase plan.", "tasks": [{"id": "T1", "description": "d", "acceptance": "a", "budget": {"tool_calls": 50, "wall_minutes": 30}}]}\n---\n# Phase 1\n')
             proc = run_hook(
                 "osEngineer-prompt-guard.py",
                 {"session_id": "pg-3", "cwd": str(repo),

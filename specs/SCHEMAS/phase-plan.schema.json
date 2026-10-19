@@ -2,14 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://osengineer.dev/schemas/phase-plan.schema.json",
   "title": "osEngineer PHASE_PLAN.md frontmatter",
-  "description": "YAML frontmatter at the top of every PHASE_PLAN.md. The body is markdown prose; this schema validates only the machine-parseable header.",
+  "description": "The machine-parseable header of every PHASE_PLAN.md: a JSON object (YAML 1.2 flow syntax) between the leading --- lines; the body is markdown prose. repo_profile/phase_plan.py enforces these rules at runtime (headless `osengineer run`, plan-gated slash commands, edits in execute, the post-tool circuit breaker) and fails closed. It additionally rejects duplicate task ids and depends_on entries that name no other task in the plan. The phase budget is the sum of the task budgets; see trust/circuit-breakers.md.",
   "type": "object",
-  "required": ["phase_id", "goal", "tasks", "token_budget"],
+  "additionalProperties": false,
+  "required": ["phase_id", "goal", "tasks"],
   "properties": {
     "phase_id": {
       "type": "string",
       "pattern": "^phase-\\d{3}(\\.\\d+)?-[a-z0-9-]+$",
-      "description": "Stable identifier like phase-033-retry-backoff or phase-072.1-urgent-hotfix."
+      "description": "Stable identifier like phase-033-retry-backoff or phase-072.1-urgent-hotfix. Usage counters reset when it changes."
     },
     "goal": {
       "type": "string",
@@ -20,20 +21,12 @@
       "enum": ["feature", "fix", "refactor", "adr", "hotfix"]
     },
     "owner_team": { "type": "string" },
-    "token_budget": {
-      "type": "object",
-      "required": ["estimate", "circuit_breaker"],
-      "properties": {
-        "estimate": { "type": "integer", "minimum": 100 },
-        "circuit_breaker": { "type": "integer", "minimum": 100 },
-        "actual": { "type": ["integer", "null"], "minimum": 0 }
-      }
-    },
     "rollback_path": { "type": "string" },
     "risk_flags": {
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["risk", "likelihood", "impact"],
         "properties": {
           "risk": { "type": "string" },
@@ -48,7 +41,8 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "description", "acceptance"],
+        "additionalProperties": false,
+        "required": ["id", "description", "acceptance", "budget"],
         "properties": {
           "id": { "type": "string", "pattern": "^T\\d+$" },
           "description": { "type": "string" },
@@ -57,7 +51,17 @@
             "items": { "type": "string", "pattern": "^T\\d+$" }
           },
           "acceptance": { "type": "string" },
-          "token_estimate": { "type": "integer", "minimum": 0 },
+          "budget": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tool_calls", "wall_minutes"],
+            "description": "Fixed budget for the attempt. tool_calls and wall_minutes are measured and enforced; tokens is recorded when the harness exposes usage (Claude Code transcripts) and is not enforced.",
+            "properties": {
+              "tool_calls": { "type": "integer", "minimum": 1 },
+              "wall_minutes": { "type": "integer", "minimum": 1 },
+              "tokens": { "type": "integer", "minimum": 100 }
+            }
+          },
           "status": {
             "type": "string",
             "enum": ["pending", "in_progress", "completed", "blocked"]

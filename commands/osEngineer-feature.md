@@ -58,7 +58,8 @@ For ticket `<TICK>` referencing phase plan `phase-NNN-<slug>`:
    `specs/SCHEMAS/message-contract.schema.json` or
    `specs/SCHEMAS/service-manifest.schema.json`. If any is missing, the
    tech-writer authors it FIRST; this becomes T0 in the execution sequence.
-2. **Transition state.** `osengineer state set phase execute`. Architect
+2. **Transition state.** Ask the human to run `osengineer approve execute`
+   (the agent cannot; see planning/PROTOCOL.md "Phase Gate"). Architect
    routes to the lead team. If multiple teams are involved, opens
    handoffs upfront.
 3. **Create branch.** `git switch -c feat/<TICK>-<slug>` off the default branch.

@@ -5,7 +5,7 @@ Python guards read JSON payloads from stdin. Hooks are strict: a payload that is
 not a JSON object, or any unexpected hook error, is reported on stderr and exits 2
 (Claude Code's block signal). The PreToolUse guards (edit, Bash, read) and the
 UserPromptSubmit guard also print the dual-dialect block that Kimi Code honours.
-PostToolUse (the tool already ran), SessionStart and the statusline cannot block,
+PostToolUse (the tool already ran), SessionStart, SubagentStart and the statusline cannot block,
 so they fail loudly with exit 2 and stderr only. A parseable object without the
 fields a hook acts on is a no-op. Runners must treat guard failures as failed
 checks rather than assuming that a failed hook granted permission. `OSE_BYPASS=1` is an explicit,
@@ -47,7 +47,14 @@ the runtime's `<planDirectory>/osengineer/` evidence namespace. Repo profile exe
 scope comes from repository policy and the dispatch contract, not legacy team
 `owns_paths` caches. Generic profiles deny execution edits if the active team
 cache has missing or malformed ownership configuration.
-These hooks do not implement a budget circuit breaker.
+Post-tool also runs the budget circuit breaker (trust/circuit-breakers.md): in
+`execute`/`micro`/`hotfix` with one valid active PHASE_PLAN.md it counts tool
+calls and wall time against the summed task budgets (`budget_*` in runtime.yml,
+tokens from the transcript recorded only), warns at `budget.warnPct` (100) and at
+`budget.tripPct` (150) writes `.osengineer/BLOCKED.md`, logs `by: circuit-breaker`
+to approvals.jsonl and sets phase `blocked`. `budget.idleSeconds` (900) caps the
+wall time credited per gap. Claude Code only: Kimi and Codex have no PostToolUse
+wiring. The bash guard refuses every command while the phase is `blocked`.
 
 The edit guard denies edits during `blocked` and `suspended` until explicit
 resume, and checks team ownership during execution. Nested working directories

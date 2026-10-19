@@ -17,7 +17,7 @@
 
 | Gate | Trigger | Human Action |
 |------|---------|--------------|
-| **Token budget extension** | Circuit breaker trips | Approve additional tokens or redirect |
+| **Budget extension** | Circuit breaker trips (phase `blocked`) | `osengineer approve plan`, raise the task budgets or split, then approve execute |
 | **Scope expansion** | >20% scope creep detected | Approve new scope or split into new phase |
 | **Security exception** | Red-team HIGH finding with business justification | Approve exception with mitigation plan |
 

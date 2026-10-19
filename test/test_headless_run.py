@@ -10,9 +10,9 @@ Safety properties that only matter headlessly, and are asserted here:
   * OSE_HEADLESS=1 must reach the harness child, because that is what makes the
     denylist absolute (see test_selfauth_guard). A runner that forgets it gives
     the agent back its self-authorisation route.
-  * Budget is enforced by the runner, out of process. post-tool.py's docstring
-    promises a 150% circuit-breaker, BLOCKED.md and a phase transition; its body
-    does none of that, so nothing in-session can be trusted to stop a runaway.
+  * Budget is also enforced by the runner, out of process: the harness gets at
+    most the wall time left before budget.tripPct (test_circuit_breaker), so a
+    harness without the post-tool hook is still bounded.
   * A run must be resumable/auditable: a transcript on disk, not just stdout.
 
 Tests drive a FAKE harness binary so nothing here spends tokens or needs network.
@@ -48,9 +48,15 @@ mode = os.environ.get("FAKE_HARNESS_MODE", "ok")
 if mode == "fail":
     print("boom", file=sys.stderr)
     sys.exit(3)
+if mode == "sleep":
+    import time
+    time.sleep(float(os.environ.get("FAKE_HARNESS_SLEEP", "5")))
 print(json.dumps({"type": "result", "text": "done"}))
 sys.exit(0)
 """
+
+
+VALID_PLAN = '---\n{"phase_id": "phase-001-test", "goal": "A valid test phase plan.", "tasks": [{"id": "T1", "description": "d", "acceptance": "a", "budget": {"tool_calls": 50, "wall_minutes": 30}}]}\n---\n# Phase 1\n'
 
 
 def make_repo(tmp, phase="plan", plan=True, dirty=False):
@@ -60,13 +66,15 @@ def make_repo(tmp, phase="plan", plan=True, dirty=False):
     subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=repo, check=True)
     (repo / ".osengineer").mkdir()
+    # As install.sh writes it: hook-written runtime files never dirty the tree.
+    (repo / ".osengineer" / ".gitignore").write_text("runtime.yml\n.state.lock\n")
     (repo / ".osengineer" / "state.yml").write_text(
         f"phase: {phase}\ncurrent_team: null\nbudget_used: 0\n"
     )
     if plan:
         d = repo / "planning" / "active" / "phase-1"
         d.mkdir(parents=True)
-        (d / "PHASE_PLAN.md").write_text("# Phase 1\n\n## Tasks\n- [ ] t1\n")
+        (d / "PHASE_PLAN.md").write_text(VALID_PLAN)
     (repo / "m.py").write_text("x=1\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "i"], cwd=repo, check=True)

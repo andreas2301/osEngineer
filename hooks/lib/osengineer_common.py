@@ -127,42 +127,67 @@ def path_matches_any(file_path, globs):
     return False
 
 
-def write_state_field(repo_root, key, value):
+def _is_runtime_field(key):
+    # budget_* are the circuit breaker's per-tool-call usage counters.
+    return key in RUNTIME_FIELDS or key.startswith("budget_")
+
+
+def update_state_fields(repo_root, fn):
+    """Atomically apply fn(current state map) -> {key: value} under the state lock.
+
+    Each key goes to runtime.yml (volatile counters) or state.yml, as with
+    write_state_field. Holding one lock across read and write keeps counters
+    exact when hooks for parallel tool calls race.
+    """
     d = Path(repo_root) / ".osengineer"
     d.mkdir(parents=True, exist_ok=True)
-    state_path = d / ("runtime.yml" if key in RUNTIME_FIELDS else "state.yml")
     lock_path = d / ".state.lock"
-    tmp_name = None
     with open(lock_path, "a") as lock_f:
         fcntl.flock(lock_f, fcntl.LOCK_EX)
         try:
-            raw = state_path.read_text() if state_path.exists() else ""
-            lines = raw.splitlines()
-            found = False
+            current = read_state_map(repo_root) or {}
+            updates = fn(current) or {}
+            for name in ("runtime.yml", "state.yml"):
+                part = {k: v for k, v in updates.items() if (name == "runtime.yml") == _is_runtime_field(k)}
+                if part:
+                    _rewrite_fields(d, d / name, part)
+        finally:
+            fcntl.flock(lock_f, fcntl.LOCK_UN)
+        return updates
+
+
+def _rewrite_fields(d, state_path, updates):
+    tmp_name = None
+    try:
+        raw = state_path.read_text() if state_path.exists() else ""
+        lines = raw.splitlines()
+        for key, value in updates.items():
             for i, line in enumerate(lines):
                 if re.match(r"^" + re.escape(key) + r":", line):
                     lines[i] = f"{key}: {value}"
-                    found = True
                     break
-            if not found:
+            else:
                 lines.append(f"{key}: {value}")
-            content = "\n".join(lines) + "\n"
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=str(d), prefix=".state.", delete=False
-            ) as tmp_f:
-                tmp_name = tmp_f.name
-                tmp_f.write(content)
-                tmp_f.flush()
-                os.fsync(tmp_f.fileno())
-            os.replace(tmp_name, state_path)
-            tmp_name = None
-        finally:
-            fcntl.flock(lock_f, fcntl.LOCK_UN)
-            if tmp_name is not None:
-                try:
-                    os.unlink(tmp_name)
-                except OSError:
-                    pass
+        content = "\n".join(lines) + "\n"
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=str(d), prefix=".state.", delete=False
+        ) as tmp_f:
+            tmp_name = tmp_f.name
+            tmp_f.write(content)
+            tmp_f.flush()
+            os.fsync(tmp_f.fileno())
+        os.replace(tmp_name, state_path)
+        tmp_name = None
+    finally:
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+
+
+def write_state_field(repo_root, key, value):
+    update_state_fields(repo_root, lambda _current: {key: value})
 
 
 def emit_json(obj):
@@ -252,6 +277,57 @@ def planning_dir(repo_root):
     if is_repo_profile(repo_root):
         return Path(repo_root) / profile_setting(repo_root, "planDirectory")
     return Path(repo_root) / "planning"
+
+
+def read_evolution_counter(repo_root):
+    p = Path(repo_root) / ".osengineer" / "evolution-counter.yml"
+    if not p.exists():
+        return None
+    try:
+        m = re.search(r"^phases_since_last_evolution:\s*(\d+)", p.read_text(), re.MULTILINE)
+        return int(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+def state_banner(repo_root):
+    """Phase/team/budget/handoff banner shared by the SessionStart and
+    SubagentStart hooks; None when the repo has no state.yml."""
+    state = read_state_map(repo_root)
+    if not state:
+        return None
+
+    handoffs = count_handoffs(repo_root)
+    counter = read_evolution_counter(repo_root)
+
+    repo_profile = is_repo_profile(repo_root)
+    lines = ["## Repo profile state" if repo_profile else "## osEngineer state"]
+    lines.append(f"- phase: {state.get('phase') or 'idle'}")
+    if state.get("current_team"):
+        lines.append(f"- team: {state['current_team']}")
+    if state.get("budget_used") is not None:
+        lines.append(f"- budget used: {state['budget_used']}%")
+    if state.get("context_used_pct") is not None:
+        lines.append(f"- context window used: {state['context_used_pct']}% (not task spend)")
+    if handoffs > 0:
+        lines.append(f"- open handoffs: {handoffs}")
+    if repo_profile:
+        lines.append(f"- policy: {profile_setting(repo_root, 'policy')}; plan references: {profile_setting(repo_root, 'planDirectory')}/; "
+                     f"skill registry: {profile_setting(repo_root, 'skillRegistry')}")
+    if not repo_profile and counter is not None and counter >= 5:
+        lines.append(f"- ⚙ {counter} phases since last /osEngineer:evolve — consider running it to surface improvement proposals.")
+    if state.get("phase") == "blocked":
+        lines.append("- ⚠ phase is BLOCKED. See .osengineer/BLOCKED.md for resume instructions.")
+    return "\n".join(lines)
+
+
+# Single source of the agent rules: install.sh writes it into CLAUDE.md and
+# the hooks re-inject it where CLAUDE.md context does not reach.
+AGENT_RULES = Path(__file__).resolve().parents[2] / "templates" / "agent-rules.md"
+
+
+def agent_rules():
+    return AGENT_RULES.read_text().strip()
 
 
 def datetime_utc_iso():

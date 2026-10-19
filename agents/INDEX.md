@@ -72,7 +72,7 @@ In osEngineer-initialised repos with team manifests (P3+), the architect agent r
 - **Small repos** (<5K LOC, single service): Developer handles everything; Reviewer runs on PR.
 - **Large repos** (>20K LOC, complex topology): Full mandatory team.
 - **Cross-repo** (changes touch >1 repo): Red-Team-Architect activates automatically.
-- **Live system ops** (docker, vault, certs): Live-System-Operator takes lead; Developer never edits source on the live system directly (enforced by `osEngineer-pre-edit-guard.js`).
+- **Live system ops** (docker, vault, certs): Live-System-Operator takes lead; Developer never edits source on the live system directly (enforced by `osEngineer-pre-edit-guard.py`).
 - **Context pressure** (>20 repos in workbench): Scope-Manager prunes repo list per phase goal.
 
 ## How agents are delivered

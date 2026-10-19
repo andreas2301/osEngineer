@@ -70,6 +70,16 @@
         "policy": { "$ref": "#/$defs/relPath", "default": "EVAL_POLICY.json", "description": "Evaluation policy (eval-policy.schema.json) whose presence is the eval-policy fact." }
       }
     },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Circuit breaker thresholds in percent of the active PHASE_PLAN task budgets (tool calls, wall time), enforced by post-tool and the headless runner; see trust/circuit-breakers.md. warnPct must not exceed tripPct.",
+      "properties": {
+        "warnPct": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 },
+        "tripPct": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 150, "description": "At or above this the phase is set to blocked and BLOCKED.md is written." },
+        "idleSeconds": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 900, "description": "A gap between tool calls longer than this counts as idle, not wall time." }
+      }
+    },
     "handlers": {
       "type": "object",
       "propertyNames": { "pattern": "^[a-z][a-z0-9-]*(:[a-z0-9.-]+)?$" },

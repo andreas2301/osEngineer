@@ -4,7 +4,8 @@
 # Subcommands:
 #   init <path>                       Run install.sh on a repo or workbench
 #   state                             Show current phase/team/budget
-#   state set <k> <v>                 Update a state.yml field
+#   state set <k> <v>                 Update a state.yml field (phase routes to approve)
+#   approve <phase> [--reason "<t>"]  Human-only: validate and record a phase transition
 #   detect-teams <path>               Auto-detect folder→team mapping
 #                                     (Go modules → coding, ansible/ → infra,
 #                                      *_test.go → testing, docs/ → docs,
@@ -20,8 +21,10 @@
 #                                     Scan a META repo for ADRs; emit YAML catalog
 #   evolve [status]                   Show counter + open/closed proposals
 #   evolve propose --title "<t>" [--body "<text>" | --body-file <f>] [--category <c>]
-#   evolve accept <id> --pattern-slug <s> [--pattern-file <f>]
-#                                     Promote proposal to memory/patterns/<s>.md; reset counter
+#   evolve accept <id> --pattern-slug <s> [--pattern-file <f>] [--why <t>] [--risk <t>] [--evidence <t>]
+#                                     Write .osengineer/evolve/proposals/<id>.md; reset counter
+#   evolve promote <id> [--pr]        Human-only: commit the pattern on a skill-home
+#                                     branch (optionally open a PR); never merges
 #   evolve reject <id> --reason "<text>"
 #                                     Log rejection; reset counter
 #   scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>]
@@ -37,6 +40,8 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +49,9 @@ from subprocess import run
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks" / "lib"))
 from osengineer_common import read_state_map, write_state_field
+from repo_profile import phase_plan  # importable once osengineer_common set sys.path
+import osengineer_budget
+import phase_gate
 
 SCRIPT_DIR = Path(__file__).resolve().parent.parent
 VERSION_FILE = SCRIPT_DIR / "VERSION"
@@ -133,6 +141,12 @@ def cmd_state(args):
             sys.exit(1)
         key = args[1]
         value = " ".join(args[2:])
+        if key == "phase":
+            cmd_approve([value])
+            return
+        if key in phase_gate.RECORD_FIELDS:
+            print(f"osengineer: {key} is written by `osengineer approve` only", file=sys.stderr)
+            sys.exit(1)
         write_state_field(repo_root, key, value)
         print(f"set {key} = {value}")
         return
@@ -145,6 +159,28 @@ def cmd_state(args):
         sys.exit(0)
     for k, v in state.items():
         print(f"{k}: {v}")
+
+
+def cmd_approve(args):
+    """Human-only phase transition (planning/PROTOCOL.md, "Phase gate")."""
+    flags = parse_flags(args[1:], ["reason"]) if len(args) > 1 else {}
+    if not args or args[0].startswith("--"):
+        print('Usage: osengineer approve <phase> [--reason "<text>"]', file=sys.stderr)
+        sys.exit(1)
+    if os.environ.get("OSE_HEADLESS") == "1":
+        print("osengineer approve: refused in a headless run (OSE_HEADLESS=1) — "
+              "phase transitions need a human", file=sys.stderr)
+        sys.exit(1)
+    repo_root = find_repo_root()
+    if not repo_root or not (repo_root / ".osengineer" / "state.yml").exists():
+        print("osengineer approve: no .osengineer/state.yml in this git repo", file=sys.stderr)
+        sys.exit(1)
+    try:
+        entry = phase_gate.approve(repo_root, args[0], flags.get("reason"))
+    except ValueError as exc:
+        print(f"osengineer approve: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"approved {entry['from']} -> {entry['to']} by {entry['by']}")
 
 
 def cmd_init(args):
@@ -595,10 +631,14 @@ def find_command_file(verb):
 def run_preflight(repo_root, verb):
     """Refuse to start a headless run unless it is safe to.
 
-    Checks, in order: clean worktree; and, when the verb's frontmatter declares
-    plan_artifact: PHASE_PLAN, that a planning/active/*/PHASE_PLAN.md exists.
-    Raises RuntimeError with a human-readable message on failure.
+    Checks, in order: the phase is not blocked; clean worktree; and, when the
+    verb's frontmatter declares plan_artifact: PHASE_PLAN, that exactly one
+    planning/active/*/PHASE_PLAN.md exists and validates against
+    specs/SCHEMAS/phase-plan.schema.json. Returns (path, plan) for that plan,
+    else None. Raises RuntimeError with a human-readable message on failure.
     """
+    if (read_state_map(repo_root) or {}).get("phase") == "blocked":
+        raise RuntimeError("osengineer run: phase is blocked (see .osengineer/BLOCKED.md) — a human must approve first")
     gs = subprocess.run(["git", "status", "--porcelain"], cwd=repo_root,
                         capture_output=True, text=True)
     if gs.stdout.strip():
@@ -608,13 +648,17 @@ def run_preflight(repo_root, verb):
         fm = re.match(r"\A---\n(.*?)\n---", path.read_text(), re.DOTALL)
         frontmatter = fm.group(1) if fm else ""
         if re.search(r"^plan_artifact:\s*PHASE_PLAN\b", frontmatter, re.MULTILINE):
-            plans = list((Path(repo_root) / "planning" / "active").glob("*/PHASE_PLAN.md"))
-            if not plans:
+            try:
+                found = phase_plan.load_active(Path(repo_root) / "planning")
+            except phase_plan.PlanError as e:
+                raise RuntimeError(f"osengineer run: invalid PHASE_PLAN — {e}") from None
+            if found is None:
                 raise RuntimeError("osengineer run: no planning/active/*/PHASE_PLAN.md — run /osEngineer:plan first")
+            return found
     return None
 
 
-def spawn_harness(harness, prompt, repo_root, home):
+def spawn_harness(harness, prompt, repo_root, home, budget_timeout=None):
     """Run the harness headlessly and return (exit_code, stdout, stderr).
 
     exit_code is None on timeout. The child gets OSE_HEADLESS=1 — that is what
@@ -630,6 +674,8 @@ def spawn_harness(harness, prompt, repo_root, home):
         timeout = int(os.environ.get("OSE_RUN_TIMEOUT", "3600"))
     except ValueError:
         timeout = 3600
+    if budget_timeout is not None:
+        timeout = min(timeout, budget_timeout)
     try:
         proc = subprocess.run(argv, cwd=str(repo_root), capture_output=True,
                               text=True, env=env, timeout=timeout)
@@ -642,7 +688,49 @@ def spawn_harness(harness, prompt, repo_root, home):
     return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
-def record_run(repo_root, verb, harness, extra_args, started_at, result):
+def budget_before(repo_root, plan, estimate):
+    """(tool_calls, wall_seconds, tokens) already used by this phase, and the
+    seconds left before budget.tripPct of the wall budget."""
+    cur = read_state_map(repo_root) or {}
+    same = cur.get("budget_phase") == plan["phase_id"]
+    used = tuple(float(cur.get(k) or 0) if same else 0.0
+                 for k in ("budget_tool_calls", "budget_wall_seconds", "budget_tokens"))
+    trip = osengineer_budget.load_profile(repo_root)["budget"]["tripPct"]
+    return used, estimate["wall_minutes"] * 60 * trip / 100 - used[1]
+
+
+def meter_run(repo_root, plan_path, plan, estimate, before, run_wall, timeout_seconds, run_label):
+    """Add the run's unmetered wall time to the phase usage and apply the breaker.
+
+    The Claude post-tool hook already metered tool calls and the gaps between
+    them; only the remainder of the run's wall time is added, so harnesses
+    without that hook (Kimi) are metered on wall time alone.
+    """
+    hooked_wall = budget_before(repo_root, plan, estimate)[0][1] - before[1]
+    usage = osengineer_budget.account(repo_root, plan, estimate,
+                                      wall_seconds=max(0.0, run_wall - hooked_wall))
+    message = osengineer_budget.check(repo_root, plan_path, plan, estimate, usage, f"headless run {run_label}")
+    tokens = usage.get("budget_tokens")
+    return {
+        "phase_id": plan["phase_id"],
+        "estimate": estimate,
+        "tool_calls": int(usage["budget_tool_calls"]) - int(before[0]),
+        "wall_seconds": round(run_wall, 1),
+        "tokens": int(tokens) - int(before[2]) if tokens is not None else None,
+        "phase_tool_calls": int(usage["budget_tool_calls"]),
+        "phase_wall_seconds": float(usage["budget_wall_seconds"]),
+        "ratio_pct": int(usage["budget_ratio_pct"]),
+        "timeout_seconds": timeout_seconds,
+        "breaker": None if message is None else ("tripped" if "TRIPPED" in message else "warned"),
+    }
+
+
+def new_run_id():
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{ts}-{uuid.uuid4().hex[:8]}"
+
+
+def record_run(repo_root, verb, harness, extra_args, started_at, result, usage=None, run_id=None):
     """Persist .osengineer/runs/<id>/{RUN.json,events.jsonl}; return the dir.
 
     Always writes RUN.json, including on failure and timeout, so every run is
@@ -669,8 +757,7 @@ def record_run(repo_root, verb, harness, extra_args, started_at, result):
 
     runs_dir = Path(repo_root) / ".osengineer" / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"{ts}-{uuid.uuid4().hex[:8]}"
+    run_id = run_id or new_run_id()
     run_dir = runs_dir / run_id
     run_dir.mkdir()
 
@@ -688,6 +775,8 @@ def record_run(repo_root, verb, harness, extra_args, started_at, result):
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "exit_code": exit_code,
         "args": extra_args,
+        # Budget metering (trust/circuit-breakers.md); null for plan-less verbs.
+        "usage": usage,
     }, indent=2) + "\n")
     return run_dir
 
@@ -777,20 +866,38 @@ def cmd_run(args):
         sys.exit(1)
 
     try:
-        run_preflight(root, verb)  # RuntimeError → dirty tree / missing PHASE_PLAN
+        found = run_preflight(root, verb)  # RuntimeError → blocked / dirty tree / bad PHASE_PLAN
     except RuntimeError as e:
         print(e, file=sys.stderr)
         sys.exit(1)
 
+    # ── Budget: the child gets at most the wall time left before tripPct ──
+    budget = None
+    timeout_seconds = None
+    if found is not None:
+        plan_path, plan = found
+        estimate = phase_plan.estimate(plan)
+        before, left = budget_before(root, plan, estimate)
+        timeout_seconds = max(1, int(left))
+        budget = (plan_path, plan, estimate, before)
+
     # ── Spawn + record ──
+    run_id = new_run_id()
     started_at = datetime.now(timezone.utc).isoformat()
+    started = time.monotonic()
     result = (1, "", "harness was not invoked")
+    usage = None
     try:
-        result = spawn_harness(harness, prompt, root, home)
+        result = spawn_harness(harness, prompt, root, home, timeout_seconds)
     finally:
-        # RUN.json is written even when the child fails, times out, or cannot
-        # be spawned at all — a run without a record is unauditable.
-        run_dir = record_run(root, verb, harness, extra, started_at, result)
+        try:
+            if budget is not None:
+                usage = meter_run(root, budget[0], budget[1], budget[2], budget[3],
+                                  time.monotonic() - started, timeout_seconds, run_id)
+        finally:
+            # RUN.json is written even when the child fails, times out, or cannot
+            # be spawned at all — a run without a record is unauditable.
+            run_dir = record_run(root, verb, harness, extra, started_at, result, usage, run_id)
 
     exit_code = result[0]
     status = "timeout" if exit_code is None else ("success" if exit_code == 0 else "failed")
@@ -838,6 +945,105 @@ def list_proposals(repo_root):
     return sorted([f for f in list_dir_safe(d) if re.match(r"^EP-\d+-", f) and f.endswith(".md")])
 
 
+PROMOTE_FIELDS = ("What changes", "Why", "Risk", "How to revert", "Evidence")
+
+
+def promote_proposal(repo_root, prop_id, open_pr):
+    """Commit an accepted proposal's pattern on a new skill-home branch.
+
+    Human-only: refuses headless runs. Refuses a non-git or dirty skill home and
+    a proposal with an empty field. Uses a scratch index, so neither the skill
+    home's working tree nor its checked-out branch changes. Never merges.
+    """
+    def fail(msg):
+        print(f"osengineer: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    if os.environ.get("OSE_HEADLESS") == "1":
+        fail("evolve promote refused in a headless run — the loop proposes, a human promotes")
+    path = Path(repo_root) / ".osengineer" / "evolve" / "proposals" / f"{prop_id}.md"
+    if not path.is_file():
+        fail(f"no proposal {path.relative_to(repo_root)} — run `osengineer evolve accept {prop_id}` first")
+    text = path.read_text()
+    slug_m = re.search(r"^pattern_slug:\s*([a-z0-9][a-z0-9-]*)\s*$", text, re.MULTILINE)
+    if not slug_m:
+        fail("proposal has no valid pattern_slug")
+    slug = slug_m.group(1)
+    if re.search(r"^status:\s*promoted", text, re.MULTILINE):
+        fail(f"{prop_id} is already promoted")
+    head, sep, pattern = text.partition("\n## Pattern\n")
+    sections = dict(re.findall(r"^## (.+?)\n([\s\S]*?)(?=^## |\Z)", head, re.MULTILINE))
+    missing = [f for f in PROMOTE_FIELDS if not sections.get(f, "").strip()]
+    if not pattern.strip():
+        missing.append("Pattern")
+    if missing:
+        fail(f"proposal is missing fields: {', '.join(missing)} — edit {path.relative_to(repo_root)}")
+
+    home = Path(os.environ.get("OSENGINEER_HOME") or SCRIPT_DIR).resolve()
+
+    def g(*a, env=None, check=True):
+        r = subprocess.run(["git", "-C", str(home), *a], capture_output=True, text=True,
+                           env={**os.environ, **(env or {})})
+        if check and r.returncode != 0:
+            fail(f"git {' '.join(a[:2])} failed in skill home: {r.stderr.strip()}")
+        return r.stdout.strip()
+
+    top = subprocess.run(["git", "-C", str(home), "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True)
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != home:
+        fail(f"skill home {home} is not a git checkout — promote needs one to open a branch")
+    if g("status", "--porcelain"):
+        fail(f"skill home {home} has uncommitted changes — commit or stash them first")
+    rel = f"memory/patterns/{slug}.md"
+    if subprocess.run(["git", "-C", str(home), "cat-file", "-e", f"HEAD:{rel}"],
+                      capture_output=True).returncode == 0:
+        fail(f"{rel} already exists in the skill home — pick a new slug or edit it by hand")
+    branch = f"evolve/{prop_id.lower()}-{slug}"[:60]
+    if g("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False):
+        fail(f"branch {branch} already exists in the skill home")
+
+    subject = f"docs(patterns): add {slug}"[:72]
+    message = "\n\n".join([subject] + [f"{f}:\n{sections[f].strip()}" for f in PROMOTE_FIELDS])
+    blob = subprocess.run(["git", "-C", str(home), "hash-object", "-w", "--stdin"],
+                          input=pattern.lstrip("\n"), capture_output=True, text=True).stdout.strip()
+    with tempfile.TemporaryDirectory() as tmp:
+        idx = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        g("read-tree", "HEAD", env=idx)
+        g("update-index", "--add", "--cacheinfo", f"100644,{blob},{rel}", env=idx)
+        tree = g("write-tree", env=idx)
+    commit = g("commit-tree", tree, "-p", "HEAD", "-m", message)
+    g("branch", branch, commit)
+    path.write_text(update_frontmatter(text, {
+        "status": "promoted", "promoted_branch": branch, "promoted_commit": commit,
+    }))
+    # The loop's EP-NNN proposal records the outcome too, so it closes.
+    src_m = re.search(r"^source_proposal:\s*(\S+)\s*$", text, re.MULTILINE)
+    source = Path(repo_root) / src_m.group(1) if src_m else None
+    if source and source.is_file():
+        source.write_text(update_frontmatter(source.read_text(), {
+            "status": "promoted", "promoted_at": datetime.now(timezone.utc).isoformat(),
+            "promoted_branch": branch,
+            "skill_proposal": path.relative_to(repo_root).as_posix(),
+        }))
+    print(f"promoted {prop_id} → branch {branch} in {home} (commit {commit[:12]}); nothing merged")
+    if not open_pr:
+        print(f"review it, then: git -C {home} push -u origin {branch} && gh pr create --head {branch}")
+        return
+    if not shutil.which("gh"):
+        fail(f"gh not found — push {branch} and open the PR by hand")
+    g("push", "-u", "origin", branch)
+    r = subprocess.run(["gh", "pr", "create", "--head", branch, "--title", subject,
+                        "--body", message.split("\n\n", 1)[1]],
+                       cwd=str(home), capture_output=True, text=True)
+    if r.returncode != 0:
+        fail(f"gh pr create failed: {r.stderr.strip()}")
+    pr = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    for p in (path, source):
+        if pr and p and p.is_file():
+            p.write_text(update_frontmatter(p.read_text(), {"promoted_pr": pr}))
+    print(f"opened PR for review: {r.stdout.strip()}")
+
+
 def cmd_evolve(args):
     repo_root = find_repo_root()
     if not repo_root:
@@ -852,7 +1058,7 @@ def cmd_evolve(args):
         closed = []
         for f in proposals:
             content = (Path(repo_root) / ".osengineer" / "evolution-proposals" / f).read_text()
-            if re.search(r"^status:\s*(accepted|rejected)", content, re.MULTILINE):
+            if re.search(r"^status:\s*(accepted|rejected|promoted)", content, re.MULTILINE):
                 closed.append(f)
             else:
                 open_p.append(f)
@@ -912,12 +1118,16 @@ def cmd_evolve(args):
 
     if sub == "accept":
         if len(args) < 2:
-            print('Usage: osengineer evolve accept <id> --pattern-slug <slug> [--pattern-file <f>]', file=sys.stderr)
+            print('Usage: osengineer evolve accept <id> --pattern-slug <slug> [--pattern-file <f>] [--why "<t>"] [--risk "<t>"] [--evidence "<t>"]', file=sys.stderr)
             sys.exit(1)
         prop_id = args[1]
-        flags = parse_flags(args[2:], ["pattern-slug", "pattern-file"])
-        if not flags.get("pattern-slug"):
+        flags = parse_flags(args[2:], ["pattern-slug", "pattern-file", "why", "risk", "evidence"])
+        slug = flags.get("pattern-slug", "")
+        if not slug:
             print("--pattern-slug is required", file=sys.stderr)
+            sys.exit(1)
+        if not re.match(r"^[a-z0-9][a-z0-9-]*$", slug):
+            print("osengineer: --pattern-slug must be lowercase letters, digits and dashes", file=sys.stderr)
             sys.exit(1)
         d = Path(repo_root) / ".osengineer" / "evolution-proposals"
         files = [f for f in list_dir_safe(d) if f.startswith(f"{prop_id}-") and f.endswith(".md")]
@@ -929,38 +1139,85 @@ def cmd_evolve(args):
             sys.exit(1)
         file = d / files[0]
         original = file.read_text()
-        updated = update_frontmatter(original, {
-            "status": "accepted",
-            "accepted_at": datetime.now(timezone.utc).isoformat(),
-        })
-        file.write_text(updated)
-        pattern_file = SCRIPT_DIR / "memory" / "patterns" / f"{flags['pattern-slug']}.md"
-        pattern_file.parent.mkdir(parents=True, exist_ok=True)
+        title_m = re.search(r'^title:\s*"?(.*?)"?\s*$', original, re.MULTILINE)
+        title = title_m.group(1) if title_m else prop_id
+        body = re.sub(r"^---\n[\s\S]*?\n---\n", "", original, flags=re.MULTILINE).strip()
         if flags.get("pattern-file"):
             try:
-                src = Path(flags["pattern-file"]).read_text()
-                pattern_file.write_text(src)
+                pattern = Path(flags["pattern-file"]).read_text()
             except Exception:
                 print(f"osengineer: cannot read --pattern-file {flags['pattern-file']}", file=sys.stderr)
                 sys.exit(1)
         else:
-            stub_body = re.sub(r"^---\n[\s\S]*?\n---\n", "", original, flags=re.MULTILINE)
-            stub = [
-                f"# Pattern: {flags['pattern-slug']}",
+            pattern = "\n".join([
+                f"# Pattern: {slug}",
                 "",
-                f"Promoted from evolution proposal {prop_id} in repo {repo_root.name} on {datetime.now(timezone.utc).isoformat()[:10]}.",
+                f"Promoted from evolution proposal {prop_id} in repo {repo_root.name}.",
                 "",
-                stub_body,
-            ]
-            pattern_file.write_text("\n".join(stub))
+                body,
+                "",
+            ])
+        source = file.relative_to(repo_root)
+        now = datetime.now(timezone.utc).isoformat()
+        # The proposal stays in the TARGET repo. Only `evolve promote`, run by a
+        # human, carries it to the skill home — and only as a branch for review.
+        out = Path(repo_root) / ".osengineer" / "evolve" / "proposals" / f"{prop_id}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join([
+            "---",
+            f"proposal_id: {prop_id}",
+            f"pattern_slug: {slug}",
+            f"source_proposal: {source}",
+            f"source_repo: {repo_root.name}",
+            "status: proposed",
+            f"accepted_at: {now}",
+            "---",
+            "",
+            f"# Skill change proposal {prop_id}: {title}",
+            "",
+            "## What changes",
+            "",
+            f"Adds `memory/patterns/{slug}.md` to the osEngineer skill home (one new file).",
+            "",
+            "## Why",
+            "",
+            flags.get("why") or title,
+            "",
+            "## Risk",
+            "",
+            flags.get("risk", ""),
+            "",
+            "## How to revert",
+            "",
+            "Close the PR unmerged, or after merge `git revert` the promote commit.",
+            "",
+            "## Evidence",
+            "",
+            flags.get("evidence") or f"Source proposal `{source}` in repo {repo_root.name}.",
+            "",
+            "## Pattern",
+            "",
+            pattern,
+        ]))
+        file.write_text(update_frontmatter(original, {"status": "accepted", "accepted_at": now}))
         c = read_evolution_counter(repo_root)
         write_evolution_counter(repo_root, {
             "phases_since_last_evolution": 0,
             "total_evolutions_accepted": c["total_evolutions_accepted"] + 1,
-            "last_evolution_date": datetime.now(timezone.utc).isoformat()[:10],
+            "last_evolution_date": now[:10],
         })
-        print(f"accepted {prop_id} → memory/patterns/{flags['pattern-slug']}.md")
+        print(f"accepted {prop_id} → {out.relative_to(repo_root)} (proposal only; skill home untouched)")
+        if not flags.get("risk"):
+            print("fill in the Risk section before promoting", file=sys.stderr)
+        print(f"review it, then run: osengineer evolve promote {prop_id} [--pr]")
         print(f"counter reset to 0; total accepted = {c['total_evolutions_accepted'] + 1}")
+        return
+
+    if sub == "promote":
+        if len(args) < 2:
+            print("Usage: osengineer evolve promote <id> [--pr]", file=sys.stderr)
+            sys.exit(1)
+        promote_proposal(repo_root, args[1], "--pr" in args[2:])
         return
 
     if sub == "reject":
@@ -1004,7 +1261,7 @@ def cmd_evolve(args):
         print(f"rejected {prop_id} (reason logged); counter reset to 0")
         return
 
-    print("Usage: osengineer evolve (status|propose|accept|reject) ...", file=sys.stderr)
+    print("Usage: osengineer evolve (status|propose|accept|promote|reject) ...", file=sys.stderr)
     sys.exit(1)
 
 
@@ -1095,8 +1352,10 @@ def cmd_explain(args):
             "Phase lifecycle: idle → discuss → plan → execute → verify → accepted.\n"
             "Micro-Phase (Hotfix): idle → micro (or hotfix) → accepted (lightweight cycle).\n"
             "`blocked` is a side-state entered on budget overrun or hard-rule violation.\n"
-            "Transitions are gated by hooks: no execute without PHASE_PLAN.md, no\n"
-            "verify without green test run, no merge without VERIFICATION.md (or MICRO_PLAN.md)."
+            "Only a human changes the phase: `osengineer approve <phase>` checks the\n"
+            "transition table and the artifact (PHASE_PLAN.md for execute, VERIFICATION.md\n"
+            "or MICRO_PLAN.md to close) and logs to .osengineer/approvals.jsonl. The\n"
+            "hooks refuse the agent `approve`, `state set phase` and state.yml writes."
         ),
         "hooks": (
             "Ten enforcement hooks live in hooks/osEngineer-*. install.sh copies\n"
@@ -1133,8 +1392,10 @@ def cmd_explain(args):
             ".osengineer/evolution-counter.yml; at >= 5 the session-start banner\n"
             "auto-nudges. Propose an improvement with\n"
             "  osengineer evolve propose --title \"<t>\" --body \"<text>\"\n"
-            "Accept with `osengineer evolve accept <id> --pattern-slug <s>` (promotes\n"
-            "to memory/patterns/) or `osengineer evolve reject <id> --reason \"<r>\"`\n"
+            "Accept with `osengineer evolve accept <id> --pattern-slug <s>` (writes a\n"
+            "proposal to .osengineer/evolve/proposals/; skill home untouched), then a\n"
+            "human runs `osengineer evolve promote <id> --pr` to open a review PR.\n"
+            "Or `osengineer evolve reject <id> --reason \"<r>\"`\n"
             "(logged to evolution-rejections.jsonl). Either action resets the counter."
         ),
     }
@@ -1155,7 +1416,9 @@ def usage():
         "  osengineer init <path>                  Initialise a repo with osEngineer wiring\n"
         "  osengineer upgrade                      Re-run installer against this repo; reconcile version state\n"
         "  osengineer state                        Show .osengineer/state.yml fields\n"
-        "  osengineer state set <k> <v>            Update a state.yml field\n"
+        "  osengineer state set <k> <v>            Update a state.yml field (phase routes to approve)\n"
+        "  osengineer approve <phase> [--reason \"<text>\"]\n"
+        "                                          Human-only: validate and record a phase transition\n"
         "  osengineer detect-teams <path>          Auto-detect team→folder mapping (outputs YAML)\n"
         "  osengineer handoff open --from <t> --to <t> --slug <s> [--closes-when \"<text>\"]\n"
         "  osengineer handoff close <id> [--reason \"<text>\"]\n"
@@ -1164,8 +1427,9 @@ def usage():
         "                                          Scan a META repo for ADRs; emit YAML catalog\n"
         "  osengineer evolve [status]               Show counter + open/closed proposals\n"
         "  osengineer evolve propose --title \"<t>\" [--body \"<text>\" | --body-file <f>] [--category <c>]\n"
-        "  osengineer evolve accept <id> --pattern-slug <s> [--pattern-file <f>]\n"
-        "                                          Promote proposal to memory/patterns/<s>.md; reset counter\n"
+        "  osengineer evolve accept <id> --pattern-slug <s> [--pattern-file <f>] [--why <t>] [--risk <t>] [--evidence <t>]\n"
+        "                                          Write .osengineer/evolve/proposals/<id>.md; reset counter\n"
+        "  osengineer evolve promote <id> [--pr]   Human-only: commit pattern on a skill-home branch; never merges\n"
         "  osengineer evolve reject <id> --reason \"<text>\"\n"
         "                                          Log rejection; reset counter\n"
         "  osengineer scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>]\n"
@@ -1206,6 +1470,8 @@ def main():
         cmd_init(rest)
     elif sub == "state":
         cmd_state(rest)
+    elif sub == "approve":
+        cmd_approve(rest)
     elif sub == "detect-teams":
         cmd_detect_teams(rest)
     elif sub == "handoff":

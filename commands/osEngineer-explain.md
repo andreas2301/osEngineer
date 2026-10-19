@@ -70,7 +70,7 @@ During phase execution, osEngineer writes:
 - `planning/active/VERIFICATION.md` — Verification results after `/osEngineer:verify`
 - `planning/completed/<phase-name>/` — Archived phase artifacts after completion
 - `memory/retrospectives/<date>-<phase>.md` — Findings appended by the developer agent
-- `memory/patterns/<pattern-name>.md` — Promoted patterns by the judge agent
+- `.osengineer/evolve/proposals/<id>.md` — Pattern proposals from `osengineer evolve accept`; `memory/patterns/<slug>.md` in the skill home changes only through a human `osengineer evolve promote <id> --pr` and a merged PR
 
 ### Slash Commands
 
@@ -105,7 +105,7 @@ A typical engagement flows through these states:
 2. **Plan** — Planner agent breaks the goal into numbered tasks with deps, risks, and token budgets.
 3. **Execute** — Developer agent works task-by-task. Each task = atomic commit. Rollback path documented.
 4. **Verify** — Tests run, acceptance criteria checked, e2e tracer bullets fired. If fail → back to Execute.
-5. **Retrospective** — Developer writes findings. Judge promotes validated patterns to `memory/patterns/`.
+5. **Retrospective** — Developer writes findings. Reusable patterns become evolution proposals; a human promotes one with `osengineer evolve promote <id> --pr`, which opens a PR against the skill home's `memory/patterns/`.
 6. **Evolve** — Every 5 phases, auto-nudge asks: "How can I serve you better?" You pick an improvement or skip.
 
 ### Agent Dispatch
@@ -121,7 +121,7 @@ Not all agents run for every task. The dispatch rules:
 
 ### Safety Rules
 
-- **Token budget hard limit:** Exceed 150% of estimate → abort with structured handoff.
+- **Budget hard limit:** Reach 150% of the task budgets (tool calls, wall time) → the circuit breaker blocks the phase and writes `.osengineer/BLOCKED.md`.
 - **Live system read-only:** Never edit source on the live system directly. Workbench → PR.
 - **Circuit breakers:** 3 consecutive failures on same agent → escalate to human.
 - **HITL gates:** Deployments, schema changes, and auth modifications require explicit approval.

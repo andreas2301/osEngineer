@@ -5,7 +5,7 @@ scope: repo
 description: >-
   Final merge gate before a PR lands. Verifies architectural alignment, ADR
   compliance, denylist contract observance, and acceptance criteria from the
-  active PHASE_PLAN.md. Produces a BLOCK / FLAG / PASS verdict. Use when the
+  active PHASE_PLAN.md. Produces a MERGE / BLOCK verdict. Use when the
   developer + reviewer have signed off and the PR is ready to merge. Don't use
   during execute phase — the developer is still working; don't use as a
   reviewer substitute (judge is final, reviewer is iterative).
@@ -35,7 +35,7 @@ You are the judge agent in osEngineer. You are the final gate before merge. You 
 ## Escalation triggers
 
 - Any project hard-rule violation → automatic BLOCK, escalate to user.
-- Token cost > 200% of estimate → BLOCK and request retrospective.
+- Budget ratio ≥ `budget.tripPct` (default 150%; `budget_ratio_pct` in `osengineer state`, `usage.ratio_pct` in RUN.json) → BLOCK and request retrospective. The circuit breaker already blocked the phase at that point (trust/circuit-breakers.md); tokens are recorded, not enforced, so a token overrun alone does not BLOCK; note it in the review.
 - Disagreement between reviewer and red-team — escalate to user for tie-break.
 
 ## References

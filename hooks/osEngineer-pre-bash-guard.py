@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # osEngineer-pre-bash-guard.py — Claude PreToolUse hook on Bash.
 #
+# Blocks every Bash call while phase is blocked (the budget circuit breaker
+# trips into blocked; see trust/circuit-breakers.md).
 # Blocks destructive bash commands without an active 4-part plan
 # (.osengineer/current-plan.md). The 4-part plan must contain Touch/Change/
 # Impact/Rollback sections.
@@ -10,7 +12,9 @@
 # hardcoded baseline so enforcement is never silently disabled.
 #
 # Per-team overrides can `disabled`, `downgraded_to_warning`, or `added` patterns.
-# Honours OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl).
+# Honours OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl), except for
+# phase self-transitions (`osengineer approve`, `state set phase`, writes to
+# state.yml/approvals.jsonl): those are refused in every phase, bypass or not.
 
 import json
 import os
@@ -28,6 +32,7 @@ from osengineer_common import (
     find_osengineer_root,
     read_state_map,
 )
+import phase_gate
 
 STDIN_TIMEOUT_MS = 3000
 
@@ -191,6 +196,16 @@ def main():
 
     headless = os.environ.get("OSE_HEADLESS") == "1"
 
+    state = read_state_map(repo_root)
+    route = phase_gate.agent_route(cmd, blocked=bool(state) and state.get("phase") == "blocked")
+    if route:
+        # Approving a phase is the human's act; a bypass in the hook env must
+        # not hand it to the agent.
+        if os.environ.get("OSE_BYPASS") == "1":
+            bypass_log(repo_root, "pre-bash-guard", "OSE_BYPASS=1 not honoured for phase approval")
+        emit_block("PreToolUse", f"osEngineer: command {route}. " + phase_gate.REFUSAL)
+        return
+
     if os.environ.get("OSE_BYPASS") == "1":
         # OSE_BYPASS is the human's escape hatch, not the runner's: in a
         # headless run it is logged and refused, not honoured.
@@ -202,11 +217,20 @@ def main():
         if not headless:
             return
 
+    if state and state.get("phase") == "blocked":
+        # The budget circuit breaker (or a human) stopped the phase; nothing
+        # runs until a human moves it out of blocked.
+        emit_block(
+            "PreToolUse",
+            "osEngineer: Bash denied while phase is blocked (see .osengineer/BLOCKED.md). "
+            "A human must approve leaving blocked first.",
+        )
+        return
+
     globals_ = load_patterns()
     repo_ov_path = Path(repo_root) / ".osengineer" / "denylist-overrides.json"
     repo_ov = load_override_file(repo_root, repo_ov_path, "repo")
 
-    state = read_state_map(repo_root)
     current_team = state.get("current_team") if state else None
     team_ov = None
     if current_team:
