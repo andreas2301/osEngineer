@@ -62,7 +62,10 @@ def main():
         target = Path(file_path)
         if not target.is_absolute():
             target = Path(cwd) / target
-        protected = {(Path(repo_root) / ".osengineer" / f).resolve() for f in phase_gate.PROTECTED_FILES}
+        names = list(phase_gate.PROTECTED_FILES)
+        if (read_state_map(repo_root) or {}).get("phase") == "blocked":
+            names.append(phase_gate.BLOCKED_FILE)
+        protected = {(Path(repo_root) / ".osengineer" / f).resolve() for f in names}
         if target.resolve() in protected:
             if os.environ.get("OSE_BYPASS") == "1":
                 bypass_log(repo_root, "pre-edit-guard", "OSE_BYPASS=1 not honoured for phase approval")

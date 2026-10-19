@@ -5,6 +5,8 @@
 # TRANSITIONS and the target's prerequisite artifact, records who and when in
 # state.yml and appends to .osengineer/approvals.jsonl. The guards use
 # agent_route() and PROTECTED_FILES to refuse the agent every route to it.
+# runtime.yml is protected too: it holds the circuit breaker's budget_*
+# counters, which hooks write in code; an agent rewrite would reset its budget.
 
 import getpass
 import json
@@ -35,7 +37,9 @@ PHASES = set(TRANSITIONS)
 
 # Written only by approve(); `state set` refuses them.
 RECORD_FIELDS = ("phase_approved_by", "phase_approved_at")
-PROTECTED_FILES = ("state.yml", "approvals.jsonl")
+PROTECTED_FILES = ("state.yml", "approvals.jsonl", "runtime.yml")
+# The breaker's notice to the human; held only while the phase is blocked.
+BLOCKED_FILE = "BLOCKED.md"
 
 
 def required_artifact(current, target):
@@ -117,8 +121,21 @@ _CLI_ROUTE = re.compile(
     r"(?:(?:sudo|exec|env|command|nohup|time|eval)\s+)*(?:python\d*(?:\.\d+)?\s+)?"
     r"(?:\S*/)?osengineer\s+(?:approve|state\s+set\s+phase\w*)\b"
 )
-_MENTION = re.compile(r"(?:state\.yml|approvals\.jsonl)\b")
-_REDIRECT = re.compile(r">\|?\s*['\"]?[^\s;|&'\"]*(?:state\.yml|approvals\.jsonl)")
+
+
+def _names(blocked):
+    names = PROTECTED_FILES + ((BLOCKED_FILE,) if blocked else ())
+    return "(?:" + "|".join(re.escape(n) for n in names) + ")"
+
+
+def _mention(blocked):
+    return re.compile(_names(blocked) + r"\b")
+
+
+def _redirect(blocked):
+    return re.compile(r">\|?\s*['\"]?[^\s;|&'\"]*" + _names(blocked))
+
+
 _WRITER = re.compile(
     r"\b(?:tee|mv|cp|rm|ln|truncate|dd|install|rsync|chmod|python\d*(?:\.\d+)?|"
     r"node|ruby|perl|awk|gawk|php|sed\s+(?:[^|;&\n]*\s)?-[a-zA-Z]*i|"
@@ -126,26 +143,31 @@ _WRITER = re.compile(
 )
 
 
-def agent_route(cmd):
-    """Why a shell command is a self-transition route, or None."""
+def agent_route(cmd, blocked=False):
+    """Why a shell command is a self-transition route, or None. With blocked,
+    writes to BLOCKED.md count as one too."""
+    mention, redirect = _mention(blocked), _redirect(blocked)
     if _CLI_ROUTE.search(cmd):
         return "runs osengineer approve / state set phase"
     if "write_state_field" in cmd:
         return "calls write_state_field"
     for part in re.split(r"\|\||&&|[;|\n]", cmd):
-        if not _MENTION.search(part):
+        if not mention.search(part):
             continue
-        if _REDIRECT.search(part) or _WRITER.search(part):
-            return "writes .osengineer/state.yml or approvals.jsonl"
-    if _REDIRECT.search(cmd):
-        return "writes .osengineer/state.yml or approvals.jsonl"
+        if redirect.search(part) or _WRITER.search(part):
+            return WRITE_ROUTE
+    if redirect.search(cmd):
+        return WRITE_ROUTE
     return None
 
+
+WRITE_ROUTE = "writes a hook-owned .osengineer file (state.yml, approvals.jsonl, runtime.yml or BLOCKED.md)"
 
 REFUSAL = (
     "Phase changes are a human decision: only the human approves a phase, by "
     "running `osengineer approve <phase>` in their own terminal (or as a `!` "
     "command in Claude Code). Ask the human to approve; do not edit "
-    ".osengineer/state.yml or .osengineer/approvals.jsonl. OSE_BYPASS does "
-    "not lift this."
+    ".osengineer/state.yml, approvals.jsonl or runtime.yml (budget counters), "
+    "and leave .osengineer/BLOCKED.md for the human while the phase is "
+    "blocked. OSE_BYPASS does not lift this."
 )

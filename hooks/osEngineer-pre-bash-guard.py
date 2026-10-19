@@ -196,7 +196,8 @@ def main():
 
     headless = os.environ.get("OSE_HEADLESS") == "1"
 
-    route = phase_gate.agent_route(cmd)
+    state = read_state_map(repo_root)
+    route = phase_gate.agent_route(cmd, blocked=bool(state) and state.get("phase") == "blocked")
     if route:
         # Approving a phase is the human's act; a bypass in the hook env must
         # not hand it to the agent.
@@ -216,7 +217,6 @@ def main():
         if not headless:
             return
 
-    state = read_state_map(repo_root)
     if state and state.get("phase") == "blocked":
         # The budget circuit breaker (or a human) stopped the phase; nothing
         # runs until a human moves it out of blocked.
