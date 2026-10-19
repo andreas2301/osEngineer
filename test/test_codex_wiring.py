@@ -40,6 +40,7 @@ EXPECTED_SCRIPTS = {
     "osEngineer-pre-edit-guard.py",
     "osEngineer-pre-bash-guard.py",
     "osEngineer-session-start.py",
+    "osEngineer-subagent-start.py",
 }
 FOREIGN = {"type": "command", "command": "python3 /opt/other/unrelated-guard.py", "timeout": 30}
 

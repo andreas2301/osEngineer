@@ -12,11 +12,12 @@ osEngineer enforcement layer. Installed by `install.sh`. All hooks honour
 ## Claude Code hooks (referenced from `.claude/settings.json`)
 
 - [osEngineer-prompt-guard.py](osEngineer-prompt-guard.py) — `UserPromptSubmit`: inject phase/team/budget state; block `/osEngineer:execute` when no PHASE_PLAN.md exists
-- [osEngineer-pre-edit-guard.py](osEngineer-pre-edit-guard.py) — `PreToolUse` on Write/Edit/NotebookEdit: block edits during discuss/plan phases; block `/opt/sovereign-shield/` writes; team `owns_paths` validation (P3+)
-- [osEngineer-pre-bash-guard.py](osEngineer-pre-bash-guard.py) — `PreToolUse` on Bash: block destructive commands (`rm -rf`, `git push --force`, `docker rm`, `kubectl delete`, `git reset --hard`) without an active 4-part plan
+- [osEngineer-pre-edit-guard.py](osEngineer-pre-edit-guard.py) — `PreToolUse` on Write/Edit/NotebookEdit: block edits during discuss/plan phases; block `.osengineer/state.yml`/`approvals.jsonl` in every phase (bypass-exempt); block `/opt/sovereign-shield/` writes; team `owns_paths` validation (P3+)
+- [osEngineer-pre-bash-guard.py](osEngineer-pre-bash-guard.py) — `PreToolUse` on Bash: block destructive commands (`rm -rf`, `git push --force`, `docker rm`, `kubectl delete`, `git reset --hard`) without an active 4-part plan; refuse agent phase self-transitions (`osengineer approve`, `state set phase`, shell writes to state.yml; bypass-exempt)
 - [osEngineer-read-guard.py](osEngineer-read-guard.py) — `PreToolUse` on Write/Edit: advisory "read before edit" reminder (no-op on Claude Code itself which enforces natively)
 - [osEngineer-post-tool.py](osEngineer-post-tool.py) — `PostToolUse`: track context window; mirror used_pct into `state.yml`; emit warnings at `context.warnPct` / `criticalPct` remaining (default 35% / 25%)
 - [osEngineer-session-start.py](osEngineer-session-start.py) — `SessionStart`: emit banner with phase / team / budget / open handoffs / auto-nudge
+- [osEngineer-subagent-start.py](osEngineer-subagent-start.py) — `SubagentStart`: re-inject the same banner plus the agent rules (`templates/agent-rules.md`) into every subagent (Claude Code, Codex; Kimi drops SubagentStart output)
 
 ## Statusline
 

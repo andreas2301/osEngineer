@@ -6,6 +6,92 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Changed — evolve: the loop proposes, the owner decides
+
+- **`osengineer evolve accept` no longer writes into the shared skill home.**
+  It used to write `memory/patterns/<slug>.md` straight into the skill
+  checkout from any target repo, with no review and no commit. Now it writes
+  a change proposal to the target repo's `.osengineer/evolve/proposals/<id>.md`.
+  The proposal has sections for what changes, why, risk, how to revert,
+  evidence and the pattern. New flags: `--why`, `--risk`, `--evidence`.
+  `--pattern-slug` must be lowercase letters, digits and dashes.
+- **New `osengineer evolve promote <id> [--pr]`**, run by a human. It commits
+  the pattern as `docs(patterns): add <slug>` on a new `evolve/<id>-<slug>`
+  branch of the skill home git checkout. The working tree and the
+  checked-out branch are left as they were. With `--pr` and `gh`, it pushes
+  the branch and opens a PR. It refuses in headless runs (`OSE_HEADLESS=1`),
+  on a non-git or dirty skill home, on a proposal with missing fields, and on
+  an existing pattern or branch. Nothing is ever merged automatically.
+
+### Added
+
+- **SubagentStart hook** (`hooks/osEngineer-subagent-start.py`): SessionStart
+  context never reaches subagents, so every subagent now gets the session-start
+  state banner (shared via `osengineer_common.state_banner`) plus the agent
+  rules. Wired for Claude Code (`.claude/settings.json`) and Codex
+  (`.codex/hooks.json`). Kimi runs SubagentStart hooks but drops their output,
+  so it is not wired there; this gap is documented.
+- **Agent rules from one source** (`templates/agent-rules.md`): install.sh
+  writes it into CLAUDE.md, and the prompt guard's re-injection and the
+  subagent-start hook read it. The inline copies in install.sh, the prompt
+  guard and the developer agent are gone. New rules: push back with a simpler
+  approach, surface multiple interpretations, remove only what your own change
+  made unused, match the existing style, trace every changed line to the
+  request (also a reviewer checklist item), a trivial-task exception, fail
+  loudly at real boundaries with no defensive code for impossible states, and a
+  **Skipped / risks** footer closing every agent report.
+- `test/test_docs_drift.py`: SKILL.md paths, hook names in live docs, commands
+  named by hooks, and the judge verdict set must match the tree.
+
+### Fixed
+
+- SKILL.md listed flat `agents/<name>.md` paths; it now lists `agents/<name>/AGENT.md`.
+- Live docs (`docs/premortem_analysis.md`, `trust/denylist.md`, `agents/INDEX.md`)
+  named Node-era `.js` hooks; they now name the `.py` hooks.
+- The post-tool critical warning pointed to `/osEngineer:pause-work`, which never
+  existed; it now advises a checkpoint commit.
+- The judge frontmatter promised BLOCK / FLAG / PASS while the body, merge
+  criteria and override protocol use MERGE / BLOCK; it is MERGE / BLOCK throughout.
+
+### Added
+
+- **`bin/ose-tdd-check`**: checks test-first ordering on a commit range. Each
+  production commit needs a preceding `test(...)` commit, or an
+  architect-granted `Risk-Exception: <class> — <reason>` trailer (docs, config,
+  rename, trivial, revert, generated). Every exception is listed. CI runs it on
+  PR ranges and writes the report to the job summary. `--verify-red` (opt-in)
+  confirms the test commit fails. See `docs/tdd-check.md`.
+
+### Added — human phase gate
+
+- **`osengineer approve <phase> [--reason "<t>"]`** is now the only way to
+  change the phase (`hooks/lib/phase_gate.py`). It checks:
+  - an explicit transition table: Discuss → Plan → Execute → Verify → Accepted,
+    plus Blocked and the micro/hotfix Micro-Phase;
+  - the prerequisite artifact for the target phase: `PHASE_PLAN.md` before
+    `execute`, `VERIFICATION.md` or `MICRO_PLAN.md` before closing.
+
+  It records `phase_approved_by`/`phase_approved_at` in `state.yml` and appends
+  each approval to `.osengineer/approvals.jsonl`. Headless runs refuse it.
+  See `planning/PROTOCOL.md` "Phase Gate".
+
+### Changed
+
+- `osengineer state set phase <p>` routes through `approve`, so `idle → execute`
+  in one step is no longer accepted. Other keys work as before, except that the
+  `phase_approved_*` record fields are refused.
+- The guards refuse the agent every route to a phase change, in every phase and
+  on all three harnesses:
+  - `pre-edit-guard` blocks any edit of `state.yml` or `approvals.jsonl`;
+  - `pre-bash-guard` blocks `approve`, `state set phase` and best-effort shell
+    writes to those files.
+
+  `OSE_BYPASS` does not lift these blocks; the refused bypass is logged.
+- The discuss/plan edit block now asks the human to approve the move to
+  execute; it no longer tells the agent to run `state set phase execute`.
+  `/osEngineer:feature`, `fix` and `hotfix` and the verifier protocol now ask
+  the human to approve as well.
+
 ## [0.5.0] — unreleased (date set when tagged)
 
 ### Added — evaluation harness for detectors, classifiers and scanners

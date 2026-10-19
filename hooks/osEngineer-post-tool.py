@@ -133,7 +133,7 @@ def context_message(data, repo_root):
         message = (
             f"osEngineer CONTEXT CRITICAL: {used_pct}% used, {remaining}% remaining. "
             "Inform the user that context is nearly exhausted. Do NOT start new complex work. "
-            "Consider /osEngineer:pause-work at the next natural stopping point."
+            "At the next natural stopping point, checkpoint: commit the work and note the next step in the active plan."
         )
     else:
         message = (

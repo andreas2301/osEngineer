@@ -62,7 +62,7 @@ RUNTIMES="claude kimi codex" ./install.sh /path/to/your/project
 | | Claude Code (`claude`) | Kimi Code (`kimi`) | Codex CLI (`codex`) |
 |---|---|---|---|
 | Hook wiring | `.claude/settings.json` (per repo) | `$KIMI_CODE_HOME/config.toml` (machine-global, ledger in `~/.osengineer/repos.json`) | `.codex/hooks.json` (per repo), each guard run through `hooks/lib/codex_hook.py` |
-| Guards wired | prompt, edit, read-before-edit, Bash, post-tool, session-start, statusline | prompt, edit, read-before-edit, Bash | prompt, edit (`apply_patch` split per file), Bash, session-start |
+| Guards wired | prompt, edit, read-before-edit, Bash, post-tool, session-start, subagent-start, statusline | prompt, edit, read-before-edit, Bash | prompt, edit (`apply_patch` split per file), Bash, session-start, subagent-start |
 | Team context | root `AGENTS.md`, `CLAUDE.md`, `.claude/agents/*.md` | `.kimi-code/AGENTS.md` | root `AGENTS.md` (read natively) |
 | Commands | `.claude/commands/osEngineer/<verb>.md` | `.kimi-code/skills/<verb>/SKILL.md` | `.agents/skills/<verb>/SKILL.md` |
 
@@ -71,6 +71,8 @@ Codex limits:
 - Codex has no statusline and no context-usage bridge, so the post-tool context monitor is not wired. The read-before-edit advisory is not wired either.
 - Codex custom agents are TOML files, so no agent role files are copied to `.codex/agents/`. Codex gets the roles through `AGENTS.md`.
 - Hosted Codex tools such as web search never reach `PreToolUse`.
+
+Subagents never see SessionStart context, so the subagent-start hook re-injects the agent rules and the phase/team banner into every subagent on Claude Code and Codex. Kimi runs its `SubagentStart` hooks but discards their output, so Kimi subagents get neither; they rely on the instructions in the spawning prompt.
 
 `./uninstall.sh` removes only the osEngineer handlers and skills. It keeps foreign hooks and skills you have edited.
 
@@ -133,13 +135,26 @@ Dispatches the developer agent. Each task = atomic commit. Rollback path is docu
 
 Runs verification protocol: tests, e2e tracer bullets, cost recalibration.
 
+### Approve a phase (human only)
+
+```
+osengineer approve execute      # in your own terminal, or `! osengineer approve execute` in Claude Code
+```
+
+Only a human moves the phase forward. `approve` checks the allowed transition
+and the prerequisite artifact (for example `PHASE_PLAN.md` before `execute`),
+then records who approved it and when in `.osengineer/approvals.jsonl`. The
+hooks stop the agent from running it or from writing `.osengineer/state.yml`,
+and `OSE_BYPASS` does not change that. See
+[`planning/PROTOCOL.md`](planning/PROTOCOL.md#phase-gate-human-approval).
+
 ### Evolve (HITL skill improvement)
 
 ```
 /osEngineer:evolve
 ```
 
-Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto-nudges you with 3 improvement options. You select one, skip, or propose your own. Accepted proposals are appended to `memory/patterns/`.
+Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto-nudges you with 3 improvement options. You select one, skip, or propose your own. Accepted proposals are written to the target repo's `.osengineer/evolve/proposals/`; you then run `osengineer evolve promote <id> --pr` to open a skill-home PR for review. Nothing is merged automatically.
 
 ### Sandbox (containerized local testing)
 
