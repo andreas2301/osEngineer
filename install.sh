@@ -17,7 +17,7 @@
 #   4. .osengineer/bypass-log.jsonl (touched empty)
 #   5. .git/hooks/{commit-msg,pre-commit,post-commit} ← copies of osEngineer-* scripts
 #   6. .claude/agents/*.md              ← copies of mandatory agent role files
-#   7. .claude/settings.json            ← merged (never overwritten); 6 Claude hooks wired
+#   7. .claude/settings.json            ← merged (never overwritten); 7 Claude hooks wired
 #   8. AGENTS.md (root)                 ← template dropped if absent (with osEngineer frontmatter)
 #   9. CLAUDE.md (root)                 ← osEngineer section appended if absent
 #  10. $KIMI_CODE_HOME/config.toml      ← [[hooks]] merged when the kimi runtime is chosen
@@ -828,6 +828,8 @@ def cmd(script):
 
 # SessionStart output is discarded by Kimi, and PostToolUse early-returns on a
 # statusline bridge file Kimi cannot produce, so only these four are wired.
+# SubagentStart is not wired either: Kimi awaits it but drops its output, so
+# Kimi subagents get no rule/state re-injection.
 entries = [
     {"event": "UserPromptSubmit",
      "command": cmd("osEngineer-prompt-guard.py"), "timeout": 30},
@@ -1003,6 +1005,7 @@ def handler(script):
 
 ose = {
     "SessionStart": [{"hooks": [handler("osEngineer-session-start.py")]}],
+    "SubagentStart": [{"hooks": [handler("osEngineer-subagent-start.py")]}],
     "UserPromptSubmit": [{"hooks": [handler("osEngineer-prompt-guard.py")]}],
     "PreToolUse": [
         {"matcher": "apply_patch|Edit|Write", "hooks": [handler("osEngineer-pre-edit-guard.py")]},
@@ -1127,6 +1130,10 @@ ose_entries = {
     }],
     "SessionStart": [{
         "hooks": [{"type": "command", "command": f'python3 "{Path(hooks_dir) / "osEngineer-session-start.py"}"', "description": "osEngineer banner"}],
+    }],
+    # SessionStart context never reaches subagents; re-inject rules + state.
+    "SubagentStart": [{
+        "hooks": [{"type": "command", "command": cmd("osEngineer-subagent-start.py"), "description": "osEngineer subagent rules + state"}],
     }],
 }
 
