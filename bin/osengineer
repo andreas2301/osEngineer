@@ -44,6 +44,7 @@ from subprocess import run
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks" / "lib"))
 from osengineer_common import read_state_map, write_state_field
+from repo_profile import phase_plan  # importable once osengineer_common set sys.path
 
 SCRIPT_DIR = Path(__file__).resolve().parent.parent
 VERSION_FILE = SCRIPT_DIR / "VERSION"
@@ -595,10 +596,14 @@ def find_command_file(verb):
 def run_preflight(repo_root, verb):
     """Refuse to start a headless run unless it is safe to.
 
-    Checks, in order: clean worktree; and, when the verb's frontmatter declares
-    plan_artifact: PHASE_PLAN, that a planning/active/*/PHASE_PLAN.md exists.
-    Raises RuntimeError with a human-readable message on failure.
+    Checks, in order: the phase is not blocked; clean worktree; and, when the
+    verb's frontmatter declares plan_artifact: PHASE_PLAN, that exactly one
+    planning/active/*/PHASE_PLAN.md exists and validates against
+    specs/SCHEMAS/phase-plan.schema.json. Returns (path, plan) for that plan,
+    else None. Raises RuntimeError with a human-readable message on failure.
     """
+    if (read_state_map(repo_root) or {}).get("phase") == "blocked":
+        raise RuntimeError("osengineer run: phase is blocked (see .osengineer/BLOCKED.md) — a human must approve first")
     gs = subprocess.run(["git", "status", "--porcelain"], cwd=repo_root,
                         capture_output=True, text=True)
     if gs.stdout.strip():
@@ -608,9 +613,13 @@ def run_preflight(repo_root, verb):
         fm = re.match(r"\A---\n(.*?)\n---", path.read_text(), re.DOTALL)
         frontmatter = fm.group(1) if fm else ""
         if re.search(r"^plan_artifact:\s*PHASE_PLAN\b", frontmatter, re.MULTILINE):
-            plans = list((Path(repo_root) / "planning" / "active").glob("*/PHASE_PLAN.md"))
-            if not plans:
+            try:
+                found = phase_plan.load_active(Path(repo_root) / "planning")
+            except phase_plan.PlanError as e:
+                raise RuntimeError(f"osengineer run: invalid PHASE_PLAN — {e}") from None
+            if found is None:
                 raise RuntimeError("osengineer run: no planning/active/*/PHASE_PLAN.md — run /osEngineer:plan first")
+            return found
     return None
 
 

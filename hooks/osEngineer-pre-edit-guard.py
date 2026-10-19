@@ -4,6 +4,7 @@
 # Blocks edits during `discuss`/`plan` phases (planning is read-only by design).
 # Blocks edits to the configured live system at all times.
 # Blocks the agent authoring .osengineer/current-plan.md (self-authorisation guard).
+# Blocks non-plan edits in `execute` while the active PHASE_PLAN.md is invalid.
 # Blocks edits to paths outside the current team's owns_paths when in `execute`
 # phase with a `current_team` set.
 #
@@ -33,6 +34,7 @@ from osengineer_common import (
     read_team_cache,
     read_workbench_field,
 )
+from repo_profile import phase_plan
 
 
 def main():
@@ -125,6 +127,16 @@ def main():
                 "PreToolUse",
                 f"osEngineer: cannot edit {Path(file_path).name} during {state['phase']} phase — only {planning_name}/ and .osengineer/ artifacts are editable. Transition to execute phase first (`osengineer state set phase execute`).",
             )
+            return
+
+    # Execution runs against the plan it was approved with: an active
+    # PHASE_PLAN.md must validate (its task budgets feed the circuit breaker).
+    # The plan itself and .osengineer/ stay editable so it can be fixed.
+    if state.get("phase") == "execute" and not re.match(artifact_pattern, rel):
+        try:
+            phase_plan.load_active(planning_dir(repo_root))
+        except phase_plan.PlanError as exc:
+            emit_block("PreToolUse", f"osEngineer: edits denied in execute — invalid PHASE_PLAN.md: {exc}")
             return
 
     # Repo profile scope is owned by the repository policy/dispatch contract.

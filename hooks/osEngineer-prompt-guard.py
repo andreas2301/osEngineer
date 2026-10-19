@@ -37,6 +37,7 @@ from osengineer_common import (
     parse_frontmatter,
     read_state_map,
 )
+from repo_profile import phase_plan
 
 STDIN_TIMEOUT_MS = 3000
 ROUTING_STOPWORDS = {
@@ -347,6 +348,11 @@ def main():
                 "UserPromptSubmit",
                 f"osEngineer: cannot /osEngineer:{verb} — no PHASE_PLAN.md in any {planning_dir(repo_root).relative_to(repo_root).as_posix()}/active/ directory. Run /osEngineer:plan first.",
             )
+            return
+        try:
+            phase_plan.load_active(planning_dir(repo_root))
+        except phase_plan.PlanError as exc:
+            emit_block("UserPromptSubmit", f"osEngineer: cannot /osEngineer:{verb} — invalid PHASE_PLAN.md: {exc}")
             return
 
     session_id = data.get("session_id") or "default"
