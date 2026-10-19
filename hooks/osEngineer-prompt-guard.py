@@ -12,7 +12,7 @@
 #     MICRO_PLAN and is not gated)
 #   - any prompt when state.phase === 'blocked' (advisory, not block)
 #
-# Honours OSE_BYPASS=1. Always exits 0 on parse failure.
+# Honours OSE_BYPASS=1. Blocks (exit 2) on a malformed payload.
 
 import json
 import os
@@ -23,7 +23,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
+    fail_strict,
+    read_payload,
     bypass_log,
+    is_repo_profile,
+    load_profile,
+    profile_setting,
+    planning_dir,
     count_handoffs,
     emit_block,
     emit_context,
@@ -231,11 +237,81 @@ def plan_requiring_verbs():
     return verbs or fallback
 
 
-def main():
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception:
+def profile_routes(prompt, repo_root):
+    """Use registry paths and frontmatter only; never load whole skill bodies."""
+    profile = load_profile(repo_root)
+    rules = profile["routing"]
+    registry_path = Path(repo_root) / profile["skillRegistry"]
+    if not registry_path.exists():
+        return []
+    entries = json.loads(registry_path.read_text()).get("skills", [])
+    prompt_words = set(tokenize(prompt))
+    matches = []
+    for entry in entries:
+        name = entry.get("name", "")
+        if rules["excludeNamePattern"] and re.search(rules["excludeNamePattern"], name, re.I):
+            continue
+        projection = rules["projection"]
+        relative = (projection and (entry.get("projections") or {}).get(projection)) or entry.get("canonical")
+        if not relative:
+            continue
+        skill_path = (Path(repo_root) / relative).resolve()
+        if not skill_path.is_relative_to(Path(repo_root).resolve()):
+            continue
+        source = skill_path / "SKILL.md" if skill_path.is_dir() else skill_path
+        description = ""
+        if source.is_file():
+            with source.open() as handle:
+                raw = handle.read(8192)
+            description = (parse_frontmatter(raw) or {}).get("description", "")
+        explicit = bool(name) and bool(re.search(r"(?<![\w-])" + re.escape(name.lower()) + r"(?![\w-])", prompt.lower()))
+        dispatch = name == profile["dispatchSkill"] and bool(prompt_words & set(rules["dispatchWords"]))
+        signal = set(tokenize(extract_use_signal(description)))
+        # Require minSignalTerms meaningful signal terms for implicit routing.
+        implicit = len(prompt_words & signal) >= rules["minSignalTerms"]
+        if explicit or dispatch or implicit:
+            matches.append(f"- {name}: {relative}/SKILL.md" if skill_path.is_dir() else f"- {name}: {relative}")
+    return matches[:rules["maxHints"]]
+
+
+def profile_context(data, repo_root, state):
+    phase = state.get("phase") or "idle"
+    summary = (f"Repo profile phase={phase}; policy: {profile_setting(repo_root, 'policy')}; "
+               f"plans: {profile_setting(repo_root, 'planDirectory')}/.")
+    session = data.get("session_id")
+    routes = profile_routes(data.get("prompt") or "", repo_root)
+    level = "normal"
+    cache_path = None
+    cached = {}
+    if isinstance(session, str) and session and not re.search(r"[/\\]|\.\.", session):
+        cache_path = Path(tempfile.gettempdir()) / f"claude-repo-profile-prompt-{session}.json"
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text())
+        metrics_path = Path(tempfile.gettempdir()) / f"claude-ctx-{session}.json"
+        if metrics_path.exists():
+            metrics = json.loads(metrics_path.read_text())
+            import time
+            context = load_profile(repo_root)["context"]
+            if time.time() - metrics.get("timestamp", 0) <= context["staleSeconds"]:
+                remaining = metrics.get("remaining_percentage", 100)
+                level = ("critical" if remaining <= context["criticalPct"]
+                         else "warning" if remaining <= context["warnPct"] else "normal")
+    signature = {"root": str(repo_root), "phase": phase, "routes": routes, "level": level}
+    if cached == signature:
         return
+    if cache_path:
+        cache_path.write_text(json.dumps(signature))
+    lines = [summary]
+    if phase in ("blocked", "suspended"):
+        lines.append("Edits are denied until explicit resume.")
+    if level != "normal":
+        lines.append(f"Context {level}: checkpoint the current task; load only references needed for the next step.")
+    lines.extend(routes)
+    emit_context("UserPromptSubmit", "\n".join(lines))
+
+
+def main():
+    data = read_payload()
 
     cwd = data.get("cwd") or os.getcwd()
     repo_root = find_osengineer_root(cwd)
@@ -247,6 +323,9 @@ def main():
         return
 
     state = read_state_map(repo_root)
+    if is_repo_profile(repo_root):
+        profile_context(data, repo_root, state or {})
+        return
     if not state:
         return
 
@@ -256,7 +335,7 @@ def main():
     m = re.search(r"/osEngineer:([\w-]+)", prompt)
     if m and m.group(1) in plan_requiring_verbs():
         verb = m.group(1)
-        active_dir = Path(repo_root) / "planning" / "active"
+        active_dir = planning_dir(repo_root) / "active"
         has_plan = False
         if active_dir.is_dir():
             for d in active_dir.iterdir():
@@ -266,7 +345,7 @@ def main():
         if not has_plan:
             emit_block(
                 "UserPromptSubmit",
-                f"osEngineer: cannot /osEngineer:{verb} — no PHASE_PLAN.md in any planning/active/ directory. Run /osEngineer:plan first.",
+                f"osEngineer: cannot /osEngineer:{verb} — no PHASE_PLAN.md in any {planning_dir(repo_root).relative_to(repo_root).as_posix()}/active/ directory. Run /osEngineer:plan first.",
             )
             return
 
@@ -293,8 +372,8 @@ def main():
             except Exception:
                 pass
 
-        if remaining_percent <= 40:
-            active_dir = Path(repo_root) / "planning" / "active"
+        if remaining_percent <= load_profile(repo_root)["context"]["reinjectPct"]:
+            active_dir = planning_dir(repo_root) / "active"
             plan_summary = "No active PHASE_PLAN.md found."
             if active_dir.is_dir():
                 for phase_dir in active_dir.iterdir():
@@ -351,8 +430,8 @@ def main():
                 hint_block = format_routing_hints(matches)
                 if hint_block:
                     additional_context = f"{additional_context}\n\n{hint_block}" if additional_context else hint_block
-    except Exception:
-        pass
+    except Exception as exc:
+        raise RuntimeError("cannot compute routing hints") from exc
 
     emit_context("UserPromptSubmit", additional_context)
 
@@ -360,5 +439,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, 'UserPromptSubmit', exc)

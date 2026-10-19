@@ -36,7 +36,22 @@ ROOT = Path(__file__).resolve().parent.parent
 INSTALL = ROOT / "install.sh"
 UNINSTALL = ROOT / "uninstall.sh"
 
-KIMI_BIN = Path("/root/.kimi-code/bin/kimi")
+def _find_kimi():
+    """Locate a real kimi binary: $OSE_KIMI_BIN, PATH, then the default
+    install path. An unreadable path (e.g. /root on CI runners) counts as
+    absent instead of crashing test collection."""
+    candidates = [os.environ.get("OSE_KIMI_BIN"), shutil.which("kimi"),
+                  "/root/.kimi-code/bin/kimi"]
+    for c in filter(None, candidates):
+        try:
+            if Path(c).exists():
+                return Path(c)
+        except OSError:
+            continue
+    return None
+
+
+KIMI_BIN = _find_kimi()
 
 # Hooks that make sense on Kimi. SessionStart output is discarded and
 # PostToolUse early-returns on a statusline bridge file Kimi cannot produce.
@@ -275,23 +290,7 @@ class TestPerRepoKimiTeamContext(KimiWiringBase):
         )
 
 
-class TestCodexIsDropped(unittest.TestCase):
-    def test_codex_not_offered_in_the_runtime_menu(self):
-        src = INSTALL.read_text()
-        offenders = [
-            f"{i}: {line.strip()}"
-            for i, line in enumerate(src.splitlines(), 1)
-            if "codex" in line.lower() and "Codex CLI" in line
-        ]
-        self.assertEqual(
-            offenders, [],
-            "install.sh still offers Codex, for which no hook model has been "
-            "verified — shipping it means a third silently unguarded runtime:\n"
-            + "\n".join(offenders),
-        )
-
-
-@unittest.skipUnless(KIMI_BIN.exists(), "kimi not installed")
+@unittest.skipUnless(KIMI_BIN is not None, "kimi not installed")
 class TestKimiAcceptsGeneratedConfig(KimiWiringBase):
     def test_kimi_doctor_validates(self):
         run_install(self.repo, self.home, self.kimi_home)

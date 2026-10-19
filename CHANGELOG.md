@@ -6,6 +6,135 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+## [0.5.0] — unreleased (date set when tagged)
+
+### Added — evaluation harness for detectors, classifiers and scanners
+
+- **`/osEngineer:recipe-eval-harness`** (`commands/osEngineer-recipe-eval-harness.md`):
+  a nine-step recipe that sets up a measured keep/revert improvement loop for a
+  detector repo. It covers:
+  - dataset research and verification (license, gated status, pinned revision,
+    sha256, benign negatives, overlap and contamination);
+  - group-split dev/holdout/sealed sets with roles (PRIMARY, RECALL-ONLY,
+    GUARD-ONLY, REPORT-ONLY, SEALED);
+  - a deterministic fetch script and per-set P/R/F1/latency;
+  - the karpathy/autoresearch-style loop;
+  - process reviews, with one report branch per round;
+  - a premortem and an honest assessment.
+- **`eval-harness-engineer` agent** (`agents/eval-harness-engineer/`) with
+  references for dataset intake, set roles, the metrics format and the
+  assessment template. Hard rules:
+  - never design from holdout, GUARD-ONLY, REPORT-ONLY or SEALED
+    misclassifications;
+  - never re-implement decision rules in a prompt;
+  - verify research citations before use.
+  It is installed with the other agents.
+- **`specs/SCHEMAS/eval-policy.schema.json`**: decision rules as data. It
+  defines the set roles and these gates:
+  - per-set non-regression;
+  - single-sample tolerance;
+  - recall-only TP loss;
+  - a generalization ratio (`holdout_gain ≥ k × dev_gain`);
+  - a paired-bootstrap CI lower bound;
+  - a latency budget and latency-only accept;
+  - sealed-set cadence;
+  - measurement hygiene.
+  `min_dev_f1_gain` defaults to 0, so no threshold can exist without being
+  written down.
+- **`bin/ose-eval-gate`**: a stdlib-only reference evaluator. It reads a
+  policy plus baseline and candidate metrics and returns ACCEPT or REVERT with
+  reasons (exit 0/1, or 2 on input errors). Regression fixtures in
+  `test/fixtures/eval-gate/` reproduce real loop defects under generic set
+  names (`primary-a`, `small-subset`, ...), one fixture per defect:
+  - `summed-holdout`: the summed-holdout check;
+  - `undocumented-threshold`: the undocumented 0.01 threshold;
+  - `single-sample-tolerance`: the single-sample tolerance precedent;
+  - `small-set-overfit`: dev +0.43 F1 vs holdout +0.14 on a 52-positive set.
+- **Eval content stays generic.** osEngineer ships no domain eval sets. The
+  consuming repo supplies its own `EVAL_POLICY.json`, labeled cases and eval
+  command; the recipe, agent and gate only read them.
+- **`docs/eval-harness-lessons.md`**: a lessons-learned checklist. It covers
+  holdout reuse and sealed sets (arXiv:1506.02629, arXiv:1502.04585), dataset
+  artifacts, template-dominated and contaminated sets, dirty-tree and
+  version-label hygiene, latency creep, report-branch sprawl, citation
+  verification, and the regex ceiling (arXiv:2510.01529).
+
+### Added — repo profile (scoped coding skill and portable task runtime)
+
+- **Repo-profile mode in the hooks.** A repository opts in with
+  `.osengineer/profile.json` (`"profile": "repo"`) or
+  `validation_profile: repo` in `workbench-config.yml`. In that mode the
+  hooks use the configured plan directory (`planDirectory`, default `.plans`)
+  instead of `planning/`, route prompts from the repository's skill registry
+  (`skillRegistry`, frontmatter only, at most two hints), report the
+  configured policy file, and leave edit scope to the repository's own
+  policy/dispatch contract instead of the team cache.
+- **Portable task runtime** (`repo_runtime/`): validate, preflight, run,
+  verify and handoff for a JSON task contract (`profiles/repo/task.schema.json`)
+  with base-SHA binding, path-scope checks, argv-only acceptance commands,
+  hashed evidence under `<planDirectory>/osengineer/`, and an explicit runner
+  (`codex` or any executable implementing the runner protocol). No runner
+  means nothing executes.
+- **Bounded read-only integration readers** (`repo_integrations/`) for GitHub
+  (`gh`), Linear and Notion, with allowlisted scopes, page/item/text limits,
+  credential redaction and an offline `doctor`. Configuration lives in
+  `profiles/repo/integrations.json`; all providers are disabled by default.
+- **Installer, skill and CLI verb**: `osengineer profile
+  install|uninstall|runtime|integrations|learn` and
+  `install.sh --profile repo <path>` install one owned skill
+  (`.claude/skills/osengineer-repo-profile` plus a `.agents/skills` projection)
+  with a hash manifest, and refuse to overwrite modified or unowned assets.
+- **Usage learning receipts** (`repo_profile/learning.py`): record, summarize
+  and compare sanitized task receipts.
+
+### Added — Codex CLI as a supported harness
+
+- **`RUNTIMES=codex`** (menu option 3) wires the per-repo `.codex/hooks.json`
+  with the session-start, prompt, edit and Bash guards, installs the commands
+  as `.agents/skills/<verb>/SKILL.md`, and relies on the root `AGENTS.md`,
+  which Codex reads natively. Re-install replaces stale osEngineer handlers.
+  `uninstall.sh` removes only osEngineer handlers and unchanged skill copies.
+  This reverses the earlier removal of Codex from the runtime menu.
+- **`hooks/lib/codex_hook.py`** runs the unmodified guards for Codex. It
+  splits `apply_patch` into one edit check per touched file and normalises
+  shell tool aliases to `Bash`. It turns a block into exit 2 with the reason
+  on stderr, because Codex lets an action continue when a hook prints fields
+  it does not support.
+- Install warns that Codex runs project hooks only after `/hooks` trust.
+  Until then, the git hooks and the CI gate are the only enforcement.
+- **`codexRunner`** in `.osengineer/profile.json` (default `codex`) names the
+  runner executable that gets the `codex exec` protocol in `repo_runtime`.
+  Before, this name was hard-coded.
+
+### Added — one profile configuration with fact detection
+
+- **`repo_profile/config.py`** is the single loader for
+  `.osengineer/profile.json`, shared by the hooks, `bin/osengineer`,
+  `repo_runtime` and the installer. It replaces three copies of the
+  policy / plan-directory / registry defaults. The rules are documented in
+  `specs/SCHEMAS/repo-profile.schema.json`, and a test keeps them in step.
+- **New keys**, all optional, with the previous literals as defaults:
+  - `context.warnPct` / `criticalPct` / `reinjectPct` / `staleSeconds`
+    (35 / 25 / 40 / 60);
+  - `routing.excludeNamePattern` / `dispatchWords` / `minSignalTerms` /
+    `maxHints` / `projection`;
+  - `eval.policy` (`EVAL_POLICY.json`);
+  - `handlers` (fact -> handler map);
+  - `codexRunner`, which is now validated by the loader.
+- **`osengineer profile detect --repo <path> [--write]`** runs offline file
+  and PATH detectors: policy, registry, eval policy, GitHub Actions,
+  Claude/Kimi/Codex harnesses, `gh`/`op`, and package managers. It prints the
+  facts and a proposed `profile.json`. Only `--write` writes, and it writes
+  only facts that have a known handler (for example `eval-policy` ->
+  `eval.gate`).
+- **`osengineer profile doctor --repo <path>`** exits 1 while a fact is
+  `unhandled` (no handler exists) or `unconfigured` (a handler exists but
+  has no entry). Unknown facts are never enabled. `{"enabled": false}`
+  acknowledges a fact.
+- **`integrations.json`** can now set `providers.github.host` (GHES),
+  `providers.linear.endpoint`, `providers.notion.endpoint` and `apiVersion`,
+  and `providers.secrets.schemes` (`op`, `vault`; the default is `op` only).
+
 ### Changed
 
 - **Migrated the entire enforcement layer from Node.js to Python 3.** All
@@ -22,8 +151,46 @@ this project adheres to semantic versioning.
 - Test suite ported from Node to `unittest` (`test/test_osengineer.py`,
   `test/test_git_cmd.py`); `npm test` now runs `python3 -m unittest discover`.
 
+- **Breaking for invalid profiles:** an invalid `.osengineer/profile.json`
+  value now fails closed everywhere. Hooks block with exit 2, the runtime
+  returns `needs-human`, and the installer and CLI fail. Before, an absolute
+  `planDirectory`, an unknown key or a non-bare `codexRunner` silently fell
+  back to the default.
+- Repo-profile prompt-guard now warns at 35% context remaining, the same
+  point as post-tool. Before, it warned at 40%. The thresholds are a single
+  `context` setting.
+- The installer records the osEngineer `VERSION` as `profileVersion`
+  instead of the literal `0.1.1`. It no longer digest-owns `profile.json`:
+  it merges its keys into an existing file and refuses a conflicting
+  `policy` or `planDirectory`. Uninstall keeps user keys and removes only the
+  repo-profile switch.
+
 ### Fixed
 
+- The PostToolUse hook now records the statusline bridge value as
+  `context_used_pct` (context-window occupancy) instead of `budget_used`
+  (which it is not), in the gitignored `runtime.yml`. The stale header comment
+  promising a budget circuit-breaker is removed; none was implemented.
+- `state.yml` values `null` and `~` now read as unset. Before, a
+  `current_team: null` line read as a team literally named "null".
+- Hooks are strict: a payload that is not a JSON object, or any hook fault,
+  fails closed with a stderr diagnosis (`invalid hook input or data`) and
+  exit 2. PreToolUse and UserPromptSubmit guards also print the dual-dialect
+  block, so the action is blocked on Claude Code and Kimi Code. PostToolUse,
+  SessionStart and the statusline cannot stop anything and fail loudly.
+  Before, a bad payload exited 0 (or 1), which let the action proceed.
+- Repo profile: the PostToolUse hook no longer writes
+  `<planDirectory>/osengineer/context.json`, which the task runtime reported
+  as an out-of-scope change on every tool call (preflight and verify
+  returned needs-human). Context telemetry now goes to `.osengineer/runtime.yml`
+  as in the generic profile, and the runtime ignores the hooks' volatile files.
+- The pre-edit guard blocks a team whose cached `owns_paths` is missing or
+  invalid instead of treating it as unrestricted, and the bypass audit log
+  write now reports its failure on stderr instead of being swallowed.
+- The `/osEngineer:recipe-eval-harness` description is shortened to fit the
+  1024-character skill limit, so the command also loads as a skill.
+- `find_osengineer_root` walks up to the home directory or filesystem root
+  instead of stopping after eight levels.
 - Re-running `install.sh` on an installed repo no longer appends a second copy
   of every agent under `## osEngineer Additions`. The reference-link rewrite
   made installed agents differ from their source, so each re-run took the

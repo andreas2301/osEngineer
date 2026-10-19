@@ -20,6 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
+    fail_strict,
+    read_payload,
     bypass_log,
     emit_block,
     emit_context,
@@ -102,8 +104,8 @@ def log_override(repo_root, entry):
         record.update(entry)
         with open(p, "a") as f:
             f.write(json.dumps(record) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        raise RuntimeError("cannot write override-log.jsonl") from exc
 
 
 def utc_now():
@@ -173,10 +175,7 @@ def build_effective_denylist(globals_, repo_ov, team_ov):
 
 
 def main():
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception:
-        return
+    data = read_payload()
 
     if data.get("tool_name") != "Bash":
         return
@@ -264,5 +263,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, 'PreToolUse', exc)

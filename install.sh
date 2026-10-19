@@ -25,10 +25,20 @@
 #  12. .kimi-code/AGENTS.md             ← copy of the repo AGENTS.md when kimi is chosen
 #  13. .osengineer/bin/osengineer       ← launcher so `osengineer` is invocable in the repo
 #  14. .osengineer/agents.sha256        ← hashes of installed agent copies (upgrade = replace)
+#  15. .codex/hooks.json                ← merged when the codex runtime is chosen (needs /hooks trust)
+#  16. .agents/skills/<verb>/SKILL.md   ← slash commands as Codex skills when codex is chosen
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The Repo profile never runs the broad legacy installer/uninstaller.
+if [[ "${1:-}" == "--profile" ]]; then
+  if [[ "${2:-}" != "repo" || "$#" != 3 ]]; then
+    printf 'Usage: %s --profile repo <repo-path>\n' "$0" >&2
+    exit 2
+  fi
+  exec python3 "$SCRIPT_DIR/bin/osengineer" profile install --repo "$3"
+fi
 HOOKS_DIR="$SCRIPT_DIR/hooks"
 AGENTS_DIR="$SCRIPT_DIR/agents"
 VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "0.0.0-dev")"
@@ -47,6 +57,7 @@ MANDATORY_AGENTS=(
   sandbox-provisioner.md
   budget-tracker.md dba.md qa.md
   sync-agent.md ui-ux-designer.md
+  eval-harness-engineer.md
 )
 
 # Global variables for interactive setup
@@ -86,15 +97,16 @@ collect_interactive_inputs() {
   echo "=========================================================="
   echo ""
   
-  printf "Is this a multi-harness setup? (e.g. using multiple runtimes like Claude Code and Kimi) [y/N]: "
+  printf "Is this a multi-harness setup? (e.g. using multiple runtimes like Claude Code, Kimi and Codex) [y/N]: "
   read -r IS_MULTI_HARNESS
   IS_MULTI_HARNESS="${IS_MULTI_HARNESS:-n}"
   
   if [[ "$IS_MULTI_HARNESS" =~ ^[Yy]$ ]]; then
     echo "For which AI assistant runtimes do you want to configure osEngineer hooks and MCPs?"
-    echo "Choose by entering the numbers separated by spaces (e.g., 1 2):"
+    echo "Choose by entering the numbers separated by spaces (e.g., 1 3):"
     echo "  [1] Claude Code (wires .claude/settings.json)"
     echo "  [2] Kimi Code (wires ~/.kimi-code/config.toml)"
+    echo "  [3] Codex CLI (wires .codex/hooks.json)"
     printf "Selections [default: 1]: "
     
     local selections
@@ -106,6 +118,7 @@ collect_interactive_inputs() {
       case "$choice" in
         1) RUNTIMES="$RUNTIMES claude" ;;
         2) RUNTIMES="$RUNTIMES kimi" ;;
+        3) RUNTIMES="$RUNTIMES codex" ;;
       esac
     done
     RUNTIMES="${RUNTIMES#"${RUNTIMES%%[! ]*}"}" # trim leading whitespace
@@ -418,8 +431,11 @@ EOF
     warn "$repo/.git/hooks does not exist — git hooks not installed"
   fi
 
-  # 3. Agent files for each chosen runtime
+  # 3. Agent files for each chosen runtime. Codex custom agents are TOML
+  # files, so Markdown copies under .codex/agents/ would be inert; Codex gets
+  # its team context from the root AGENTS.md instead.
   for runtime in $RUNTIMES; do
+    [ "$runtime" = codex ] && continue
     mkdir -p "$repo/.$runtime/agents"
     local copied=0
     local manifest="$repo/.osengineer/agents.sha256"
@@ -851,7 +867,8 @@ PY
 
 # Install the commands/osEngineer-*.md slash commands for each chosen runtime.
 # Claude reads .claude/commands/<ns>/<verb>.md; Kimi discovers
-# .kimi-code/skills/<verb>/SKILL.md. Files are copied VERBATIM — no templating
+# .kimi-code/skills/<verb>/SKILL.md; Codex discovers
+# .agents/skills/<verb>/SKILL.md. Files are copied VERBATIM — no templating
 # or interpolation: a plain copy cannot introduce $ARGUMENTS into a backtick or
 # `!` shell injection, which would bypass pre-bash-guard.
 install_commands() {
@@ -878,6 +895,10 @@ install_commands() {
     if has_runtime kimi; then
       mkdir -p "$repo/.kimi-code/skills/$verb"
       cp "$src" "$repo/.kimi-code/skills/$verb/SKILL.md"
+    fi
+    if has_runtime codex; then
+      mkdir -p "$repo/.agents/skills/$verb"
+      cp "$src" "$repo/.agents/skills/$verb/SKILL.md"
     fi
     n=$((n + 1))
   done
@@ -944,12 +965,91 @@ YAML
   log "  + .github/workflows/osengineer-gate.yml"
 }
 
+# Wire Codex hooks into the per-repo <repo>/.codex/hooks.json.
+#
+# Codex nests hooks like Claude (event -> [{matcher, hooks: [{type, command,
+# timeout}]}]) but has no env block, so OSENGINEER_HOME rides in the command.
+# Every guard runs through hooks/lib/codex_hook.py, which splits apply_patch
+# into per-file edits and turns a block into exit 2 (see that file).
+# PostToolUse is not wired: it early-returns on a statusline bridge file Codex
+# cannot produce. read-guard is not wired: it treats any payload with a
+# session_id (Codex sends one) as Claude Code and returns.
+# Codex runs project hooks only after the user trusts the project .codex/
+# layer and each hook in /hooks; a changed command must be trusted again.
+wire_codex_hooks() {
+  local repo="$1"
+  local cfg="$repo/.codex/hooks.json"
+  mkdir -p "$repo/.codex"
+
+  OSE_CODEX_CFG="$cfg" \
+  OSE_HOOKS_DIR="$HOOKS_DIR" \
+  python3 <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+cfg = Path(os.environ["OSE_CODEX_CFG"])
+root = str(Path(os.environ["OSE_HOOKS_DIR"]).resolve().parent)
+
+
+def handler(script):
+    return {
+        "type": "command",
+        "command": f'OSENGINEER_HOME="{root}" python3 "{root}/hooks/lib/codex_hook.py" {script}',
+        "timeout": 30,
+    }
+
+
+ose = {
+    "SessionStart": [{"hooks": [handler("osEngineer-session-start.py")]}],
+    "UserPromptSubmit": [{"hooks": [handler("osEngineer-prompt-guard.py")]}],
+    "PreToolUse": [
+        {"matcher": "apply_patch|Edit|Write", "hooks": [handler("osEngineer-pre-edit-guard.py")]},
+        {"matcher": "Bash", "hooks": [handler("osEngineer-pre-bash-guard.py")]},
+    ],
+}
+
+existing = {}
+if cfg.exists():
+    try:
+        existing = json.loads(cfg.read_text())
+    except ValueError:
+        existing = None
+if not isinstance(existing, dict) or not isinstance(existing.get("hooks", {}), dict):
+    print(f"osEngineer: {cfg} is malformed, leaving it as-is; Codex hooks NOT wired", file=sys.stderr)
+    raise SystemExit(0)
+
+
+def strip_ose(group):
+    kept = [h for h in group.get("hooks", [])
+            if not (isinstance(h, dict) and "osEngineer-" in str(h.get("command", "")))]
+    return dict(group, hooks=kept) if kept else None
+
+
+hooks = existing.setdefault("hooks", {})
+for event in list(hooks):
+    kept = [g for g in (strip_ose(g) for g in hooks[event] if isinstance(g, dict)) if g]
+    if kept:
+        hooks[event] = kept
+    else:
+        del hooks[event]
+for event, groups in ose.items():
+    hooks[event] = hooks.get(event, []) + groups
+
+cfg.write_text(json.dumps(existing, indent=2) + "\n")
+print(f"  + .codex/hooks.json merged ({sum(len(g) for g in ose.values())} osEngineer hook groups)")
+PY
+  warn "Codex runs project hooks only once trusted: start codex in $repo, trust the project, then trust each osEngineer hook in /hooks. Until then only the git hooks and the CI gate enforce."
+}
+
 install_assistant_settings() {
   local repo="$1"
 
   # Each runtime only gets wiring where it actually reads it: Claude merges
   # .claude/settings.json below; Kimi resolves config machine-globally from
-  # $KIMI_CODE_HOME (see wire_kimi_hooks); any other runtime is skipped.
+  # $KIMI_CODE_HOME (see wire_kimi_hooks); Codex reads the per-repo
+  # .codex/hooks.json (see wire_codex_hooks); any other runtime is skipped.
   for runtime in $RUNTIMES; do
     case "$runtime" in
       claude)
@@ -957,6 +1057,9 @@ install_assistant_settings() {
         ;;
       kimi)
         wire_kimi_hooks "$repo"
+        ;;
+      codex)
+        wire_codex_hooks "$repo"
         ;;
       *)
         ;;

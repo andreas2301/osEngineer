@@ -1,6 +1,6 @@
 # osEngineer — Epic-Level Multi-Repo Engineering Skill
 
-**Version:** 0.4.0  
+**Version:** 0.5.0  
 **Scope:** Cross-repo, cross-SDLC, cross-session engineering  
 **Project-Agnostic:** Yes — discovers repos, ADRs, and topology from any project root  
 **Primary Target:** Any multi-repo project (ships with a Sovereign Shield reference overlay in `examples/`)  
@@ -71,6 +71,7 @@ osEngineer is a **platform-quality engineering skill** that operates across mult
 - `agents/ui-ux-designer.md` — UI/UX reasoning rules
 - `agents/sync-agent.md` — live ↔ workbench synchronization
 - `agents/budget-tracker.md` — token spend tracking
+- `agents/eval-harness-engineer.md` — evaluation harness & keep/revert loop for detectors
 - `integrations/confluence-mcp.md` — Atlassian Confluence MCP
 - `integrations/vault-mcp.md` — HashiCorp Vault MCP
 - `integrations/playwright-mcp.md` — browser testing MCP

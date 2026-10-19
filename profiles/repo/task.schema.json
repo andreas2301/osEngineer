@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Repo profile execution adapter contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "goal", "baseSha", "allowedPaths", "acceptanceCommands"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "issue": {"type": "string", "minLength": 1},
+    "goal": {"type": "string", "minLength": 1},
+    "outcome": {"type": "string", "minLength": 1},
+    "baseSha": {"type": "string", "pattern": "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$"},
+    "allowedPaths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "acceptanceCommands": {"type": "array", "items": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}},
+    "authorizedEffects": {"type": "array", "minItems": 1, "items": {"enum": ["local", "draft-pr", "issue-update"]}},
+    "attempts": {"type": "integer", "minimum": 1, "maximum": 20},
+    "wallLimitSeconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+    "repoPolicy": {"type": "string", "minLength": 1},
+    "repoPolicyDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "policyFileDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "planPath": {"type": "string", "minLength": 1},
+    "planDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "dependentRequired": {"planPath": ["planDigest"], "planDigest": ["planPath"], "repoPolicyDigest": ["repoPolicy"]}
+}

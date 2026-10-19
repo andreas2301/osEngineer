@@ -9,6 +9,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+# The profile loader ships in repo_profile/ so the installed skill can reuse it.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from repo_profile import config as profile_config  # noqa: E402
+
 STDIN_TIMEOUT_MS = 3000
 
 
@@ -24,7 +28,7 @@ def read_stdin():
 def find_osengineer_root(cwd=None):
     current = Path(cwd or os.getcwd()).resolve()
     home = Path.home()
-    for _ in range(8):
+    while True:
         if (current / ".osengineer").is_dir():
             return current
         parent = current.parent
@@ -36,7 +40,7 @@ def find_osengineer_root(cwd=None):
 
 # Volatile counters live in the gitignored runtime.yml, not the tracked
 # state.yml, so hook writes on every tool call don't dirty the tree.
-RUNTIME_FIELDS = {"budget_used"}
+RUNTIME_FIELDS = {"budget_used", "context_used_pct"}
 
 
 def _parse_yml_map(p, state):
@@ -45,7 +49,9 @@ def _parse_yml_map(p, state):
         if not m:
             continue
         val = m.group(2).strip().strip("\"'")
-        state[m.group(1)] = val or None
+        # YAML null spellings must not read as a truthy string (e.g. a team
+        # literally named "null").
+        state[m.group(1)] = None if val in ("", "null", "~", "Null", "NULL") else val
 
 
 def read_state_map(repo_root):
@@ -64,7 +70,7 @@ def read_state_map(repo_root):
 def read_workbench_field(cwd, key):
     current = Path(cwd).resolve()
     home = Path.home()
-    for _ in range(8):
+    while True:
         p = current / ".osengineer" / "workbench-config.yml"
         if p.exists():
             try:
@@ -187,19 +193,65 @@ def emit_context(event, text):
     })
 
 
-def bypass_log(repo_root, hook, reason):
+def read_payload():
+    """Parse stdin as the hook's JSON object; anything else is malformed."""
     try:
-        p = Path(repo_root) / ".osengineer" / "bypass-log.jsonl"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        entry = json.dumps({
-            "ts": datetime_utc_iso(),
-            "hook": hook,
-            "reason": reason,
-        })
-        with open(p, "a") as f:
-            f.write(entry + "\n")
-    except Exception:
-        pass
+        data = json.loads(sys.stdin.read())
+    except ValueError as exc:
+        raise ValueError("invalid hook input or data") from exc
+    if not isinstance(data, dict):
+        raise ValueError("invalid hook input or data")
+    return data
+
+
+# Events whose action a hook can still stop. PostToolUse (tool already ran),
+# SessionStart and the statusline can only fail loudly.
+BLOCKABLE_EVENTS = {"PreToolUse", "UserPromptSubmit"}
+
+
+def fail_strict(hook, event, exc):
+    """Strict failure contract: diagnose on stderr, block, exit 2.
+
+    Exit 2 is Claude Code's block signal (stderr reaches the model); the
+    dual-dialect stdout block covers Kimi Code. Never exit 0 or 1 here:
+    both let the action proceed.
+    """
+    message = f"{hook}: {type(exc).__name__}: {exc}"
+    print(message, file=sys.stderr)
+    if event in BLOCKABLE_EVENTS:
+        emit_block(event, f"osEngineer: hook failed, action blocked ({message})")
+    sys.exit(2)
+
+
+def bypass_log(repo_root, hook, reason):
+    # An unaudited bypass must fail visibly rather than silently continue.
+    p = Path(repo_root) / ".osengineer" / "bypass-log.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"ts": datetime_utc_iso(), "hook": hook, "reason": reason}
+    with p.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def load_profile(repo_root):
+    """Effective .osengineer/profile.json; invalid profiles raise (hooks then block)."""
+    return profile_config.load(repo_root)
+
+
+def is_repo_profile(repo_root):
+    if load_profile(repo_root)["profile"] == "repo":
+        return True
+    return read_workbench_field(repo_root, "validation_profile") == "repo"
+
+
+def profile_setting(repo_root, key):
+    """One top-level profile setting, defaults included."""
+    return load_profile(repo_root)[key]
+
+
+def planning_dir(repo_root):
+    if is_repo_profile(repo_root):
+        return Path(repo_root) / profile_setting(repo_root, "planDirectory")
+    return Path(repo_root) / "planning"
 
 
 def datetime_utc_iso():

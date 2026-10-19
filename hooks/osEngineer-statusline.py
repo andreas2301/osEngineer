@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import count_handoffs, find_osengineer_root, read_state_map
+from osengineer_common import count_handoffs, find_osengineer_root, read_state_map, fail_strict, read_payload
 
 
 def format_state_segment(state, handoffs):
@@ -21,7 +21,7 @@ def format_state_segment(state, handoffs):
     if state.get("current_team"):
         parts.append(f"team:{state['current_team']}")
     if state.get("budget_used") is not None:
-        parts.append(f"b:{state['budget_used']}%")
+        parts.append(f"task-budget:{state['budget_used']}%")
     if handoffs > 0:
         parts.append(f"HO:{handoffs}")
     return " · ".join(parts)
@@ -30,11 +30,13 @@ def format_state_segment(state, handoffs):
 def build_context_meter(remaining, session):
     if remaining is None:
         return ""
-    total_ctx = 1_000_000
-    acw = int(os.environ.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") or "0")
-    buf = min(100, (acw / total_ctx) * 100) if acw > 0 else 16.5
-    usable_rem = max(0, ((remaining - buf) / (100 - buf)) * 100)
-    used = max(0, min(100, round(100 - usable_rem)))
+    # Display the harness-provided occupancy without guessing a model window
+    # or a compaction reserve; the bridge and visible meter must agree.
+    if isinstance(remaining, bool) or not isinstance(remaining, (int, float)):
+        raise ValueError("remaining_percentage must be numeric")
+    if not __import__('math').isfinite(remaining) or not 0 <= remaining <= 100:
+        raise ValueError("remaining_percentage must be between 0 and 100")
+    used = round(100 - remaining)
 
     if session and not re.search(r"[/\\]|\.\.", session):
         try:
@@ -45,8 +47,8 @@ def build_context_meter(remaining, session):
                 "used_pct": round(100 - remaining),
                 "timestamp": int(__import__("time").time()),
             }))
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError("cannot persist context telemetry") from exc
 
     filled = used // 10
     bar = "█" * filled + "░" * (10 - filled)
@@ -62,10 +64,7 @@ def build_context_meter(remaining, session):
 
 
 def main():
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception:
-        return
+    data = read_payload()
 
     model = (data.get("model") or {}).get("display_name") or "Claude"
     workspace = data.get("workspace") or {}
@@ -92,4 +91,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        print(f"osEngineer-statusline: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, None, exc)

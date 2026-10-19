@@ -21,8 +21,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from osengineer_common import (
+    fail_strict,
+    read_payload,
     emit_block,
-    emit_json,
+    bypass_log,
+    is_repo_profile,
+    planning_dir,
     find_osengineer_root,
     path_matches_any,
     read_state_map,
@@ -32,13 +36,7 @@ from osengineer_common import (
 
 
 def main():
-    if os.environ.get("OSE_BYPASS") == "1":
-        return
-
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception:
-        return
+    data = read_payload()
 
     tool = (data.get("tool_name") or "").lower()
     is_edit_tool = any(t in tool for t in ("write", "edit", "replace"))
@@ -46,6 +44,11 @@ def main():
         return
 
     cwd = data.get("cwd") or os.getcwd()
+    repo_root = find_osengineer_root(cwd)
+    if repo_root and os.environ.get("OSE_BYPASS") == "1":
+        bypass_log(repo_root, "pre-edit-guard", "OSE_BYPASS=1")
+        return
+
     file_path = (
         data.get("tool_input", {}).get("file_path")
         or data.get("tool_input", {}).get("path")
@@ -85,8 +88,17 @@ def main():
         return
 
     profile = read_workbench_field(cwd, "validation_profile") or "hybrid"
+    planning_name = planning_dir(repo_root).relative_to(repo_root).as_posix()
+    artifact_pattern = r"^(" + re.escape(planning_name) + r"|\.osengineer)[/\\]"
+    if state.get("phase") in ("blocked", "suspended"):
+        emit_block("PreToolUse", f"osEngineer: edits denied while phase is {state['phase']}. Resume explicitly first.")
+        return
+
     try:
-        rel = str(Path(file_path).resolve().relative_to(repo_root))
+        target = Path(file_path)
+        if not target.is_absolute():
+            target = Path(cwd) / target
+        rel = str(target.resolve().relative_to(repo_root))
     except Exception:
         rel = file_path
     rel = rel.replace("\\", "/")
@@ -108,18 +120,23 @@ def main():
             return
 
     if state.get("phase") in ("discuss", "plan"):
-        if not re.match(r"^(planning|\.osengineer)[/\\]", rel):
+        if not re.match(artifact_pattern, rel):
             emit_block(
                 "PreToolUse",
-                f"osEngineer: cannot edit {Path(file_path).name} during {state['phase']} phase — only planning/ and .osengineer/ artifacts are editable. Transition to execute phase first (`osengineer state set phase execute`).",
+                f"osEngineer: cannot edit {Path(file_path).name} during {state['phase']} phase — only {planning_name}/ and .osengineer/ artifacts are editable. Transition to execute phase first (`osengineer state set phase execute`).",
             )
             return
 
-    if state.get("phase") in ("execute", "micro", "hotfix") and state.get("current_team"):
+    # Repo profile scope is owned by the repository policy/dispatch contract.
+    # The legacy team cache must not become a second scope authority.
+    if not is_repo_profile(repo_root) and state.get("phase") in ("execute", "micro", "hotfix") and state.get("current_team"):
         team = read_team_cache(repo_root, state["current_team"])
-        owns = team and team.get("owns_paths")
+        owns = team.get("owns_paths") if isinstance(team, dict) else None
+        if not isinstance(owns, list) or not owns or not all(isinstance(pattern, str) and pattern for pattern in owns):
+            emit_block("PreToolUse", f"osEngineer: team configuration fault for {state['current_team']}: valid nonempty owns_paths are required.")
+            return
         if owns:
-            is_state_artifact = re.match(r"^(planning|\.osengineer)[/\\]", rel)
+            is_state_artifact = re.match(artifact_pattern, rel)
             if not is_state_artifact and not path_matches_any(rel, owns):
                 emit_block(
                     "PreToolUse",
@@ -131,5 +148,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, 'PreToolUse', exc)

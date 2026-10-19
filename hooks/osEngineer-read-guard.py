@@ -7,20 +7,16 @@
 # Claude Code itself enforces read-before-edit natively, so this hook detects
 # the Claude Code session and silently exits in that environment.
 
-import json
 import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from osengineer_common import emit_context, find_osengineer_root
+from osengineer_common import emit_context, find_osengineer_root, fail_strict, read_payload
 
 
 def main():
-    try:
-        data = json.loads(sys.stdin.read())
-    except Exception:
-        return
+    data = read_payload()
 
     tool = (data.get("tool_name") or "").lower()
     is_edit_tool = any(t in tool for t in ("write", "edit", "replace"))
@@ -65,5 +61,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Strict: a malformed payload or any hook fault blocks (exit 2).
+        fail_strict(Path(__file__).name, 'PreToolUse', exc)

@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "description": "Generic policy used by the evaluator regression fixtures. Set names are placeholders; a consumer supplies its own policy and sets.",
+  "sets": {
+    "primary-a": {
+      "role": "PRIMARY",
+      "split": "dev",
+      "holdout": "primary-a-holdout"
+    },
+    "primary-a-holdout": {
+      "role": "PRIMARY",
+      "split": "holdout"
+    },
+    "primary-b": {
+      "role": "PRIMARY",
+      "split": "dev",
+      "holdout": "primary-b-holdout"
+    },
+    "primary-b-holdout": {
+      "role": "PRIMARY",
+      "split": "holdout"
+    },
+    "primary-c": {
+      "role": "PRIMARY",
+      "split": "dev",
+      "holdout": "primary-c-holdout"
+    },
+    "primary-c-holdout": {
+      "role": "PRIMARY",
+      "split": "holdout"
+    },
+    "small-subset": {
+      "role": "PRIMARY",
+      "split": "dev",
+      "holdout": "small-subset-holdout"
+    },
+    "small-subset-holdout": {
+      "role": "PRIMARY",
+      "split": "holdout"
+    },
+    "recall-a": {
+      "role": "RECALL-ONLY",
+      "split": "dev",
+      "holdout": "recall-a-holdout"
+    },
+    "recall-a-holdout": {
+      "role": "RECALL-ONLY",
+      "split": "holdout"
+    },
+    "guard-a": {
+      "role": "GUARD-ONLY",
+      "split": "dev",
+      "holdout": "guard-a-holdout"
+    },
+    "guard-a-holdout": {
+      "role": "GUARD-ONLY",
+      "split": "holdout"
+    },
+    "stress": {
+      "role": "REPORT-ONLY",
+      "split": "report"
+    },
+    "sealed-2026q4": {
+      "role": "SEALED",
+      "split": "sealed"
+    }
+  },
+  "gates": {
+    "min_dev_f1_gain": 0,
+    "single_sample_tolerance": {
+      "enabled": true,
+      "max_tp_loss": 1,
+      "roles": [
+        "PRIMARY",
+        "GUARD-ONLY"
+      ]
+    },
+    "recall_only_max_tp_loss": 0,
+    "generalization": {
+      "enabled": true,
+      "k": 0.5,
+      "measure": "f1",
+      "min_dev_tp_gain": 10,
+      "max_dev_positives": 100
+    },
+    "bootstrap": {
+      "enabled": false,
+      "resamples": 2000,
+      "seed": 1337,
+      "confidence": 0.95
+    },
+    "latency": {
+      "metric": "p95_ms",
+      "budget_ms": 100,
+      "noise_pct": 10,
+      "latency_only_accept": true
+    },
+    "sealed": {
+      "allowed_in": [
+        "round",
+        "release"
+      ],
+      "max_evaluations_per_release": 1
+    },
+    "corpus_drop_requires_fp_reduction": true,
+    "require_distinct_version_labels": true,
+    "require_clean_tree": true
+  },
+  "loop": {
+    "stagnation_window": 2,
+    "process_review_every": 5,
+    "max_iterations_per_round": 10
+  }
+}

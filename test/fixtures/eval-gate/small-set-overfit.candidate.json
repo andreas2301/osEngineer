@@ -1,0 +1,104 @@
+{
+  "version": "1.0.1",
+  "git": {
+    "commit": "0000000",
+    "dirty": false
+  },
+  "change_kind": "detection",
+  "evaluation": "iteration",
+  "errors": 0,
+  "corpus_findings": 11015,
+  "sets": {
+    "primary-a": {
+      "tp": 240,
+      "fp": 0,
+      "tn": 160,
+      "fn": 60,
+      "p95_ms": 12.0
+    },
+    "primary-a-holdout": {
+      "tp": 216,
+      "fp": 0,
+      "tn": 160,
+      "fn": 84,
+      "p95_ms": 12.0
+    },
+    "primary-b": {
+      "tp": 199,
+      "fp": 26,
+      "tn": 274,
+      "fn": 101,
+      "p95_ms": 70.0
+    },
+    "primary-b-holdout": {
+      "tp": 179,
+      "fp": 27,
+      "tn": 273,
+      "fn": 121,
+      "p95_ms": 74.0
+    },
+    "primary-c": {
+      "tp": 46,
+      "fp": 0,
+      "tn": 56,
+      "fn": 14,
+      "p95_ms": 12.0
+    },
+    "primary-c-holdout": {
+      "tp": 62,
+      "fp": 0,
+      "tn": 343,
+      "fn": 141,
+      "p95_ms": 12.0
+    },
+    "small-subset": {
+      "tp": 37,
+      "fp": 0,
+      "tn": 300,
+      "fn": 15,
+      "p95_ms": 12.0
+    },
+    "small-subset-holdout": {
+      "tp": 23,
+      "fp": 0,
+      "tn": 371,
+      "fn": 30,
+      "p95_ms": 12.0
+    },
+    "recall-a": {
+      "tp": 21,
+      "fp": 0,
+      "tn": 0,
+      "fn": 819,
+      "p95_ms": 12.0
+    },
+    "recall-a-holdout": {
+      "tp": 20,
+      "fp": 0,
+      "tn": 0,
+      "fn": 805,
+      "p95_ms": 12.0
+    },
+    "guard-a": {
+      "tp": 34,
+      "fp": 0,
+      "tn": 300,
+      "fn": 266,
+      "p95_ms": 12.0
+    },
+    "guard-a-holdout": {
+      "tp": 35,
+      "fp": 0,
+      "tn": 300,
+      "fn": 265,
+      "p95_ms": 12.0
+    },
+    "stress": {
+      "tp": 30,
+      "fp": 30,
+      "tn": 166,
+      "fn": 150,
+      "p95_ms": 12.0
+    }
+  }
+}

@@ -16,3 +16,4 @@ Each `.md` file defines a command: syntax, agent dispatch, steps, and example.
 | `/osEngineer:verify` | Developer + Reviewer | Run verification protocol |
 | `/osEngineer:evolve` | Meta-agent | HITL skill improvement (auto-nudge at 5 phases) |
 | `/osEngineer:explain` | Meta-agent | Explain artifacts, commands, lifecycle, agents, trust |
+| `/osEngineer:recipe-eval-harness` | Eval Harness Engineer | Set up and run a measured keep/revert loop for a detector repo |

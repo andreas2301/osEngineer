@@ -22,7 +22,7 @@ osEngineer implements all 7 layers required for platform-quality engineering.
 | Layer | Feature | File |
 |-------|---------|------|
 | **Planning** | Phase lifecycle with token budgets, risk flags, rollback paths | [`planning/`](planning/) |
-| **Agents** | 16 mandatory + 5 optional role-based agents | [`agents/`](agents/) |
+| **Agents** | 16 mandatory + 6 optional role-based agents | [`agents/`](agents/) |
 | **Commands** | 7 slash commands including HITL evolution | [`commands/`](commands/) |
 | **Discovery** | Auto-discovers repos, ADRs, graphs, execution environment | [`discovery/`](discovery/) |
 | **Specs** | Spec-driven development with JSON schemas | [`specs/`](specs/) |
@@ -50,6 +50,29 @@ cd osEngineer
 ```
 
 The install script is idempotent. It configures `git safe.directory`, symlinks hooks, creates planning directories, and wires zeroclaw repo settings.
+
+### Supported harnesses: Claude Code, Kimi Code, Codex CLI
+
+Pick the harnesses with `RUNTIMES` (space-separated, default `claude`) or the interactive multi-harness menu:
+
+```bash
+RUNTIMES="claude kimi codex" ./install.sh /path/to/your/project
+```
+
+| | Claude Code (`claude`) | Kimi Code (`kimi`) | Codex CLI (`codex`) |
+|---|---|---|---|
+| Hook wiring | `.claude/settings.json` (per repo) | `$KIMI_CODE_HOME/config.toml` (machine-global, ledger in `~/.osengineer/repos.json`) | `.codex/hooks.json` (per repo), each guard run through `hooks/lib/codex_hook.py` |
+| Guards wired | prompt, edit, read-before-edit, Bash, post-tool, session-start, statusline | prompt, edit, read-before-edit, Bash | prompt, edit (`apply_patch` split per file), Bash, session-start |
+| Team context | root `AGENTS.md`, `CLAUDE.md`, `.claude/agents/*.md` | `.kimi-code/AGENTS.md` | root `AGENTS.md` (read natively) |
+| Commands | `.claude/commands/osEngineer/<verb>.md` | `.kimi-code/skills/<verb>/SKILL.md` | `.agents/skills/<verb>/SKILL.md` |
+
+Codex limits:
+- Codex runs project hooks only after you trust the project and then each osEngineer hook in `/hooks`. Trust is recorded per command hash, so after an upgrade that changes a command you must trust it again. Until then, Codex enforces nothing locally, and only the git hooks (`commit-msg`, `pre-commit`) and the CI gate (`.github/workflows/osengineer-gate.yml`) apply. `install.sh` prints a warning about this.
+- Codex has no statusline and no context-usage bridge, so the post-tool context monitor is not wired. The read-before-edit advisory is not wired either.
+- Codex custom agents are TOML files, so no agent role files are copied to `.codex/agents/`. Codex gets the roles through `AGENTS.md`.
+- Hosted Codex tools such as web search never reach `PreToolUse`.
+
+`./uninstall.sh` removes only the osEngineer handlers and skills. It keeps foreign hooks and skills you have edited.
 
 ### Relocating the checkout: `OSENGINEER_HOME`
 
@@ -126,6 +149,14 @@ Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto
 
 Spins up an isolated local container cluster (RabbitMQ, Vault) to run and test swarm missions locally.
 
+### Evaluation harness (detectors, classifiers, scanners)
+
+```
+/osEngineer:recipe-eval-harness /path/to/detector-repo
+```
+
+Sets up pinned, sha256-verified labeled datasets with dev/holdout/sealed splits and set roles, a deterministic fetch script, per-set P/R/F1/latency, and an eval policy (`specs/SCHEMAS/eval-policy.schema.json`). Then it runs a keep/revert improvement loop in which every verdict comes from `bin/ose-eval-gate`. Lessons from the reference loop are in [`docs/eval-harness-lessons.md`](docs/eval-harness-lessons.md).
+
 ### Explain (built-in help)
 
 ```
@@ -189,6 +220,7 @@ Every directory has a `README.md` (human-readable) and `INDEX.md` (bot-navigable
 | **UI/UX Designer** | Frontend change detected |
 | **Sync Agent** | Hotfix on live system |
 | **Budget Tracker** | Cost threshold exceeded |
+| **Eval Harness Engineer** | Detector/classifier/scanner accuracy work |
 
 ## Key Principles
 
@@ -219,3 +251,80 @@ This skill evolves via retrospectives and the HITL evolution protocol. After eac
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+## Repo profile
+
+The repo profile adds a scoped Coding Skill and a portable local/headless
+execution adapter. It reuses the target repository's policy, skill registry,
+configurable plan directory (default `.plans/`) and review path. It does not
+install generic reviewer roles, rewrite the policy file or CLAUDE.md, modify global configuration, or connect live accounts.
+
+```bash
+python3 bin/osengineer profile install --repo /path/to/repo
+# Optional: --policy-file POLICY.md --plan-dir .plans
+# Equivalent: bash install.sh --profile repo /path/to/repo
+python3 bin/osengineer profile integrations doctor --config profiles/repo/integrations.json
+python3 bin/osengineer profile runtime --help
+python3 bin/osengineer profile learn --help
+```
+
+Codex discovers `.agents/skills/osengineer-repo-profile`; Claude uses its canonical
+`.claude/skills/osengineer-repo-profile` copy. All runtime assets are copied inside
+the skill, so the original checkout location is not required. Existing project
+hooks are preserved; no new runtime hooks are automatically trusted or installed.
+The repaired optional hooks remain available for separately configured launchers.
+
+Copy integration configuration to a local untracked location before adding
+project/page IDs and credential environment names. Configuration never contains
+secret values. Provider reads and runner execution require explicit selections.
+Headless operation defaults to local evidence; remote effects need a separately
+authorized and sandboxed launch policy. A passing fixture suite does not promote
+production autonomy.
+
+### Configuration and detection
+
+`.osengineer/profile.json` is the one per-repository configuration for the
+hooks, the CLI and the runtime ([schema](specs/SCHEMAS/repo-profile.schema.json),
+loader `repo_profile/config.py`). Every key is optional; a missing file means
+the defaults. An invalid file fails closed: hooks block, the runtime returns
+`needs-human`, the CLI exits 1, each naming the offending key.
+
+| Key | Default | Used by |
+|---|---|---|
+| `profile` | unset (`"repo"` enables repo-profile mode) | hooks |
+| `policy`, `planDirectory`, `skillRegistry`, `dispatchSkill` | `POLICY.md`, `.plans`, `.osengineer/skill-registry.json`, `dispatch` | hooks, runtime, installer |
+| `codexRunner` | `codex` | runtime (`codex exec` protocol) |
+| `context.warnPct` / `criticalPct` / `reinjectPct` / `staleSeconds` | 35 / 25 / 40 / 60 | post-tool, prompt-guard (percent remaining) |
+| `routing.excludeNamePattern` / `dispatchWords` / `minSignalTerms` / `maxHints` / `projection` | `reviewer\|verifier\|judge` / `["dispatch","workflow"]` / 2 / 2 / `codex` | repo-profile prompt routing |
+| `eval.policy` | `EVAL_POLICY.json` | `eval-policy` detector |
+| `handlers` | `{}` | detect / doctor |
+
+```bash
+python3 bin/osengineer profile detect --repo /path/to/repo           # facts + proposed profile.json
+python3 bin/osengineer profile detect --repo /path/to/repo --write   # write known handlers only
+python3 bin/osengineer profile doctor --repo /path/to/repo           # exit 1 on unhandled/unconfigured facts
+```
+
+Detectors are offline file and PATH probes: `profile-json`, `policy-file`,
+`skill-registry`, `eval-policy`, `ci:github-actions`, `harness:claude|kimi|codex`,
+`cli:gh`, `cli:op`, `package-manager:npm|pip|go|cargo`. A fact with a known
+handler (for example `eval-policy` -> `eval.gate`) is proposed as
+`{"handler": "eval.gate", "enabled": true}` and written only with `--write`.
+A fact without a handler is reported as `unhandled` and never enabled; mark it
+as seen with `{"enabled": false}`. Handlers are declarative: the map records
+which capability covers a fact; it does not switch a capability on.
+
+Provider endpoints live in `integrations.json`: `providers.github.host` (GHES),
+`providers.linear.endpoint`, `providers.notion.endpoint` and `apiVersion`, and
+`providers.secrets.schemes` (`["op"]` by default; add `"vault"` to allow
+`vault://secret/...` references).
+
+Installation is repeatable when owned assets are unchanged. The installer merges
+its keys into an existing `profile.json`, refuses a conflicting `policy` or
+`planDirectory`, and on uninstall keeps user keys (such as `handlers`) while
+removing the repo-profile switch. A modified skill or
+projection is preserved and produces a conflict instead of being
+overwritten. Uninstall with `python3 bin/osengineer profile uninstall --repo
+/path/to/repo`; unrelated policy, settings, agents and learning remain.
+See [the skill](profiles/repo/SKILL.md), [execution](profiles/repo/references/execution.md)
+for scope and verification.
