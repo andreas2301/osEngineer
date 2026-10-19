@@ -38,6 +38,7 @@ class ProfileLoader(unittest.TestCase):
                                               "minSignalTerms": 2, "maxHints": 2,
                                               "projection": "codex"})
         self.assertEqual(profile["eval"], {"policy": "EVAL_POLICY.json"})
+        self.assertEqual(profile["budget"], {"warnPct": 100, "tripPct": 150, "idleSeconds": 900})
         self.assertEqual(profile["handlers"], {})
 
     def test_existing_flat_profile_still_loads(self):
@@ -89,6 +90,11 @@ class ProfileLoader(unittest.TestCase):
             # The infra config-dir list stays code: the plan-phase gate blocks those paths anyway.
             ({"validationProfiles": {}}, "unknown keys: validationProfiles"),
             ({"eval": {"policy": "../x.json"}}, "eval.policy"),
+            ({"budget": {"tripPct": 0}}, "budget.tripPct"),
+            ({"budget": {"warnPct": 1001}}, "budget.warnPct"),
+            ({"budget": {"warnPct": 200, "tripPct": 150}}, "budget.warnPct"),
+            ({"budget": {"idleSeconds": 0}}, "budget.idleSeconds"),
+            ({"budget": {"tokensPct": 150}}, "budget"),
             # codexRunner (from the Codex branch) is the one runner setting.
             ({"runners": {}}, "unknown keys: runners"),
             ({"codexRunner": "bin/codex"}, "codexRunner"),
