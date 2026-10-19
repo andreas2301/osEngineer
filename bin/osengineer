@@ -31,6 +31,9 @@
 #                                     Materialise a new agent file from template
 #   scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]
 #                                     Materialise a new command file from template
+#   debt [--json] [--check] [--exclude <dir>]
+#                                     List `shortcut:` comments in tracked files;
+#                                     --check exits 1 if one lacks a trigger
 #   version                           Print osEngineer version
 #   explain [topic]                   overview|phases|hooks|teams|handoffs|scaffold
 
@@ -1339,6 +1342,68 @@ def cmd_scaffold_command(args):
     print("  2. Add a one-line entry under commands/INDEX.md.")
 
 
+SHORTCUT_RE = re.compile(r"(?:^|\s)(?:#|//|--|/\*)\s*shortcut:\s*(.*)$")
+TRIGGER_RE = re.compile(r"\s*(?:[—–-]+\s*)?revisit when\s+", re.IGNORECASE)
+DEBT_EXCLUDES = ("vendor/", "node_modules/", "test/fixtures/")
+
+
+def scan_debt(repo, excludes):
+    files = run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True, check=True).stdout
+    entries = []
+    for rel in sorted(f for f in files.decode().split("\0") if f):
+        if any(f"/{x}" in f"/{rel}" for x in excludes):
+            continue
+        try:
+            data = (repo / rel).read_bytes()
+        except OSError:  # tracked but deleted, or a directory (submodule)
+            continue
+        if b"\0" in data or b"shortcut:" not in data:
+            continue
+        for n, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
+            m = SHORTCUT_RE.search(line)
+            if not m:
+                continue
+            body = m.group(1).strip()
+            if body.endswith("*/"):
+                body = body[:-2].strip()
+            parts = TRIGGER_RE.split(body, maxsplit=1)
+            trigger = parts[1].strip() if len(parts) == 2 and parts[1].strip() else None
+            entries.append({"file": rel, "line": n, "limit": parts[0].strip(" ,;—–-"),
+                            "trigger": trigger})
+    return entries
+
+
+def cmd_debt(args):
+    excludes = list(DEBT_EXCLUDES)
+    rest = list(args)
+    while "--exclude" in rest:
+        i = rest.index("--exclude")
+        if i + 1 >= len(rest):
+            print("osengineer debt: --exclude needs a directory", file=sys.stderr)
+            sys.exit(2)
+        excludes.append(rest[i + 1].rstrip("/") + "/")
+        del rest[i:i + 2]
+    unknown = [a for a in rest if a not in ("--json", "--check")]
+    if unknown:
+        print(f"osengineer debt: unknown argument {unknown[0]}", file=sys.stderr)
+        sys.exit(2)
+    top = run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if top.returncode != 0:
+        print("osengineer debt: not inside a git repository", file=sys.stderr)
+        sys.exit(2)
+    entries = scan_debt(Path(top.stdout.strip()), excludes)
+    missing = [e for e in entries if e["trigger"] is None]
+    if "--json" in rest:
+        print(json.dumps(entries, indent=2))
+    else:
+        for e in entries:
+            tail = f"revisit when {e['trigger']}" if e["trigger"] else "[no-trigger]"
+            print(f"{e['file']}:{e['line']}  {e['limit']} — {tail}")
+        print(f"{len(entries)} shortcut(s), {len(missing)} without a trigger")
+    if "--check" in rest and missing:
+        sys.exit(1)
+
+
 def cmd_explain(args):
     topic = args[0] if args else "overview"
     messages = {
@@ -1436,6 +1501,8 @@ def usage():
         "                                          Materialise a new agent file from template\n"
         "  osengineer scaffold command <name> [--phase-allowed <list>] [--phase-after <p>]\n"
         "                                          Materialise a new command file from template\n"
+        "  osengineer debt [--json] [--check] [--exclude <dir>]\n"
+        "                                          List shortcut: comments; --check fails on a missing trigger\n"
         "  osengineer version                      Print osEngineer version\n"
         "  osengineer explain [topic]              overview|phases|hooks|teams|handoffs|scaffold\n"
         "  osengineer render <verb> [args...]      Render a command's executable body to stdout\n"
@@ -1484,6 +1551,8 @@ def main():
         cmd_scaffold(rest)
     elif sub == "explain":
         cmd_explain(rest)
+    elif sub == "debt":
+        cmd_debt(rest)
     elif sub == "upgrade":
         cmd_upgrade(rest)
     elif sub == "run":

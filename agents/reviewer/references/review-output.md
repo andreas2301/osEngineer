@@ -4,18 +4,21 @@
 # Review — PR #NNN
 
 ## Approval Status
-CONDITIONAL_APPROVE (2 minor nits)
+CHANGES_REQUESTED (1 must fix)
 
 ## Findings
 
-### Must Fix (0)
+### Must Fix (1)
+1. **Where:** `internal/publish/publish.go:58`. **What fails:** a publish error is logged and dropped, so the plan counts as sent. **Failing case:** broker down during publish → caller gets nil, the plan is lost. **Fix:** return the error and let the caller retry.
+
+### Should Fix (0)
 (None)
 
-### Should Fix (1)
-- `internal/metrics/metrics.go:23` — Help string "Total count" is vague. Use "Total MissionPlan publish attempts to Supervisor".
-
 ### Nits (1)
-- `cmd/strategist/main.go:471` — metrics server addr uses `cfg.MetricsAddr` but log uses hardcoded `:9091`. Use the variable.
+2. **Where:** `cmd/strategist/main.go:471`. **What fails:** the log names `:9091` while the server listens on `cfg.MetricsAddr`. **Failing case:** `MetricsAddr=:9200` → the log points operators at the wrong port. **Fix:** log `cfg.MetricsAddr`.
+
+## Not checked
+- Load behaviour of the new retry path; no benchmark was run.
 
 ## Coverage
 - Before: 78%

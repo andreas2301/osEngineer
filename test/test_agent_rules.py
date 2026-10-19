@@ -49,6 +49,37 @@ class RulesContent(unittest.TestCase):
         checklist = (ROOT / "agents" / "reviewer" / "references" / "review-checklist.md").read_text()
         self.assertIn("traces to the request", checklist)
 
+    def test_rules_carry_the_ponytail_pieces(self):
+        text = rules().lower()
+        for phrase in (
+            "need to exist", "already in the codebase", "stdlib",
+            "installed dependency", "one line", "minimal new code",   # reuse ladder
+            "never cut", "input validation", "data loss", "security",
+            "accessibility", "risk-exception",                          # never-cut list
+            "shortcut: <limit> — revisit when <trigger>", "osengineer debt",  # ledger
+        ):
+            self.assertIn(phrase, text)
+        # The ladder runs in this order.
+        order = [text.index(p) for p in ("need to exist", "already in the codebase", "stdlib",
+                                         "installed dependency", "one line", "minimal new code")]
+        self.assertEqual(order, sorted(order))
+
+    def test_rules_stay_compact(self):
+        # Injected into every session and subagent; growth must stay small.
+        self.assertLess(len(rules().encode()), 2700)
+
+    def test_reviewer_uses_the_fixed_order_and_finding_format(self):
+        ref = ROOT / "agents" / "reviewer"
+        for text in ((ref / "AGENT.md").read_text(),
+                     (ref / "references" / "review-checklist.md").read_text()):
+            self.assertIn("correct → safe → holds under load → tested → fast → lean", text)
+        checklist = (ref / "references" / "review-checklist.md").read_text()
+        for phrase in ("failing case", "where", "what fails", "fix", "20", "Not checked",
+                       "already in the codebase"):
+            self.assertIn(phrase, checklist)
+        self.assertIn("Not checked", (ref / "references" / "review-output.md").read_text())
+        self.assertIn("correct → safe → holds under load", (ROOT / "agents" / "judge" / "AGENT.md").read_text())
+
 
 class RulesHaveOneSource(unittest.TestCase):
     def test_no_inline_copies(self):
