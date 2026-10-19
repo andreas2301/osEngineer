@@ -284,5 +284,25 @@ class TestVerifyRed(TddCheckCase):
         self.assertEqual(len(self.repo.git("worktree", "list").splitlines()), 1)
 
 
+class TestCiWiring(unittest.TestCase):
+    """The PR gate must run the check on the PR range and surface exceptions."""
+
+    def setUp(self):
+        body = (ROOT / ".github" / "workflows" / "osengineer.yml").read_text()
+        self.job = body.split("\n  commit-messages:", 1)[1]
+
+    def test_commit_messages_job_runs_the_check_on_the_pr_range(self):
+        self.assertIn("bin/ose-tdd-check", self.job)
+        self.assertIn("steps.range.outputs.base }}..${{ steps.range.outputs.head", self.job)
+
+    def test_exceptions_reach_the_job_summary(self):
+        self.assertIn("--markdown", self.job)
+        self.assertIn("GITHUB_STEP_SUMMARY", self.job)
+
+    def test_red_verification_stays_off_in_ci(self):
+        # The suite takes minutes; one run per test commit does not fit a PR gate.
+        self.assertNotIn("--verify-red", self.job)
+
+
 if __name__ == "__main__":
     unittest.main()
