@@ -6,6 +6,36 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Added — human phase gate
+
+- **`osengineer approve <phase> [--reason "<t>"]`** is now the only way to
+  change the phase (`hooks/lib/phase_gate.py`). It checks:
+  - an explicit transition table: Discuss → Plan → Execute → Verify → Accepted,
+    plus Blocked and the micro/hotfix Micro-Phase;
+  - the prerequisite artifact for the target phase: `PHASE_PLAN.md` before
+    `execute`, `VERIFICATION.md` or `MICRO_PLAN.md` before closing.
+
+  It records `phase_approved_by`/`phase_approved_at` in `state.yml` and appends
+  each approval to `.osengineer/approvals.jsonl`. Headless runs refuse it.
+  See `planning/PROTOCOL.md` "Phase Gate".
+
+### Changed
+
+- `osengineer state set phase <p>` routes through `approve`, so `idle → execute`
+  in one step is no longer accepted. Other keys work as before, except that the
+  `phase_approved_*` record fields are refused.
+- The guards refuse the agent every route to a phase change, in every phase and
+  on all three harnesses:
+  - `pre-edit-guard` blocks any edit of `state.yml` or `approvals.jsonl`;
+  - `pre-bash-guard` blocks `approve`, `state set phase` and best-effort shell
+    writes to those files.
+
+  `OSE_BYPASS` does not lift these blocks; the refused bypass is logged.
+- The discuss/plan edit block now asks the human to approve the move to
+  execute; it no longer tells the agent to run `state set phase execute`.
+  `/osEngineer:feature`, `fix` and `hotfix` and the verifier protocol now ask
+  the human to approve as well.
+
 ## [0.5.0] — unreleased (date set when tagged)
 
 ### Added — evaluation harness for detectors, classifiers and scanners

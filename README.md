@@ -133,6 +133,19 @@ Dispatches the developer agent. Each task = atomic commit. Rollback path is docu
 
 Runs verification protocol: tests, e2e tracer bullets, cost recalibration.
 
+### Approve a phase (human only)
+
+```
+osengineer approve execute      # in your own terminal, or `! osengineer approve execute` in Claude Code
+```
+
+Only a human moves the phase forward. `approve` checks the allowed transition
+and the prerequisite artifact (for example `PHASE_PLAN.md` before `execute`),
+then records who approved it and when in `.osengineer/approvals.jsonl`. The
+hooks stop the agent from running it or from writing `.osengineer/state.yml`,
+and `OSE_BYPASS` does not change that. See
+[`planning/PROTOCOL.md`](planning/PROTOCOL.md#phase-gate-human-approval).
+
 ### Evolve (HITL skill improvement)
 
 ```

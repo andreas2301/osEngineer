@@ -1125,8 +1125,10 @@ def cmd_explain(args):
             "Phase lifecycle: idle → discuss → plan → execute → verify → accepted.\n"
             "Micro-Phase (Hotfix): idle → micro (or hotfix) → accepted (lightweight cycle).\n"
             "`blocked` is a side-state entered on budget overrun or hard-rule violation.\n"
-            "Transitions are gated by hooks: no execute without PHASE_PLAN.md, no\n"
-            "verify without green test run, no merge without VERIFICATION.md (or MICRO_PLAN.md)."
+            "Only a human changes the phase: `osengineer approve <phase>` checks the\n"
+            "transition table and the artifact (PHASE_PLAN.md for execute, VERIFICATION.md\n"
+            "or MICRO_PLAN.md to close) and logs to .osengineer/approvals.jsonl. The\n"
+            "hooks refuse the agent `approve`, `state set phase` and state.yml writes."
         ),
         "hooks": (
             "Ten enforcement hooks live in hooks/osEngineer-*. install.sh copies\n"
