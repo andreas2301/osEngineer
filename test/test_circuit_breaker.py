@@ -154,7 +154,13 @@ class Breaker(BreakerBase):
         blocked = (self.root / ".osengineer/BLOCKED.md").read_text()
         self.assertIn("phase-001-breaker", blocked)
         self.assertIn("tool calls: 3 / 2 (150%)", blocked)
-        self.assertIn("approve", blocked)
+        self.assertIn("osengineer approve plan", blocked)
+        # One log for every phase change: the automatic trip is recorded too.
+        (entry,) = [json.loads(l) for l in (self.root / ".osengineer/approvals.jsonl").read_text().splitlines()]
+        self.assertEqual((entry["from"], entry["to"], entry["by"]), ("execute", "blocked", "circuit-breaker"))
+        self.assertIn("150%", entry["reason"])
+        self.assertEqual(entry["evidence"]["tool_calls"], 3)
+        self.assertEqual(entry["evidence"]["file"], ".osengineer/BLOCKED.md")
 
     def test_wall_time_alone_can_trip(self):
         self.plan(tool_calls=100, wall_minutes=1)
