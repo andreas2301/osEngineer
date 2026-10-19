@@ -668,7 +668,11 @@ MD
     fi
   fi
 
-  # 7. CLAUDE.md osEngineer section
+  # 7. CLAUDE.md osEngineer section. The agent rules come from their single
+  # source, templates/agent-rules.md (the hooks re-inject the same file).
+  # A separate assignment so set -e aborts if the file is missing.
+  local agent_rules
+  agent_rules=$(cat "$SCRIPT_DIR/templates/agent-rules.md")
   if [ ! -f "$repo/CLAUDE.md" ]; then
     cat > "$repo/CLAUDE.md" <<MD
 # $repo_name
@@ -685,21 +689,7 @@ Key operational facts:
 - **Destructive bash** is blocked without an active 4-part plan.
 - **Override any rule** with \`OSE_BYPASS=1\` — every bypass logged.
 
-## Baseline & Extended Agent Rules
-
-### Baseline Rules
-1. **Think Before Coding**: State assumptions explicitly. If an instruction is ambiguous, name what is confusing and ask instead of guessing.
-2. **Simplicity First**: Write the minimum code that solves the problem. No speculative abstractions or flexibility that wasn't explicitly requested.
-3. **Surgical Changes**: Touch only what the task requires. Do not "improve" adjacent code, reformat, or refactor things that aren't broken.
-4. **Goal-Driven Execution**: Turn vague instructions into verifiable targets. Create tests first to reproduce the issue, then loop until it passes.
-
-### Extended Agent Rules
-5. **Set Hard Token Budgets**: Stop runaway iterations by placing strict context limits.
-6. **Expose Conflicts**: Don't blindly average contradictory patterns in the codebase.
-7. **Read Before Writing**: Scan existing code before making edits to prevent duplication.
-8. **Test Real Logic**: Ensure tests validate actual logic rather than just running to pass.
-9. **Use Checkpoints**: Utilize checkpoints for long-running, multi-step tasks.
-10. **Fail Explicitly**: Avoid silent failures that just appear successful.
+$agent_rules
 
 ## graphify
 
@@ -722,21 +712,7 @@ Key operational facts:
 - **Destructive bash** is blocked without an active 4-part plan.
 - **Override any rule** with \`OSE_BYPASS=1\` — every bypass logged.
 
-## Baseline & Extended Agent Rules
-
-### Baseline Rules
-1. **Think Before Coding**: State assumptions explicitly. If an instruction is ambiguous, name what is confusing and ask instead of guessing.
-2. **Simplicity First**: Write the minimum code that solves the problem. No speculative abstractions or flexibility that wasn't explicitly requested.
-3. **Surgical Changes**: Touch only what the task requires. Do not "improve" adjacent code, reformat, or refactor things that aren't broken.
-4. **Goal-Driven Execution**: Turn vague instructions into verifiable targets. Create tests first to reproduce the issue, then loop until it passes.
-
-### Extended Agent Rules
-5. **Set Hard Token Budgets**: Stop runaway iterations by placing strict context limits.
-6. **Expose Conflicts**: Don't blindly average contradictory patterns in the codebase.
-7. **Read Before Writing**: Scan existing code before making edits to prevent duplication.
-8. **Test Real Logic**: Ensure tests validate actual logic rather than just running to pass.
-9. **Use Checkpoints**: Utilize checkpoints for long-running, multi-step tasks.
-10. **Fail Explicitly**: Avoid silent failures that just appear successful.
+$agent_rules
 MD
     log "  + osEngineer section appended to CLAUDE.md"
   fi
