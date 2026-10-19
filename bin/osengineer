@@ -20,8 +20,10 @@
 #                                     Scan a META repo for ADRs; emit YAML catalog
 #   evolve [status]                   Show counter + open/closed proposals
 #   evolve propose --title "<t>" [--body "<text>" | --body-file <f>] [--category <c>]
-#   evolve accept <id> --pattern-slug <s> [--pattern-file <f>]
-#                                     Promote proposal to memory/patterns/<s>.md; reset counter
+#   evolve accept <id> --pattern-slug <s> [--pattern-file <f>] [--why <t>] [--risk <t>] [--evidence <t>]
+#                                     Write .osengineer/evolve/proposals/<id>.md; reset counter
+#   evolve promote <id> [--pr]        Human-only: commit the pattern on a skill-home
+#                                     branch (optionally open a PR); never merges
 #   evolve reject <id> --reason "<text>"
 #                                     Log rejection; reset counter
 #   scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>]
@@ -37,6 +39,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -838,6 +841,92 @@ def list_proposals(repo_root):
     return sorted([f for f in list_dir_safe(d) if re.match(r"^EP-\d+-", f) and f.endswith(".md")])
 
 
+PROMOTE_FIELDS = ("What changes", "Why", "Risk", "How to revert", "Evidence")
+
+
+def promote_proposal(repo_root, prop_id, open_pr):
+    """Commit an accepted proposal's pattern on a new skill-home branch.
+
+    Human-only: refuses headless runs. Refuses a non-git or dirty skill home and
+    a proposal with an empty field. Uses a scratch index, so neither the skill
+    home's working tree nor its checked-out branch changes. Never merges.
+    """
+    def fail(msg):
+        print(f"osengineer: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    if os.environ.get("OSE_HEADLESS") == "1":
+        fail("evolve promote refused in a headless run — the loop proposes, a human promotes")
+    path = Path(repo_root) / ".osengineer" / "evolve" / "proposals" / f"{prop_id}.md"
+    if not path.is_file():
+        fail(f"no proposal {path.relative_to(repo_root)} — run `osengineer evolve accept {prop_id}` first")
+    text = path.read_text()
+    slug_m = re.search(r"^pattern_slug:\s*([a-z0-9][a-z0-9-]*)\s*$", text, re.MULTILINE)
+    if not slug_m:
+        fail("proposal has no valid pattern_slug")
+    slug = slug_m.group(1)
+    if re.search(r"^status:\s*promoted", text, re.MULTILINE):
+        fail(f"{prop_id} is already promoted")
+    head, sep, pattern = text.partition("\n## Pattern\n")
+    sections = dict(re.findall(r"^## (.+?)\n([\s\S]*?)(?=^## |\Z)", head, re.MULTILINE))
+    missing = [f for f in PROMOTE_FIELDS if not sections.get(f, "").strip()]
+    if not pattern.strip():
+        missing.append("Pattern")
+    if missing:
+        fail(f"proposal is missing fields: {', '.join(missing)} — edit {path.relative_to(repo_root)}")
+
+    home = Path(os.environ.get("OSENGINEER_HOME") or SCRIPT_DIR).resolve()
+
+    def g(*a, env=None, check=True):
+        r = subprocess.run(["git", "-C", str(home), *a], capture_output=True, text=True,
+                           env={**os.environ, **(env or {})})
+        if check and r.returncode != 0:
+            fail(f"git {' '.join(a[:2])} failed in skill home: {r.stderr.strip()}")
+        return r.stdout.strip()
+
+    top = subprocess.run(["git", "-C", str(home), "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True)
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != home:
+        fail(f"skill home {home} is not a git checkout — promote needs one to open a branch")
+    if g("status", "--porcelain"):
+        fail(f"skill home {home} has uncommitted changes — commit or stash them first")
+    rel = f"memory/patterns/{slug}.md"
+    if subprocess.run(["git", "-C", str(home), "cat-file", "-e", f"HEAD:{rel}"],
+                      capture_output=True).returncode == 0:
+        fail(f"{rel} already exists in the skill home — pick a new slug or edit it by hand")
+    branch = f"evolve/{prop_id.lower()}-{slug}"[:60]
+    if g("rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False):
+        fail(f"branch {branch} already exists in the skill home")
+
+    subject = f"docs(patterns): add {slug}"[:72]
+    message = "\n\n".join([subject] + [f"{f}:\n{sections[f].strip()}" for f in PROMOTE_FIELDS])
+    blob = subprocess.run(["git", "-C", str(home), "hash-object", "-w", "--stdin"],
+                          input=pattern.lstrip("\n"), capture_output=True, text=True).stdout.strip()
+    with tempfile.TemporaryDirectory() as tmp:
+        idx = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        g("read-tree", "HEAD", env=idx)
+        g("update-index", "--add", "--cacheinfo", f"100644,{blob},{rel}", env=idx)
+        tree = g("write-tree", env=idx)
+    commit = g("commit-tree", tree, "-p", "HEAD", "-m", message)
+    g("branch", branch, commit)
+    path.write_text(update_frontmatter(text, {
+        "status": "promoted", "promoted_branch": branch, "promoted_commit": commit,
+    }))
+    print(f"promoted {prop_id} → branch {branch} in {home} (commit {commit[:12]}); nothing merged")
+    if not open_pr:
+        print(f"review it, then: git -C {home} push -u origin {branch} && gh pr create --head {branch}")
+        return
+    if not shutil.which("gh"):
+        fail(f"gh not found — push {branch} and open the PR by hand")
+    g("push", "-u", "origin", branch)
+    r = subprocess.run(["gh", "pr", "create", "--head", branch, "--title", subject,
+                        "--body", message.split("\n\n", 1)[1]],
+                       cwd=str(home), capture_output=True, text=True)
+    if r.returncode != 0:
+        fail(f"gh pr create failed: {r.stderr.strip()}")
+    print(f"opened PR for review: {r.stdout.strip()}")
+
+
 def cmd_evolve(args):
     repo_root = find_repo_root()
     if not repo_root:
@@ -912,12 +1001,16 @@ def cmd_evolve(args):
 
     if sub == "accept":
         if len(args) < 2:
-            print('Usage: osengineer evolve accept <id> --pattern-slug <slug> [--pattern-file <f>]', file=sys.stderr)
+            print('Usage: osengineer evolve accept <id> --pattern-slug <slug> [--pattern-file <f>] [--why "<t>"] [--risk "<t>"] [--evidence "<t>"]', file=sys.stderr)
             sys.exit(1)
         prop_id = args[1]
-        flags = parse_flags(args[2:], ["pattern-slug", "pattern-file"])
-        if not flags.get("pattern-slug"):
+        flags = parse_flags(args[2:], ["pattern-slug", "pattern-file", "why", "risk", "evidence"])
+        slug = flags.get("pattern-slug", "")
+        if not slug:
             print("--pattern-slug is required", file=sys.stderr)
+            sys.exit(1)
+        if not re.match(r"^[a-z0-9][a-z0-9-]*$", slug):
+            print("osengineer: --pattern-slug must be lowercase letters, digits and dashes", file=sys.stderr)
             sys.exit(1)
         d = Path(repo_root) / ".osengineer" / "evolution-proposals"
         files = [f for f in list_dir_safe(d) if f.startswith(f"{prop_id}-") and f.endswith(".md")]
@@ -929,38 +1022,85 @@ def cmd_evolve(args):
             sys.exit(1)
         file = d / files[0]
         original = file.read_text()
-        updated = update_frontmatter(original, {
-            "status": "accepted",
-            "accepted_at": datetime.now(timezone.utc).isoformat(),
-        })
-        file.write_text(updated)
-        pattern_file = SCRIPT_DIR / "memory" / "patterns" / f"{flags['pattern-slug']}.md"
-        pattern_file.parent.mkdir(parents=True, exist_ok=True)
+        title_m = re.search(r'^title:\s*"?(.*?)"?\s*$', original, re.MULTILINE)
+        title = title_m.group(1) if title_m else prop_id
+        body = re.sub(r"^---\n[\s\S]*?\n---\n", "", original, flags=re.MULTILINE).strip()
         if flags.get("pattern-file"):
             try:
-                src = Path(flags["pattern-file"]).read_text()
-                pattern_file.write_text(src)
+                pattern = Path(flags["pattern-file"]).read_text()
             except Exception:
                 print(f"osengineer: cannot read --pattern-file {flags['pattern-file']}", file=sys.stderr)
                 sys.exit(1)
         else:
-            stub_body = re.sub(r"^---\n[\s\S]*?\n---\n", "", original, flags=re.MULTILINE)
-            stub = [
-                f"# Pattern: {flags['pattern-slug']}",
+            pattern = "\n".join([
+                f"# Pattern: {slug}",
                 "",
-                f"Promoted from evolution proposal {prop_id} in repo {repo_root.name} on {datetime.now(timezone.utc).isoformat()[:10]}.",
+                f"Promoted from evolution proposal {prop_id} in repo {repo_root.name}.",
                 "",
-                stub_body,
-            ]
-            pattern_file.write_text("\n".join(stub))
+                body,
+                "",
+            ])
+        source = file.relative_to(repo_root)
+        now = datetime.now(timezone.utc).isoformat()
+        # The proposal stays in the TARGET repo. Only `evolve promote`, run by a
+        # human, carries it to the skill home — and only as a branch for review.
+        out = Path(repo_root) / ".osengineer" / "evolve" / "proposals" / f"{prop_id}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join([
+            "---",
+            f"proposal_id: {prop_id}",
+            f"pattern_slug: {slug}",
+            f"source_proposal: {source}",
+            f"source_repo: {repo_root.name}",
+            "status: proposed",
+            f"accepted_at: {now}",
+            "---",
+            "",
+            f"# Skill change proposal {prop_id}: {title}",
+            "",
+            "## What changes",
+            "",
+            f"Adds `memory/patterns/{slug}.md` to the osEngineer skill home (one new file).",
+            "",
+            "## Why",
+            "",
+            flags.get("why") or title,
+            "",
+            "## Risk",
+            "",
+            flags.get("risk", ""),
+            "",
+            "## How to revert",
+            "",
+            "Close the PR unmerged, or after merge `git revert` the promote commit.",
+            "",
+            "## Evidence",
+            "",
+            flags.get("evidence") or f"Source proposal `{source}` in repo {repo_root.name}.",
+            "",
+            "## Pattern",
+            "",
+            pattern,
+        ]))
+        file.write_text(update_frontmatter(original, {"status": "accepted", "accepted_at": now}))
         c = read_evolution_counter(repo_root)
         write_evolution_counter(repo_root, {
             "phases_since_last_evolution": 0,
             "total_evolutions_accepted": c["total_evolutions_accepted"] + 1,
-            "last_evolution_date": datetime.now(timezone.utc).isoformat()[:10],
+            "last_evolution_date": now[:10],
         })
-        print(f"accepted {prop_id} → memory/patterns/{flags['pattern-slug']}.md")
+        print(f"accepted {prop_id} → {out.relative_to(repo_root)} (proposal only; skill home untouched)")
+        if not flags.get("risk"):
+            print("fill in the Risk section before promoting", file=sys.stderr)
+        print(f"review it, then run: osengineer evolve promote {prop_id} [--pr]")
         print(f"counter reset to 0; total accepted = {c['total_evolutions_accepted'] + 1}")
+        return
+
+    if sub == "promote":
+        if len(args) < 2:
+            print("Usage: osengineer evolve promote <id> [--pr]", file=sys.stderr)
+            sys.exit(1)
+        promote_proposal(repo_root, args[1], "--pr" in args[2:])
         return
 
     if sub == "reject":
@@ -1004,7 +1144,7 @@ def cmd_evolve(args):
         print(f"rejected {prop_id} (reason logged); counter reset to 0")
         return
 
-    print("Usage: osengineer evolve (status|propose|accept|reject) ...", file=sys.stderr)
+    print("Usage: osengineer evolve (status|propose|accept|promote|reject) ...", file=sys.stderr)
     sys.exit(1)
 
 
@@ -1133,8 +1273,10 @@ def cmd_explain(args):
             ".osengineer/evolution-counter.yml; at >= 5 the session-start banner\n"
             "auto-nudges. Propose an improvement with\n"
             "  osengineer evolve propose --title \"<t>\" --body \"<text>\"\n"
-            "Accept with `osengineer evolve accept <id> --pattern-slug <s>` (promotes\n"
-            "to memory/patterns/) or `osengineer evolve reject <id> --reason \"<r>\"`\n"
+            "Accept with `osengineer evolve accept <id> --pattern-slug <s>` (writes a\n"
+            "proposal to .osengineer/evolve/proposals/; skill home untouched), then a\n"
+            "human runs `osengineer evolve promote <id> --pr` to open a review PR.\n"
+            "Or `osengineer evolve reject <id> --reason \"<r>\"`\n"
             "(logged to evolution-rejections.jsonl). Either action resets the counter."
         ),
     }
@@ -1164,8 +1306,9 @@ def usage():
         "                                          Scan a META repo for ADRs; emit YAML catalog\n"
         "  osengineer evolve [status]               Show counter + open/closed proposals\n"
         "  osengineer evolve propose --title \"<t>\" [--body \"<text>\" | --body-file <f>] [--category <c>]\n"
-        "  osengineer evolve accept <id> --pattern-slug <s> [--pattern-file <f>]\n"
-        "                                          Promote proposal to memory/patterns/<s>.md; reset counter\n"
+        "  osengineer evolve accept <id> --pattern-slug <s> [--pattern-file <f>] [--why <t>] [--risk <t>] [--evidence <t>]\n"
+        "                                          Write .osengineer/evolve/proposals/<id>.md; reset counter\n"
+        "  osengineer evolve promote <id> [--pr]   Human-only: commit pattern on a skill-home branch; never merges\n"
         "  osengineer evolve reject <id> --reason \"<text>\"\n"
         "                                          Log rejection; reset counter\n"
         "  osengineer scaffold agent <name> [--role <r>] [--scope <s>] [--escalates-to <list>]\n"
