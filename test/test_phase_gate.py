@@ -349,5 +349,106 @@ class TestCodexGetsTheSameRefusal(unittest.TestCase):
             self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
 
 
+RUNTIME_WRITES = [
+    "echo 'budget_tool_calls: 0' > .osengineer/runtime.yml",
+    "sed -i 's/budget_tool_calls: .*/budget_tool_calls: 0/' .osengineer/runtime.yml",
+    "rm .osengineer/runtime.yml",
+    "python3 -c \"open('.osengineer/runtime.yml','w').write('')\"",
+    "cp /tmp/x .osengineer/runtime.yml",
+]
+
+
+class TestRuntimeYmlIsHookOnly(unittest.TestCase):
+    """runtime.yml holds the breaker's budget_* counters; an agent that could
+    rewrite it before a trip would reset its own budget. Hooks write it in
+    code (test_circuit_breaker), which the guards do not see."""
+
+    def test_edit_guard_refuses_runtime_yml_in_every_phase(self):
+        for ph in ("discuss", "plan", "execute", "verify", "micro"):
+            with tempfile.TemporaryDirectory() as tmp:
+                repo = make_repo(tmp, ph)
+                for tool in ("Write", "Edit", "MultiEdit"):
+                    proc = edit(repo, repo / ".osengineer" / "runtime.yml", tool)
+                    self.assertTrue(is_block(proc), f"{tool} of runtime.yml allowed in {ph}")
+                self.assertTrue(is_block(edit(repo, ".osengineer/runtime.yml")))
+
+    def test_edit_guard_bypass_does_not_lift_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp, "execute")
+            proc = edit(repo, repo / ".osengineer" / "runtime.yml", OSE_BYPASS="1")
+            self.assertTrue(is_block(proc), "OSE_BYPASS let the agent edit runtime.yml")
+
+    def test_bash_guard_refuses_runtime_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp, "execute")
+            for cmd in RUNTIME_WRITES:
+                self.assertTrue(is_block(bash(repo, cmd)), f"agent could run: {cmd}")
+                self.assertTrue(is_block(bash(repo, cmd, OSE_BYPASS="1")),
+                                f"OSE_BYPASS let the agent run: {cmd}")
+
+    def test_bash_guard_allows_reading_runtime_yml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp, "execute")
+            for cmd in ("cat .osengineer/runtime.yml", "grep budget .osengineer/runtime.yml"):
+                self.assertFalse(is_block(bash(repo, cmd)), f"false positive: {cmd}")
+
+    def test_codex_apply_patch_to_runtime_yml_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp, "execute")
+            patch = ("*** Begin Patch\n*** Update File: .osengineer/runtime.yml\n"
+                     "@@\n-budget_tool_calls: 90\n+budget_tool_calls: 0\n*** End Patch\n")
+            proc = subprocess.run(
+                [sys.executable, str(ADAPTER), "osEngineer-pre-edit-guard.py"],
+                input=json.dumps({"cwd": str(repo), "hook_event_name": "PreToolUse",
+                                  "tool_name": "apply_patch", "tool_input": {"command": patch}}),
+                capture_output=True, text=True, timeout=60, cwd=str(repo), env=clean_env(),
+            )
+            self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+
+
+class TestBlockedMdHeldWhileBlocked(unittest.TestCase):
+    """BLOCKED.md is the human's notice of a breaker trip; while the phase is
+    blocked the agent may not edit or delete it, not even under OSE_BYPASS."""
+
+    def make_blocked(self, tmp):
+        repo = make_repo(tmp, "blocked")
+        (repo / ".osengineer" / "BLOCKED.md").write_text("# Blocked\n")
+        return repo
+
+    def test_edit_refused_even_with_bypass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_blocked(tmp)
+            target = repo / ".osengineer" / "BLOCKED.md"
+            for env in ({}, {"OSE_BYPASS": "1"}):
+                for tool in ("Write", "Edit"):
+                    self.assertTrue(is_block(edit(repo, target, tool, **env)), f"{tool} {env}")
+
+    def test_bash_delete_refused_even_with_bypass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_blocked(tmp)
+            for cmd in ("rm .osengineer/BLOCKED.md", "echo ok > .osengineer/BLOCKED.md",
+                        "git rm -q .osengineer/BLOCKED.md"):
+                self.assertTrue(is_block(bash(repo, cmd, OSE_BYPASS="1")), cmd)
+
+    def test_codex_apply_patch_delete_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.make_blocked(tmp)
+            patch = "*** Begin Patch\n*** Delete File: .osengineer/BLOCKED.md\n*** End Patch\n"
+            proc = subprocess.run(
+                [sys.executable, str(ADAPTER), "osEngineer-pre-edit-guard.py"],
+                input=json.dumps({"cwd": str(repo), "hook_event_name": "PreToolUse",
+                                  "tool_name": "apply_patch", "tool_input": {"command": patch}}),
+                capture_output=True, text=True, timeout=60, cwd=str(repo),
+                env=clean_env(OSE_BYPASS="1"),
+            )
+            self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+
+    def test_editable_outside_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp, "discuss")
+            self.assertFalse(is_block(edit(repo, repo / ".osengineer" / "BLOCKED.md")))
+            self.assertFalse(is_block(bash(repo, "rm .osengineer/BLOCKED.md")))
+
+
 if __name__ == "__main__":
     unittest.main()
