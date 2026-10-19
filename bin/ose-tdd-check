@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Check that every production commit in a range was test-first — PASS or FAIL.
+
+The commit-msg hook only sees one message at a time, so "TDD is strict" was
+never checked across commits: a feat commit could land with no test commit
+ahead of it. This tool checks the ordering after the fact, on a PR range.
+
+The rule is deliberately simple. It is ordering, not coverage analysis:
+
+  * A commit is production if it changes a file matching a production glob
+    (Markdown files never count). It is a test commit if its subject type is
+    `test` (Conventional Commits) and it changes a file matching a test glob.
+    Everything else is other (docs, CHANGELOG, specs, ...).
+  * A production commit passes when a test commit sits on its first-parent
+    chain inside the range after the previous production commit. One test
+    commit covers one production commit. Merge commits are skipped and walked
+    through via their first parent.
+  * Otherwise it passes only with a trailer granted by the architect:
+        Risk-Exception: <class> — <reason>
+    class in docs, config, rename, trivial, revert, generated. Risky logic
+    (branches, parsers, money, security) never qualifies. Every exception in
+    the range is listed so a human reviews it in the PR.
+  * --verify-red checks out each covering test commit in a temporary worktree
+    and requires the test command to fail there. Off by default: it runs the
+    suite once per test commit.
+
+Usage:
+    ose-tdd-check [--repo DIR] BASE..HEAD [--prod GLOB ...] [--tests GLOB ...]
+                  [--json | --markdown] [--verify-red [--test-cmd CMD]]
+
+Exit codes: 0 PASS, 1 FAIL, 2 input error.
+"""
+
+import argparse
+import fnmatch
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+# Globs use fnmatch, so `*` also matches `/`.
+DEFAULT_PROD = (
+    "bin/*", "hooks/*", "repo_runtime/*", "repo_profile/*", "repo_integrations/*",
+    "profiles/*/scripts/*", "live-system/*.sh", "install.sh", "uninstall.sh",
+)
+DEFAULT_TESTS = ("test/*",)
+DEFAULT_TEST_CMD = "python3 -m unittest discover -s test -p 'test_*.py'"
+CLASSES = ("docs", "config", "rename", "trivial", "revert", "generated")
+TEST_SUBJECT = re.compile(r"^test(\([^)]*\))?!?:")
+TRAILER = re.compile(r"^(\S+)\s+(?:—|--|-)\s+(\S.*)$")
+
+
+class InputError(Exception):
+    pass
+
+
+def git(repo, *args):
+    proc = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise InputError(f"git {' '.join(args)}: {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def matches(path, globs):
+    return any(fnmatch.fnmatch(path, g) for g in globs)
+
+
+def classify(subject, files, prod, tests):
+    if any(not matches(f, tests) and not f.endswith(".md") and matches(f, prod) for f in files):
+        return "production"
+    if TEST_SUBJECT.match(subject) and any(matches(f, tests) for f in files):
+        return "test"
+    return "other"
+
+
+def parse_exceptions(values):
+    """Return (valid [(class, reason)], problems [str]) for Risk-Exception values."""
+    valid, problems = [], []
+    for value in values:
+        m = TRAILER.match(value.strip())
+        if not m:
+            problems.append(f"malformed Risk-Exception {value.strip()!r} (want '<class> — <reason>')")
+        elif m.group(1) not in CLASSES:
+            problems.append(f"unknown Risk-Exception class {m.group(1)!r} (allowed: {', '.join(CLASSES)})")
+        else:
+            valid.append((m.group(1), m.group(2).strip()))
+    return valid, problems
+
+
+def load_commits(repo, rng, prod, tests):
+    if ".." not in rng or rng.startswith("..") or rng.endswith(".."):
+        raise InputError(f"range must be BASE..HEAD, got {rng!r}")
+    lines = git(repo, "rev-list", "--reverse", "--topo-order", "--parents", rng).split("\n")
+    commits = []
+    for line in filter(None, lines):
+        sha, *parents = line.split()
+        c = {"sha": sha, "parents": parents, "merge": len(parents) > 1}
+        if not c["merge"]:
+            c["subject"] = git(repo, "log", "-1", "--format=%s", sha).strip()
+            files = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha)
+            c["kind"] = classify(c["subject"], files.splitlines(), prod, tests)
+            raw = git(repo, "log", "-1",
+                      "--format=%(trailers:key=Risk-Exception,valueonly,unfold,separator=%x00)", sha)
+            c["exceptions"], c["problems"] = parse_exceptions(v for v in raw.strip("\n").split("\0") if v.strip())
+        commits.append(c)
+    return commits
+
+
+def find_cover(c, by_sha):
+    """First-parent walk back to the previous production commit or the range edge."""
+    parent = c["parents"][0] if c["parents"] else None
+    while parent in by_sha:
+        p = by_sha[parent]
+        if not p["merge"]:
+            if p["kind"] == "test":
+                return parent
+            if p["kind"] == "production":
+                return None
+        parent = p["parents"][0]
+    return None
+
+
+def verify_red(repo, sha, cmd, timeout):
+    tmp = tempfile.mkdtemp(prefix="ose-tdd-red-")
+    wt = f"{tmp}/wt"
+    try:
+        git(repo, "worktree", "add", "--detach", "--quiet", wt, sha)
+        try:
+            proc = subprocess.run(cmd, shell=True, cwd=wt, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return "timeout"
+        return "green" if proc.returncode == 0 else "verified"
+    finally:
+        subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", wt], capture_output=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check(args):
+    prod = tuple(args.prod or DEFAULT_PROD)
+    tests = tuple(args.tests or DEFAULT_TESTS)
+    commits = load_commits(args.repo, args.range, prod, tests)
+    by_sha = {c["sha"]: c for c in commits}
+    red_cache = {}
+    report = []
+    for c in commits:
+        if c["merge"]:
+            continue
+        problems = list(c["problems"])
+        status, cover, red = "ok", None, None
+        if c["kind"] == "production":
+            cover = find_cover(c, by_sha)
+            if cover is None and c["exceptions"]:
+                status = "exception"
+            elif cover is None:
+                problems.append("no test(...) commit since the previous production commit"
+                                " and no Risk-Exception trailer")
+            elif args.verify_red:
+                if cover not in red_cache:
+                    red_cache[cover] = verify_red(args.repo, cover, args.test_cmd, args.timeout)
+                red = red_cache[cover]
+                if red == "green":
+                    problems.append(f"tests passed at the test commit {cover[:7]} — not red first")
+                elif red == "timeout":
+                    problems.append(f"test command timed out at {cover[:7]} ({args.timeout}s)")
+        if problems:
+            status = "fail"
+        report.append({
+            "sha": c["sha"], "subject": c["subject"], "kind": c["kind"], "status": status,
+            "covered_by": cover, "red": red, "problems": problems,
+            "exceptions": [{"class": k, "reason": r} for k, r in c["exceptions"]],
+        })
+    exceptions = [{"sha": r["sha"], "subject": r["subject"], **e} for r in report for e in r["exceptions"]]
+    return report, exceptions
+
+
+def render_text(rng, report, exceptions):
+    prod = sum(r["kind"] == "production" for r in report)
+    out = [f"ose-tdd-check {rng}: {len(report)} commits, {prod} production"]
+    for r in report:
+        label = {"ok": "ok", "exception": "EXCEPTION", "fail": "FAIL"}[r["status"]]
+        note = f" (test {r['covered_by'][:7]})" if r["covered_by"] else ""
+        out.append(f"  {label:<10} {r['sha'][:7]} [{r['kind']}] {r['subject']}{note}")
+        out += [f"             - {p}" for p in r["problems"]]
+    out.append(f"Risk exceptions ({len(exceptions)}):")
+    out += [f"  - {e['sha'][:7]} {e['subject']}: {e['class']} — {e['reason']}" for e in exceptions] or ["  none"]
+    fails = sum(r["status"] == "fail" for r in report)
+    out.append("PASS" if not fails else f"FAIL ({fails} commit(s))")
+    return "\n".join(out)
+
+
+def render_markdown(rng, report, exceptions):
+    fails = [r for r in report if r["status"] == "fail"]
+    out = [f"### TDD check `{rng}`: {'PASS' if not fails else 'FAIL'}", ""]
+    out.append(f"**Risk exceptions ({len(exceptions)})** — review each one.")
+    if exceptions:
+        out += ["", "| commit | subject | class | reason |", "|---|---|---|---|"]
+        out += [f"| `{e['sha'][:7]}` | {e['subject']} | {e['class']} | {e['reason']} |" for e in exceptions]
+    if fails:
+        out += ["", f"**Failing commits ({len(fails)})**", ""]
+        out += [f"- `{r['sha'][:7]}` {r['subject']}: {'; '.join(r['problems'])}" for r in fails]
+    return "\n".join(out)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ose-tdd-check", description=__doc__.splitlines()[0])
+    ap.add_argument("range", help="BASE..HEAD")
+    ap.add_argument("--repo", default=".")
+    ap.add_argument("--prod", action="append", metavar="GLOB",
+                    help=f"production glob, repeatable; replaces the defaults {' '.join(DEFAULT_PROD)}")
+    ap.add_argument("--tests", action="append", metavar="GLOB",
+                    help=f"test glob, repeatable; replaces the default {' '.join(DEFAULT_TESTS)}")
+    fmt = ap.add_mutually_exclusive_group()
+    fmt.add_argument("--json", action="store_true")
+    fmt.add_argument("--markdown", action="store_true", help="for $GITHUB_STEP_SUMMARY")
+    ap.add_argument("--verify-red", action="store_true",
+                    help="require the test command to fail at each covering test commit")
+    ap.add_argument("--test-cmd", default=DEFAULT_TEST_CMD)
+    ap.add_argument("--timeout", type=int, default=600, help="seconds per --verify-red run")
+    args = ap.parse_args(argv)
+    try:
+        report, exceptions = check(args)
+    except InputError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps({"range": args.range, "commits": report, "exceptions": exceptions}, indent=2))
+    elif args.markdown:
+        print(render_markdown(args.range, report, exceptions))
+    else:
+        print(render_text(args.range, report, exceptions))
+    return 1 if any(r["status"] == "fail" for r in report) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
