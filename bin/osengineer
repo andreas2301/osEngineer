@@ -1016,6 +1016,15 @@ def promote_proposal(repo_root, prop_id, open_pr):
     path.write_text(update_frontmatter(text, {
         "status": "promoted", "promoted_branch": branch, "promoted_commit": commit,
     }))
+    # The loop's EP-NNN proposal records the outcome too, so it closes.
+    src_m = re.search(r"^source_proposal:\s*(\S+)\s*$", text, re.MULTILINE)
+    source = Path(repo_root) / src_m.group(1) if src_m else None
+    if source and source.is_file():
+        source.write_text(update_frontmatter(source.read_text(), {
+            "status": "promoted", "promoted_at": datetime.now(timezone.utc).isoformat(),
+            "promoted_branch": branch,
+            "skill_proposal": path.relative_to(repo_root).as_posix(),
+        }))
     print(f"promoted {prop_id} → branch {branch} in {home} (commit {commit[:12]}); nothing merged")
     if not open_pr:
         print(f"review it, then: git -C {home} push -u origin {branch} && gh pr create --head {branch}")
@@ -1028,6 +1037,10 @@ def promote_proposal(repo_root, prop_id, open_pr):
                        cwd=str(home), capture_output=True, text=True)
     if r.returncode != 0:
         fail(f"gh pr create failed: {r.stderr.strip()}")
+    pr = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    for p in (path, source):
+        if pr and p and p.is_file():
+            p.write_text(update_frontmatter(p.read_text(), {"promoted_pr": pr}))
     print(f"opened PR for review: {r.stdout.strip()}")
 
 
@@ -1045,7 +1058,7 @@ def cmd_evolve(args):
         closed = []
         for f in proposals:
             content = (Path(repo_root) / ".osengineer" / "evolution-proposals" / f).read_text()
-            if re.search(r"^status:\s*(accepted|rejected)", content, re.MULTILINE):
+            if re.search(r"^status:\s*(accepted|rejected|promoted)", content, re.MULTILINE):
                 closed.append(f)
             else:
                 open_p.append(f)
