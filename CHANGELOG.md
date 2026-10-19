@@ -8,6 +8,22 @@ this project adheres to semantic versioning.
 
 ### Added
 
+#### Ponytail rules: reuse ladder, never-cut list, review order, shortcut ledger
+
+- **Reuse ladder in rule 2.** After reading the touched code, take the first
+  option that works: not needed, already in the codebase, stdlib, an installed
+  dependency, one line, and only then minimal new code. The reviewer checks it.
+- **Never-cut list.** Input validation, data-loss error handling, security and
+  accessibility are never simplified away, not even under a Risk-Exception.
+- **Fixed review order** for the reviewer (and judge code findings): correct →
+  safe → holds under load → tested → fast → lean. Each finding is numbered and
+  has where / what fails / failing case / fix; at most 20; ends with
+  "Not checked".
+- **`osengineer debt [--json] [--check]`** lists `shortcut: <limit> — revisit
+  when <trigger>` comments in tracked files and flags entries without a
+  trigger; `--check` exits 1 on one. The injected rules text grew by about
+  530 bytes (1974 → 2501).
+
 #### Budget circuit breaker (it was documented but not implemented)
 
 - **Per-task budgets in PHASE_PLAN.md.** The frontmatter is now a JSON object

@@ -156,6 +156,18 @@ and `OSE_BYPASS` does not change that. See
 
 Triggers the skill evolution protocol. Every 5 completed phases, osEngineer auto-nudges you with 3 improvement options. You select one, skip, or propose your own. Accepted proposals are written to the target repo's `.osengineer/evolve/proposals/`; you then run `osengineer evolve promote <id> --pr` to open a skill-home PR for review. Nothing is merged automatically.
 
+### Shortcut debt
+
+```
+osengineer debt            # file:line, limit, trigger
+osengineer debt --check    # exit 1 if an entry has no trigger (CI)
+```
+
+Deliberate limits are marked in code as `# shortcut: <limit> — revisit when <trigger>`
+(`#`, `//`, `--` or `/* */`). `debt` lists them from git-tracked files, skipping
+`vendor/`, `node_modules/` and `test/fixtures/` (add `--exclude <dir>`); `--json`
+prints the list as JSON.
+
 ### Sandbox (containerized local testing)
 
 ```
