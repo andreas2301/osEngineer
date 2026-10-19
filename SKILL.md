@@ -1,6 +1,6 @@
 # osEngineer — Epic-Level Multi-Repo Engineering Skill
 
-**Version:** 0.5.0  
+**Version:** 0.6.0  
 **Scope:** Cross-repo, cross-SDLC, cross-session engineering  
 **Project-Agnostic:** Yes — discovers repos, ADRs, and topology from any project root  
 **Primary Target:** Any multi-repo project (ships with a Sovereign Shield reference overlay in `examples/`)  
