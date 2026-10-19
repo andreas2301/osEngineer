@@ -6,7 +6,9 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
-### Added — budget circuit breaker (it was documented but not implemented)
+### Added
+
+#### Budget circuit breaker (it was documented but not implemented)
 
 - **Per-task budgets in PHASE_PLAN.md.** The frontmatter is now a JSON object
   (YAML 1.2 flow syntax) validated by `repo_profile/phase_plan.py` against
@@ -39,24 +41,20 @@ this project adheres to semantic versioning.
   updated docs are `trust/circuit-breakers.md`, the hook headers and README,
   and the planner, verifier and budget-tracker references.
 
-### Changed — evolve: the loop proposes, the owner decides
+#### Human phase gate
 
-- **`osengineer evolve accept` no longer writes into the shared skill home.**
-  It used to write `memory/patterns/<slug>.md` straight into the skill
-  checkout from any target repo, with no review and no commit. Now it writes
-  a change proposal to the target repo's `.osengineer/evolve/proposals/<id>.md`.
-  The proposal has sections for what changes, why, risk, how to revert,
-  evidence and the pattern. New flags: `--why`, `--risk`, `--evidence`.
-  `--pattern-slug` must be lowercase letters, digits and dashes.
-- **New `osengineer evolve promote <id> [--pr]`**, run by a human. It commits
-  the pattern as `docs(patterns): add <slug>` on a new `evolve/<id>-<slug>`
-  branch of the skill home git checkout. The working tree and the
-  checked-out branch are left as they were. With `--pr` and `gh`, it pushes
-  the branch and opens a PR. It refuses in headless runs (`OSE_HEADLESS=1`),
-  on a non-git or dirty skill home, on a proposal with missing fields, and on
-  an existing pattern or branch. Nothing is ever merged automatically.
+- **`osengineer approve <phase> [--reason "<t>"]`** is now the only way to
+  change the phase (`hooks/lib/phase_gate.py`). It checks:
+  - an explicit transition table: Discuss → Plan → Execute → Verify → Accepted,
+    plus Blocked and the micro/hotfix Micro-Phase;
+  - the prerequisite artifact for the target phase: `PHASE_PLAN.md` before
+    `execute`, `VERIFICATION.md` or `MICRO_PLAN.md` before closing.
 
-### Added
+  It records `phase_approved_by`/`phase_approved_at` in `state.yml` and appends
+  each approval to `.osengineer/approvals.jsonl`. Headless runs refuse it.
+  See `planning/PROTOCOL.md` "Phase Gate".
+
+#### Tooling and agent rules
 
 - **SubagentStart hook** (`hooks/osEngineer-subagent-start.py`): SessionStart
   context never reaches subagents, so every subagent now gets the session-start
@@ -75,19 +73,6 @@ this project adheres to semantic versioning.
   **Skipped / risks** footer closing every agent report.
 - `test/test_docs_drift.py`: SKILL.md paths, hook names in live docs, commands
   named by hooks, and the judge verdict set must match the tree.
-
-### Fixed
-
-- SKILL.md listed flat `agents/<name>.md` paths; it now lists `agents/<name>/AGENT.md`.
-- Live docs (`docs/premortem_analysis.md`, `trust/denylist.md`, `agents/INDEX.md`)
-  named Node-era `.js` hooks; they now name the `.py` hooks.
-- The post-tool critical warning pointed to `/osEngineer:pause-work`, which never
-  existed; it now advises a checkpoint commit.
-- The judge frontmatter promised BLOCK / FLAG / PASS while the body, merge
-  criteria and override protocol use MERGE / BLOCK; it is MERGE / BLOCK throughout.
-
-### Added
-
 - **`bin/ose-tdd-check`**: checks test-first ordering on a commit range. Each
   production commit needs a preceding `test(...)` commit, or an
   architect-granted `Risk-Exception: <class> — <reason>` trailer (docs, config,
@@ -95,20 +80,31 @@ this project adheres to semantic versioning.
   PR ranges and writes the report to the job summary. `--verify-red` (opt-in)
   confirms the test commit fails. See `docs/tdd-check.md`.
 
-### Added — human phase gate
-
-- **`osengineer approve <phase> [--reason "<t>"]`** is now the only way to
-  change the phase (`hooks/lib/phase_gate.py`). It checks:
-  - an explicit transition table: Discuss → Plan → Execute → Verify → Accepted,
-    plus Blocked and the micro/hotfix Micro-Phase;
-  - the prerequisite artifact for the target phase: `PHASE_PLAN.md` before
-    `execute`, `VERIFICATION.md` or `MICRO_PLAN.md` before closing.
-
-  It records `phase_approved_by`/`phase_approved_at` in `state.yml` and appends
-  each approval to `.osengineer/approvals.jsonl`. Headless runs refuse it.
-  See `planning/PROTOCOL.md` "Phase Gate".
-
 ### Changed
+
+#### Evolve: the loop proposes, the owner decides
+
+- **`osengineer evolve accept` no longer writes into the shared skill home.**
+  It used to write `memory/patterns/<slug>.md` straight into the skill
+  checkout from any target repo, with no review and no commit. Now it writes
+  a change proposal to the target repo's `.osengineer/evolve/proposals/<id>.md`.
+  The proposal has sections for what changes, why, risk, how to revert,
+  evidence and the pattern. New flags: `--why`, `--risk`, `--evidence`.
+  `--pattern-slug` must be lowercase letters, digits and dashes.
+- **New `osengineer evolve promote <id> [--pr]`**, run by a human. It commits
+  the pattern as `docs(patterns): add <slug>` on a new `evolve/<id>-<slug>`
+  branch of the skill home git checkout. The working tree and the
+  checked-out branch are left as they were. With `--pr` and `gh`, it pushes
+  the branch and opens a PR. It refuses in headless runs (`OSE_HEADLESS=1`),
+  on a non-git or dirty skill home, on a proposal with missing fields, and on
+  an existing pattern or branch. Nothing is ever merged automatically.
+- **`evolve promote` closes the loop on the original proposal.** The
+  `EP-NNN` file in `.osengineer/evolution-proposals/` gets `status: promoted`,
+  `promoted_at`, `promoted_branch`, a `skill_proposal` link and, with `--pr`,
+  `promoted_pr` (also written to the skill proposal). `evolve status` counts it
+  as closed.
+
+#### Human phase gate
 
 - `osengineer state set phase <p>` routes through `approve`, so `idle → execute`
   in one step is no longer accepted. Other keys work as before, except that the
@@ -124,6 +120,22 @@ this project adheres to semantic versioning.
   execute; it no longer tells the agent to run `state set phase execute`.
   `/osEngineer:feature`, `fix` and `hotfix` and the verifier protocol now ask
   the human to approve as well.
+
+### Fixed
+
+- SKILL.md listed flat `agents/<name>.md` paths; it now lists `agents/<name>/AGENT.md`.
+- Live docs (`docs/premortem_analysis.md`, `trust/denylist.md`, `agents/INDEX.md`)
+  named Node-era `.js` hooks; they now name the `.py` hooks.
+- The post-tool critical warning pointed to `/osEngineer:pause-work`, which never
+  existed; it now advises a checkpoint commit.
+- The judge frontmatter promised BLOCK / FLAG / PASS while the body, merge
+  criteria and override protocol use MERGE / BLOCK; it is MERGE / BLOCK throughout.
+- The agent could rewrite `.osengineer/runtime.yml` before a breaker trip and
+  reset its own `budget_*` counters. The edit and bash guards (Codex
+  `apply_patch` included) now refuse it like `state.yml`; hooks still write it
+  in code. While the phase is `blocked`, `.osengineer/BLOCKED.md` is refused
+  the same way, `OSE_BYPASS` included. BLOCKED.md stays tracked, not
+  gitignored, so the human sees it.
 
 ## [0.5.0] — unreleased (date set when tagged)
 
