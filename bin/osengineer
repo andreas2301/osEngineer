@@ -188,6 +188,10 @@ def cmd_approve(args):
         print(f"osengineer approve: {exc}", file=sys.stderr)
         sys.exit(1)
     print(f"approved {entry['from']} -> {entry['to']} by {entry['by']}")
+    handoff = entry.get("handoff")
+    if handoff:
+        changed = ", plan changed since the handoff" if handoff["plan_changed"] else ""
+        print(f"handoff {handoff['trace_id']} from {handoff['producer']}{changed}")
 
 
 def cmd_init(args):

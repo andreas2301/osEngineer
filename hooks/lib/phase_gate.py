@@ -8,7 +8,8 @@
 # runtime.yml is protected too: it holds the circuit breaker's budget_*
 # counters, which hooks write in code; an agent rewrite would reset its budget.
 # So are the breaker's limit and off switch (CONFIG_FILES), and approve() records
-# the budget it approves, so that raising one takes a human.
+# the budget it approves, so that raising one takes a human. The gate into
+# execute is also where a producer's HANDOFF.json is read (family_handoff).
 
 import getpass
 import json
@@ -18,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from osengineer_common import is_repo_profile, planning_dir, read_state_map, write_state_field
-from repo_profile import phase_plan
+from repo_profile import family_handoff, phase_plan
 
 # current phase -> phases a human may approve next. Discuss -> Plan -> Execute
 # -> Verify -> Accepted is the main line; Blocked is reachable from every
@@ -61,8 +62,15 @@ def required_artifact(current, target):
     return None
 
 
-def check(repo_root, current, target):
-    """None if the human may approve current -> target, else the reason."""
+def active_handoff(repo_root):
+    """The family-handoff record of the one active plan, or None. Raises HandoffError."""
+    plans = sorted((planning_dir(repo_root) / "active").glob(f"*/{phase_plan.PLAN_NAME}"))
+    return family_handoff.read(plans[0]) if len(plans) == 1 else None
+
+
+def check(repo_root, current, target, reason=None):
+    """None if the human may approve current -> target, else the reason. A plan
+    that differs from the one handed off needs the human's own reason."""
     if target not in PHASES:
         return f"unknown phase {target!r}; phases: {', '.join(sorted(PHASES))}"
     if current not in TRANSITIONS:
@@ -77,6 +85,14 @@ def check(repo_root, current, target):
         if not list(active.glob(f"*/{artifact}")):
             rel = active.relative_to(repo_root).as_posix()
             return f"{current} -> {target} requires {rel}/<phase>/{artifact}"
+    if target == "execute":
+        try:
+            handoff = active_handoff(repo_root)
+        except family_handoff.HandoffError as exc:
+            return str(exc)
+        if handoff and handoff["plan_changed"] and not reason:
+            return (f"the active plan is not the one handed off as {handoff['trace_id']}: "
+                    'review the change, then approve with --reason "<text>"')
     return None
 
 
@@ -118,7 +134,7 @@ def approve(repo_root, target, reason=None):
     ValueError with the refusal reason."""
     state = read_state_map(repo_root) or {}
     current = state.get("phase") or "idle"
-    refusal = check(repo_root, current, target)
+    refusal = check(repo_root, current, target, reason)
     if refusal:
         raise ValueError(refusal)
     entry = {
@@ -132,6 +148,9 @@ def approve(repo_root, target, reason=None):
     budget = approved_budget(repo_root, target)
     if budget:
         entry["budget"] = budget
+    handoff = active_handoff(repo_root) if target == "execute" else None
+    if handoff:
+        entry["handoff"] = handoff
     log_transition(repo_root, entry)
     write_state_field(repo_root, "phase", target)
     write_state_field(repo_root, "phase_approved_by", entry["by"])
