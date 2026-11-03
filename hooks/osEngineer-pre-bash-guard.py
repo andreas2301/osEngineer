@@ -13,8 +13,8 @@
 #
 # Per-team overrides can `disabled`, `downgraded_to_warning`, or `added` patterns.
 # Honours OSE_BYPASS=1 (logged to .osengineer/bypass-log.jsonl), except for
-# phase self-transitions (`osengineer approve`, `state set phase`, writes to
-# state.yml/approvals.jsonl): those are refused in every phase, bypass or not.
+# phase self-transitions and meter tampering (phase_gate.agent_route): those are
+# refused in every phase, bypass or not.
 
 import json
 import os

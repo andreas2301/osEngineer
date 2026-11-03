@@ -127,7 +127,7 @@ def path_matches_any(file_path, globs):
     return False
 
 
-def _is_runtime_field(key):
+def is_runtime_field(key):
     # budget_* are the circuit breaker's per-tool-call usage counters.
     return key in RUNTIME_FIELDS or key.startswith("budget_")
 
@@ -148,7 +148,7 @@ def update_state_fields(repo_root, fn):
             current = read_state_map(repo_root) or {}
             updates = fn(current) or {}
             for name in ("runtime.yml", "state.yml"):
-                part = {k: v for k, v in updates.items() if (name == "runtime.yml") == _is_runtime_field(k)}
+                part = {k: v for k, v in updates.items() if (name == "runtime.yml") == is_runtime_field(k)}
                 if part:
                     _rewrite_fields(d, d / name, part)
         finally:

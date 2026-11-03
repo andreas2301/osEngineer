@@ -7,6 +7,8 @@
 # agent_route() and PROTECTED_FILES to refuse the agent every route to it.
 # runtime.yml is protected too: it holds the circuit breaker's budget_*
 # counters, which hooks write in code; an agent rewrite would reset its budget.
+# So are the breaker's limit and off switch (CONFIG_FILES), and approve() records
+# the budget it approves, so that raising one takes a human.
 
 import getpass
 import json
@@ -15,7 +17,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from osengineer_common import planning_dir, read_state_map, write_state_field
+from osengineer_common import is_repo_profile, planning_dir, read_state_map, write_state_field
+from repo_profile import phase_plan
 
 # current phase -> phases a human may approve next. Discuss -> Plan -> Execute
 # -> Verify -> Accepted is the main line; Blocked is reachable from every
@@ -34,10 +37,15 @@ TRANSITIONS = {
     "hotfix": {"accepted", "idle", "plan", "blocked"},
 }
 PHASES = set(TRANSITIONS)
+# Phases that spend budget. discuss/plan author the plan; blocked has stopped.
+SPENDING_PHASES = ("execute", "micro", "hotfix")
 
 # Written only by approve(); `state set` refuses them.
-RECORD_FIELDS = ("phase_approved_by", "phase_approved_at")
-PROTECTED_FILES = ("state.yml", "approvals.jsonl", "runtime.yml")
+RECORD_FIELDS = ("phase_approved_by", "phase_approved_at", "phase_approved_budget")
+# budget.tripPct and the profile switch that turns the meter off. Common file
+# names, so the shell guard counts them only under .osengineer/.
+CONFIG_FILES = ("profile.json", "workbench-config.yml")
+PROTECTED_FILES = ("state.yml", "approvals.jsonl", "runtime.yml") + CONFIG_FILES
 # The breaker's notice to the human; held only while the phase is blocked.
 BLOCKED_FILE = "BLOCKED.md"
 
@@ -89,6 +97,22 @@ def log_transition(repo_root, entry):
         f.write(json.dumps(entry) + "\n")
 
 
+def approved_budget(repo_root, target):
+    """What this approval commits the phase to, or None without a valid plan.
+    osengineer_budget.held_budget holds the phase to it."""
+    if target not in SPENDING_PHASES or is_repo_profile(repo_root):
+        return None
+    try:
+        found = phase_plan.load_active(planning_dir(repo_root))
+    except phase_plan.PlanError:
+        return None     # the gate checks presence; the guards refuse the plan in execute
+    if found is None:
+        return None
+    path, plan = found
+    return {"plan": path.relative_to(repo_root).as_posix(), "phase_id": plan["phase_id"],
+            "estimate": phase_plan.estimate(plan)}
+
+
 def approve(repo_root, target, reason=None):
     """Validate and apply one transition; returns the log entry. Raises
     ValueError with the refusal reason."""
@@ -105,10 +129,15 @@ def approve(repo_root, target, reason=None):
     }
     if reason:
         entry["reason"] = reason
+    budget = approved_budget(repo_root, target)
+    if budget:
+        entry["budget"] = budget
     log_transition(repo_root, entry)
     write_state_field(repo_root, "phase", target)
     write_state_field(repo_root, "phase_approved_by", entry["by"])
     write_state_field(repo_root, "phase_approved_at", entry["ts"])
+    if target in SPENDING_PHASES:
+        write_state_field(repo_root, "phase_approved_budget", json.dumps(budget))
     return entry
 
 
@@ -119,13 +148,30 @@ def approve(repo_root, target, reason=None):
 _CLI_ROUTE = re.compile(
     r"(?:^|[;&|(`\n'\"]|\$\()\s*(?:\w+=\S*\s+)*"
     r"(?:(?:sudo|exec|env|command|nohup|time|eval)\s+)*(?:python\d*(?:\.\d+)?\s+)?"
-    r"(?:\S*/)?osengineer\s+(?:approve|state\s+set\s+phase\w*)\b"
+    r"(?:\S*/)?osengineer\s+(?:approve|state\s+set\s+(?:phase|budget_|context_used_pct)\w*"
+    r"|profile\s+(?:(?:un)?install|detect\b[^;|&\n]*--write))\b"
+)
+# The same writes from Python.
+_STATE_CODE = re.compile(
+    r"\b(?:write_state_field|update_state_fields|_rewrite_fields)\b"
+    r"|-m\s+repo_profile\b[^;|&\n]*(?:\b(?:un)?install\b|--write\b)"
+)
+# The guards stand down in a repo without .osengineer/, a rewound state.yml forgets
+# an approval, and a missing runtime.yml (gitignored, so git stash -a takes it)
+# reads as no usage at all.
+_STATE_WIPE = re.compile(
+    r"\b(?:mv|rm|rsync|git\s+(?:\S+\s+)*(?:checkout|restore))\b"
+    r"[^;|&\n]*\s['\"]?(?:\S*/)?\.osengineer/?['\"]?(?=$|[\s;|&])"
+    r"|\bgit\s+(?:\S+\s+)*stash\b[^;|&\n]*\s(?:-a|--all)\b"
 )
 
 
 def _names(blocked):
-    names = PROTECTED_FILES + ((BLOCKED_FILE,) if blocked else ())
-    return "(?:" + "|".join(re.escape(n) for n in names) + ")"
+    names = [re.escape(n) for n in PROTECTED_FILES if n not in CONFIG_FILES]
+    names += [r"\.osengineer/" + re.escape(n) for n in CONFIG_FILES]
+    if blocked:
+        names.append(re.escape(BLOCKED_FILE))
+    return "(?:" + "|".join(names) + ")"
 
 
 def _mention(blocked):
@@ -148,9 +194,11 @@ def agent_route(cmd, blocked=False):
     writes to BLOCKED.md count as one too."""
     mention, redirect = _mention(blocked), _redirect(blocked)
     if _CLI_ROUTE.search(cmd):
-        return "runs osengineer approve / state set phase"
-    if "write_state_field" in cmd:
-        return "calls write_state_field"
+        return "runs osengineer approve, or state set / profile on what the hooks own"
+    if _STATE_CODE.search(cmd):
+        return "calls osEngineer's state writers"
+    if _STATE_WIPE.search(cmd):
+        return "removes .osengineer state"
     for part in re.split(r"\|\||&&|[;|\n]", cmd):
         if not mention.search(part):
             continue
@@ -161,13 +209,15 @@ def agent_route(cmd, blocked=False):
     return None
 
 
-WRITE_ROUTE = "writes a hook-owned .osengineer file (state.yml, approvals.jsonl, runtime.yml or BLOCKED.md)"
+WRITE_ROUTE = ("writes a hook-owned .osengineer file (state.yml, approvals.jsonl, runtime.yml, "
+               "profile.json, workbench-config.yml or BLOCKED.md)")
 
 REFUSAL = (
     "Phase changes are a human decision: only the human approves a phase, by "
     "running `osengineer approve <phase>` in their own terminal (or as a `!` "
     "command in Claude Code). Ask the human to approve; do not edit "
-    ".osengineer/state.yml, approvals.jsonl or runtime.yml (budget counters), "
-    "and leave .osengineer/BLOCKED.md for the human while the phase is "
-    "blocked. OSE_BYPASS does not lift this."
+    ".osengineer/state.yml, approvals.jsonl, runtime.yml (budget counters), "
+    "profile.json or workbench-config.yml (budget limits), and leave "
+    ".osengineer/BLOCKED.md for the human while the phase is blocked. "
+    "OSE_BYPASS does not lift this."
 )

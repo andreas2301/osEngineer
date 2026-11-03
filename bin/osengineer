@@ -4,7 +4,8 @@
 # Subcommands:
 #   init <path>                       Run install.sh on a repo or workbench
 #   state                             Show current phase/team/budget
-#   state set <k> <v>                 Update a state.yml field (phase routes to approve)
+#   state set <k> <v>                 Update a state.yml field (phase routes to approve;
+#                                     hook-owned counters are refused)
 #   approve <phase> [--reason "<t>"]  Human-only: validate and record a phase transition
 #   detect-teams <path>               Auto-detect folder→team mapping
 #                                     (Go modules → coding, ansible/ → infra,
@@ -51,7 +52,7 @@ from pathlib import Path
 from subprocess import run
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks" / "lib"))
-from osengineer_common import read_state_map, write_state_field
+from osengineer_common import is_runtime_field, read_state_map, write_state_field
 from repo_profile import phase_plan  # importable once osengineer_common set sys.path
 import osengineer_budget
 import phase_gate
@@ -149,6 +150,9 @@ def cmd_state(args):
             return
         if key in phase_gate.RECORD_FIELDS:
             print(f"osengineer: {key} is written by `osengineer approve` only", file=sys.stderr)
+            sys.exit(1)
+        if is_runtime_field(key):
+            print(f"osengineer: {key} is written by the hooks only (trust/circuit-breakers.md)", file=sys.stderr)
             sys.exit(1)
         write_state_field(repo_root, key, value)
         print(f"set {key} = {value}")
@@ -878,8 +882,7 @@ def cmd_run(args):
     budget = None
     timeout_seconds = None
     if found is not None:
-        plan_path, plan = found
-        estimate = phase_plan.estimate(plan)
+        plan_path, plan, estimate = osengineer_budget.held_budget(root, *found)
         before, left = budget_before(root, plan, estimate)
         timeout_seconds = max(1, int(left))
         budget = (plan_path, plan, estimate, before)
