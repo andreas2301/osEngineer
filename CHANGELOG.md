@@ -6,6 +6,31 @@ this project adheres to semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `osengineer approve execute` reads a producer's `HANDOFF.json` (`family-handoff/1`), the
+  sidecar autoRoadmap leaves next to a plan (`repo_profile/family_handoff.py`). The `trace_id`
+  goes into the approval's `handoff` entry in `approvals.jsonl`; a plan changed since the
+  handoff needs `--reason`; an unreadable sidecar is refused. Plans without one are unchanged.
+
+### Changed
+
+- The budget is the one a human approved: `approve` records it in `phase_approved_budget`
+  and in the approval's `budget` entry, and the meter and `osengineer run` hold the phase to
+  it until the next approval. To raise a budget in `execute`, go through `blocked`, `plan`
+  and `execute` again.
+- `.osengineer/profile.json` and `workbench-config.yml` are refused to the agent, like
+  `state.yml`. Change them yourself.
+
+### Fixed
+
+- An agent could reset or loosen its own budget: `osengineer state set budget_tool_calls 0`
+  (the CLI refused only phase keys, so every `budget_*` counter and `context_used_pct` was
+  open), editing `tasks[].budget` or `phase_id` in the active `PHASE_PLAN.md`, moving the plan
+  out of `active/`, editing `budget.tripPct` or switching to the repo profile, which is not
+  metered, by file or with `osengineer profile install`, moving `.osengineer/` away, `git
+  stash -a`, and importing `update_state_fields`.
+
 ## [0.6.0] — 2026-10-19
 
 0.5.0 was never tagged. This release ships both: loop 2 (enforced controls) first, then

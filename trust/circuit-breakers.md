@@ -21,13 +21,21 @@ may lag the session. Kimi and Codex get no PostToolUse hook, so their
 interactive sessions record nothing; headless `osengineer run` meters their
 wall time.
 
-The **phase budget** is the sum of its task budgets. Usage is kept per
-`phase_id` in the gitignored `.osengineer/runtime.yml` (`budget_tool_calls`,
-`budget_wall_seconds`, `budget_tokens`, `budget_ratio_pct`) and resets when the
-active plan's `phase_id` changes. It is counted only while the phase is
-`execute`, `micro` or `hotfix` and exactly one valid
-`<planning>/active/*/PHASE_PLAN.md` exists. Repo-profile repositories are
-not metered.
+The **phase budget** is the sum of its task budgets when a human approves the
+phase: `osengineer approve` records it in `phase_approved_budget`, and it holds
+until the next approval, so editing `PHASE_PLAN.md` during execution changes
+nothing here. Usage is kept per approved `phase_id` in the gitignored
+`.osengineer/runtime.yml` (`budget_tool_calls`, `budget_wall_seconds`,
+`budget_tokens`, `budget_ratio_pct`) and resets when a new approval brings a new
+`phase_id`. It is counted while the phase is `execute`, `micro` or `hotfix` and
+a budget was recorded, or exactly one valid `<planning>/active/*/PHASE_PLAN.md`
+exists. Repo-profile repositories are not metered.
+
+Hooks alone write the counters. `osengineer state set` refuses them, and
+`planning/PROTOCOL.md` lists what the guards refuse. Those guards match commands,
+so they stop the plain routes and not an agent writing code to evade them:
+`runtime.yml` is an ordinary file in the agent's reach. A meter that must hold
+against that needs the file outside the agent's OS user.
 
 **Ratio** = the larger of `tool_calls used / estimate` and
 `wall seconds used / (wall_minutes × 60)`, in percent.
@@ -77,8 +85,9 @@ that hits the cap is recorded as `timeout` and trips the breaker.
 Only a human leaves `blocked`, with `osengineer approve plan` (or `discuss`)
 in their own terminal (`hooks/lib/phase_gate.py`), then raises the task
 budgets in `PHASE_PLAN.md` or splits the phase before `osengineer approve
-execute`. Usage is not reset: if the ratio is still at or above `tripPct`,
-the next metered tool call trips the breaker again.
+execute`, which records the new budget. Usage is not reset: if the ratio is
+still at or above `tripPct`, the next metered tool call trips the breaker again.
+To raise a budget before it trips, `osengineer approve blocked`, then the same steps.
 
 ## Retry Limits
 
