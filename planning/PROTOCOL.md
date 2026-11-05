@@ -121,8 +121,10 @@ Only a human changes the phase. The human runs, in their own terminal or as a
 osengineer approve <phase> [--reason "<text>"]
 ```
 
-`osengineer state set phase <p>` is the same command. Every other state key is
-still set with `osengineer state set <key> <value>`.
+`osengineer state set phase <p>` is the same command. Other state keys are still
+set with `osengineer state set <key> <value>`, except what the hooks own: the
+record fields below and the `runtime.yml` counters (`budget_*`,
+`context_used_pct`), which it refuses.
 
 | From | May approve |
 |------|-------------|
@@ -147,25 +149,53 @@ is not in the table, such as a hand-written `verified`, is refused. Fix
 
 Each approval sets `phase`, `phase_approved_by` (git `user.email`, else the
 OS user) and `phase_approved_at` in `.osengineer/state.yml`. It also appends
-`{ts, from, to, by[, reason]}` to `.osengineer/approvals.jsonl`, which is
-tracked and append-only. `state set` refuses the two record fields.
+`{ts, from, to, by[, reason, budget, handoff]}` to `.osengineer/approvals.jsonl`,
+which is tracked and append-only.
+
+Entering `execute`, `micro` or `hotfix` also records the budget in
+`phase_approved_budget`: the plan path, its `phase_id` and the summed task
+budgets. The meter holds the phase to that record until the next approval, so an
+edit to `PHASE_PLAN.md` does not raise a budget, and raising one takes a human
+(`trust/circuit-breakers.md`). An approval with no valid plan records none.
+`state set` refuses the three record fields.
+
+**Family handoff.** A producer such as autoRoadmap leaves `HANDOFF.json`
+(`family-handoff/1`, its schema) next to the plan. `→ execute` is the one place
+osEngineer reads it (`repo_profile/family_handoff.py`), and it is optional: a
+plan without one is approved as before.
+
+- A matching sidecar puts the `trace_id`, the producer and both hashes in the
+  approval's `handoff` entry, so the roadmap item links to the phase in git.
+- A plan whose sha256 differs from `artefact_sha256` was changed after the
+  handoff. That is allowed, but `approve` needs `--reason`, and the entry records
+  `plan_changed: true`.
+- A sidecar it cannot read (not JSON, another schema, another consumer, a broken
+  `trace_id`, `producer` or hash) is refused with the file and the key. Fix it, or
+  delete it to unlink the phase from the item.
 
 **The agent cannot approve.** The guards refuse it in every phase, under Claude
 Code, Kimi Code and Codex:
 
 - `osEngineer-pre-edit-guard` refuses any Write/Edit/MultiEdit/NotebookEdit, or
-  Codex `apply_patch`, that targets `.osengineer/state.yml`, `approvals.jsonl`
-  or `runtime.yml` (the breaker's `budget_*` counters and context telemetry;
-  hooks write it in code, which the guards do not see). While the phase is
-  `blocked` it also refuses `.osengineer/BLOCKED.md`.
-- `osEngineer-pre-bash-guard` refuses `osengineer approve` and `osengineer state
-  set phase*`, including through a path, an interpreter, `bash -c`, `$(...)` or
-  env prefixes. It also refuses any command that names `write_state_field`, and
-  any command that names `state.yml`/`approvals.jsonl`/`runtime.yml` (and
-  `BLOCKED.md` while blocked) while redirecting into
-  them or running a writer (`sed -i`, `tee`, `cp`/`mv`/`rm`, `python`/`node`/
-  `perl`/`awk`, `git checkout`/`restore`, …). Reads such as `cat`, `grep` and
-  `git add`/`diff` still pass.
+  Codex `apply_patch`, that targets `.osengineer/state.yml`, `approvals.jsonl`,
+  `runtime.yml` (the breaker's `budget_*` counters and context telemetry;
+  hooks write it in code, which the guards do not see), `profile.json` or
+  `workbench-config.yml` (the breaker's limit and the profile switch that turns
+  it off). While the phase is `blocked` it also refuses `.osengineer/BLOCKED.md`.
+- `osEngineer-pre-bash-guard` refuses `osengineer approve`, `osengineer state
+  set` on `phase*`, `budget_*` and `context_used_pct`, and the `osengineer
+  profile` commands that write (`install`, `uninstall`, `detect --write`),
+  including through a path, an interpreter, `bash -c`, `$(...)` or env prefixes.
+  It also refuses any command that names `write_state_field`,
+  `update_state_fields` or `_rewrite_fields`, runs those profile writes through
+  `python -m repo_profile`, moves, removes or rewinds `.osengineer/` itself (`mv`,
+  `rm`, `rsync`, `git checkout`/`restore`), or runs `git stash --all`, which takes
+  the gitignored `runtime.yml`. And it refuses any command that names
+  `state.yml`/`approvals.jsonl`/`runtime.yml`,
+  `.osengineer/profile.json`/`.osengineer/workbench-config.yml` (and `BLOCKED.md`
+  while blocked) while redirecting into them or running a writer (`sed -i`, `tee`,
+  `cp`/`mv`/`rm`, `python`/`node`/`perl`/`awk`, `git checkout`/`restore`, …).
+  Reads such as `cat`, `grep` and `git add`/`diff` still pass.
 - `OSE_BYPASS=1` does not lift either refusal. The refused bypass is logged to
   `bypass-log.jsonl` as `not honoured for phase approval`.
 - `OSE_HEADLESS=1` (`osengineer run`) makes `approve` and `state set phase`

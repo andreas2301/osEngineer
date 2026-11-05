@@ -21,9 +21,28 @@ from osengineer_common import (
 from repo_profile import phase_plan
 import phase_gate
 
-# Phases that spend budget. discuss/plan author the plan; blocked has stopped.
-SPENDING_PHASES = ("execute", "micro", "hotfix")
 BLOCKED_REL = ".osengineer/BLOCKED.md"
+
+
+def _approved(state):
+    """The budget `osengineer approve` recorded, while the phase spends it."""
+    if state.get("phase") in phase_gate.SPENDING_PHASES and state.get("phase_approved_budget"):
+        return json.loads(state["phase_approved_budget"])
+    return None
+
+
+def held_budget(repo_root, path, plan):
+    """(plan_path, plan, estimate) the phase is held to.
+
+    The human approved a budget, not a file: PHASE_PLAN.md stays editable in
+    execute, so a recorded budget holds until the next approval, whatever the
+    file says now or wherever it went.
+    """
+    # shortcut: a phase approved with an invalid plan has no record, so the live file holds it — revisit when `approve` validates plans
+    approved = _approved(read_state_map(repo_root) or {})
+    if approved:
+        return Path(repo_root) / approved["plan"], {"phase_id": approved["phase_id"]}, approved["estimate"]
+    return path, plan, phase_plan.estimate(plan)
 
 
 def active_budget(repo_root):
@@ -34,13 +53,12 @@ def active_budget(repo_root):
     if is_repo_profile(repo_root):
         return None
     state = read_state_map(repo_root) or {}
-    if state.get("phase") not in SPENDING_PHASES:
+    if state.get("phase") not in phase_gate.SPENDING_PHASES:
         return None
     found = phase_plan.load_active(planning_dir(repo_root))
-    if found is None:
+    if found is None and not _approved(state):
         return None
-    path, plan = found
-    return path, plan, phase_plan.estimate(plan)
+    return held_budget(repo_root, *(found or (None, None)))
 
 
 def _num(value, default=0.0):
